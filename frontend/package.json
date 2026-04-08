@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "scripts": {
     "start": "expo start",
+    "setup": "node -e \"const fs=require('fs');if(!fs.existsSync('.env.local'))fs.copyFileSync('.env.example','.env.local')\"",
     "reset-project": "node ./scripts/reset-project.js",
     "android": "expo start --android",
     "ios": "expo start --ios",

@@ -1,0 +1,18 @@
+{
+  "name": "raycarwash",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "concurrently -n \"Backend,Frontend\" -c \"blue,green\" \"npm run backend\" \"npm run frontend\"",
+    "backend": "cd backend && npm run dev",
+    "frontend": "cd frontend && npm start",
+    "install": "npm install && cd backend && npm run setup && cd ../frontend && npm run setup",
+    "setup": "cd backend && npm run venv && pip install -r requirements.txt && npm run env",
+    "venv": "cd backend && if not exist venv (python -m venv venv)",
+    "env": "cd backend && if not exist .env (copy .env.example .env)",
+    "env:frontend": "cd frontend && if not exist .env.local (copy .env.example .env.local)"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}
