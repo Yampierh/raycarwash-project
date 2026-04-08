@@ -35,23 +35,27 @@ raycarwash-project/
 ## Prerequisites
 
 - **Frontend**: Node.js 18+, npm
-- **Backend**: Python 3.11+, PostgreSQL
+- **Backend**: Python 3.11+, PostgreSQL, greenlet
 
 ## Quick Start
 
-### 1. Install all dependencies
+### 1. Install npm dependencies
 
 ```bash
 npm run install
 ```
 
-This will:
-- Install Node.js dependencies (concurrently)
-- Create Python virtual environment
-- Install Python dependencies
-- Create `.env` files from examples
+### 2. Install Python dependencies
 
-### 2. Configure environment variables
+```bash
+npm run install-deps
+```
+
+This will:
+- Create Python virtual environment
+- Install Python dependencies from requirements.txt
+
+### 3. Configure environment variables
 
 Edit the following files:
 
@@ -67,12 +71,12 @@ DEBUG=true
 EXPO_PUBLIC_API_URL=http://localhost:8000
 ```
 
-> **Tip**: For mobile testing, use your computer's IP instead of localhost (e.g., `http://192.168.0.10:8000`)
+> **Tip**: For mobile testing, use your computer's IP instead of localhost (e.g., `http://192.168.0.1:8000`)
 
 ### 3. Start both projects
 
 ```bash
-npm start
+npm run dev
 ```
 
 This opens:
@@ -88,10 +92,11 @@ This opens:
 
 | Command | Description |
 |---------|-------------|
-| `npm start` | Start both backend and frontend |
-| `npm run install` | Install all dependencies |
-| `npm run backend` | Start only backend |
-| `npm run frontend` | Start only frontend |
+| `npm run install` | Install npm dependencies (frontend + backend) |
+| `npm run install-deps` | Create Python venv and install dependencies |
+| `npm run dev` | Start both backend and frontend in parallel |
+| `npm run dev:backend` | Start only the backend |
+| `npm run dev:frontend` | Start only the frontend |
 
 ## Environment Variables
 

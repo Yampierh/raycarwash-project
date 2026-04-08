@@ -10,6 +10,7 @@ uvicorn[standard]==0.32.1          # ASGI: uvloop + httptools
 sqlalchemy==2.0.36
 asyncpg==0.30.0                    # Async PostgreSQL driver (required)
 alembic==1.14.0                    # Schema migrations
+greenlet==3.1.1                    # Required for SQLAlchemy async
 
 # ---- Validation & Settings ----
 pydantic==2.10.3
@@ -17,7 +18,8 @@ pydantic[email]==2.10.3
 pydantic-settings==2.6.1
 
 # ---- Security ----
-passlib[bcrypt]==1.7.4             # bcrypt password hashing
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1             # bcrypt password hashing
 python-jose[cryptography]==3.3.0   # JWT encode/decode
 python-multipart==0.0.20           # OAuth2 form body parsing
 

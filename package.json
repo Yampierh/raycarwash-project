@@ -1,18 +1,14 @@
 {
-  "name": "raycarwash",
+  "name": "raycarwash-project",
   "version": "1.0.0",
-  "private": true,
   "scripts": {
-    "start": "concurrently -n \"Backend,Frontend\" -c \"blue,green\" \"npm run backend\" \"npm run frontend\"",
-    "backend": "cd backend && npm run dev",
-    "frontend": "cd frontend && npm start",
-    "install": "npm install && cd backend && npm run setup && cd ../frontend && npm run setup",
-    "setup": "cd backend && npm run venv && pip install -r requirements.txt && npm run env",
-    "venv": "cd backend && if not exist venv (python -m venv venv)",
-    "env": "cd backend && if not exist .env (copy .env.example .env)",
-    "env:frontend": "cd frontend && if not exist .env.local (copy .env.example .env.local)"
+    "install": "npm install --prefix frontend && npm install --prefix backend",
+    "install-deps": "python -m venv backend/venv && backend/venv/Scripts/pip install -r backend/requirements.txt",
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "cd C:\\Users\\yampi\\Documents\\Proyectos\\raycarwash-project\\backend && C:\\Users\\yampi\\Documents\\Proyectos\\raycarwash-project\\backend\\venv\\Scripts\\python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000",
+    "dev:frontend": "npm start --prefix frontend"
   },
   "devDependencies": {
-    "concurrently": "^9.1.0"
+    "concurrently": "^9.2.1"
   }
 }
