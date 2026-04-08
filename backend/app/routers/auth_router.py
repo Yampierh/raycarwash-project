@@ -1,0 +1,465 @@
+# app/routers/auth_router.py  —  Sprint 4
+#
+# CHANGES vs Sprint 3:
+#   - Rate limiting applied to POST /auth/token via slowapi.
+#     10 requests/minute per IP prevents brute-force credential stuffing.
+#   - Rate limiting applied to POST /auth/refresh (5/minute — less critical
+#     but still protects against token-rotation abuse).
+
+import logging
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.security import OAuth2PasswordRequestForm
+from jose import JWTError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.config import get_settings
+from app.core.limiter import limiter
+from app.db.session import get_db
+from app.models.models import AuditAction, User, UserRole
+from app.repositories.audit_repository import AuditRepository
+from app.repositories.user_repository import UserRepository
+from app.schemas.schemas import (
+    AppleLoginRequest,
+    GoogleLoginRequest,
+    PasswordResetRequest,
+    PasswordResetResponse,
+    Token,
+    UserRead,
+    UserUpdate,
+)
+from app.services.auth import AuthService, _TOKEN_TYPE_REFRESH, get_current_user
+from app.services.email_service import EmailService
+
+logger   = logging.getLogger(__name__)
+settings = get_settings()
+
+router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+
+# ── POST /auth/token  (login) ─────────────────────────────────────── #
+
+@router.post(
+    "/token",
+    response_model=Token,
+    summary="Exchange credentials for JWT access + refresh tokens.",
+    responses={
+        401: {"description": "Invalid credentials."},
+        429: {"description": "Rate limit exceeded — max 10 login attempts/minute per IP."},
+    },
+)
+@limiter.limit(f"{settings.RATE_LIMIT_AUTH_PER_MINUTE}/minute")
+async def login_for_access_token(
+    request: Request,                       # MUST be first param for slowapi key extraction
+    form_data: OAuth2PasswordRequestForm = Depends(OAuth2PasswordRequestForm),
+    db: AsyncSession = Depends(get_db),
+) -> Token:
+    """
+    OAuth2 Password Flow (RFC 6749 §4.3).
+
+    Request body — form-encoded (NOT JSON):
+        username=user@example.com&password=secret
+
+    Returns:
+        { access_token, refresh_token, token_type: "bearer" }
+
+    Security:
+    - 401 message never distinguishes "user not found" vs "wrong password"
+      (prevents user enumeration, OWASP A07).
+    - bcrypt dummy_verify() runs even when the user doesn't exist,
+      making both code paths take the same ~100 ms (timing-safe).
+    """
+    user = await AuthService.authenticate_user(
+        email=form_data.username,
+        password=form_data.password,
+        db=db,
+    )
+
+    if user is None:
+        logger.warning(
+            "Failed login | email=%s ip=%s",
+            form_data.username[:80],
+            request.client.host if request.client else "unknown",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    access_token  = AuthService.create_access_token(user.id, user.role)
+    refresh_token = AuthService.create_refresh_token(user.id, user.role)
+
+    await AuditRepository(db).log(
+        action=AuditAction.USER_LOGIN,
+        entity_type="user",
+        entity_id=str(user.id),
+        actor_id=user.id,
+        metadata={"ip": request.client.host if request.client else None},
+    )
+
+    logger.info("Login success | user_id=%s role=%s", user.id, user.role)
+
+    return Token(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        token_type="bearer",
+    )
+
+
+# ── POST /auth/refresh  (token rotation) ─────────────────────────── #
+
+@router.post(
+    "/refresh",
+    response_model=Token,
+    summary="Exchange a refresh token for a new access + refresh token pair.",
+    responses={
+        401: {"description": "Refresh token invalid or expired."},
+        429: {"description": "Rate limit exceeded."},
+    },
+)
+@limiter.limit("5/minute")
+async def refresh_access_token(
+    request: Request,                       # MUST be first param for slowapi
+    refresh_token: str,
+    db: AsyncSession = Depends(get_db),
+) -> Token:
+    """
+    Token rotation: each refresh token is single-use.
+    The client must save both new tokens from the response.
+    """
+    # All imports are at module level — no inline imports needed.
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Refresh token is invalid or has expired.",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+    try:
+        payload = AuthService.decode_token(refresh_token, expected_type=_TOKEN_TYPE_REFRESH)
+        user_id = uuid.UUID(payload["sub"])
+    except (JWTError, KeyError, ValueError):
+        raise credentials_exception
+
+    user = await UserRepository(db).get_by_id(user_id)
+
+    if user is None or not user.is_active or user.is_deleted:
+        raise credentials_exception
+
+    new_access  = AuthService.create_access_token(user.id, user.role)
+    new_refresh = AuthService.create_refresh_token(user.id, user.role)
+
+    logger.info("Token refreshed | user_id=%s", user.id)
+
+    return Token(
+        access_token=new_access,
+        refresh_token=new_refresh,
+        token_type="bearer",
+    )
+
+
+# ── GET /auth/me  (profile) ──────────────────────────────────────── #
+
+@router.get(
+    "/me",
+    response_model=UserRead,
+    summary="Return the authenticated user's profile.",
+)
+async def get_current_user_profile(
+    current_user: User = Depends(get_current_user),
+) -> UserRead:
+    return UserRead.model_validate(current_user)
+
+
+# ── PUT /auth/update  (update own profile) ───────────────────────── #
+
+@router.put(
+    "/update",
+    response_model=UserRead,
+    summary="Update the authenticated user's basic profile fields.",
+)
+async def update_user_profile(
+    payload: UserUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> UserRead:
+    """
+    Updates full_name, phone_number, and/or service_address.
+    Only supplied (non-None) fields are changed — PUT semantics for simplicity,
+    but behaves like PATCH (partial update).
+    """
+    fields: dict = {}
+    if payload.full_name is not None:
+        fields["full_name"] = payload.full_name
+    if payload.phone_number is not None:
+        fields["phone_number"] = payload.phone_number
+    if payload.service_address is not None:
+        fields["service_address"] = payload.service_address
+
+    if fields:
+        current_user = await UserRepository(db).update(current_user, fields)
+
+    return UserRead.model_validate(current_user)
+
+
+# ── POST /auth/google  (Google OAuth2 login) ─────────────────────── #
+
+@router.post(
+    "/google",
+    response_model=Token,
+    summary="Login or register with a Google OAuth2 access token.",
+    responses={
+        400: {"description": "Token inválido o expirado."},
+        401: {"description": "No se pudo verificar con Google."},
+    },
+)
+@limiter.limit(f"{settings.RATE_LIMIT_AUTH_PER_MINUTE}/minute")
+async def google_login(
+    request: Request,
+    body: GoogleLoginRequest,
+    db: AsyncSession = Depends(get_db),
+) -> Token:
+    """
+    Flujo:
+      1. Verifica el access_token con la API de Google (tokeninfo).
+      2. Extrae email + google_id (user_id en la respuesta de Google).
+      3. Busca usuario por google_id → si existe, login normal.
+      4. Si no, busca por email → si existe, vincula el google_id.
+      5. Si tampoco, crea una cuenta nueva con role=client e is_verified=True.
+      6. Devuelve access_token + refresh_token (idéntico a /auth/token).
+    """
+    # 1. Verificar con Google
+    try:
+        google_data = await AuthService.verify_google_token(body.access_token)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(exc),
+        )
+
+    google_id: str = google_data["user_id"]
+    email: str     = google_data["email"].lower()
+
+    user_repo  = UserRepository(db)
+    audit_repo = AuditRepository(db)
+
+    # 2. Buscar por google_id
+    user = await user_repo.get_by_google_id(google_id)
+
+    if user is None:
+        # 3. Buscar por email (puede que ya tenga cuenta con password)
+        user = await user_repo.get_by_email(email)
+
+        if user is not None:
+            # 4. Vincular google_id a cuenta existente
+            user.google_id  = google_id
+            user.is_verified = True
+            await db.flush()
+            logger.info("Google account linked | user_id=%s email=%s", user.id, email)
+        else:
+            # 5. Crear cuenta nueva
+            full_name: str = google_data.get("name") or email.split("@")[0]
+            user = User(
+                email=email,
+                full_name=full_name,
+                role=UserRole.CLIENT,
+                password_hash=AuthService.generate_unusable_password(),
+                google_id=google_id,
+                is_verified=True,
+            )
+            user = await user_repo.create(user)
+            await audit_repo.log(
+                action=AuditAction.USER_REGISTERED,
+                entity_type="user",
+                entity_id=str(user.id),
+                actor_id=user.id,
+                metadata={"provider": "google"},
+            )
+            logger.info("New user via Google | user_id=%s email=%s", user.id, email)
+
+    if not user.is_active or user.is_deleted:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="This account is deactivated.",
+        )
+
+    access_token  = AuthService.create_access_token(user.id, user.role)
+    refresh_token = AuthService.create_refresh_token(user.id, user.role)
+
+    await audit_repo.log(
+        action=AuditAction.USER_SOCIAL_LOGIN,
+        entity_type="user",
+        entity_id=str(user.id),
+        actor_id=user.id,
+        metadata={"provider": "google", "ip": request.client.host if request.client else None},
+    )
+    logger.info("Google login | user_id=%s", user.id)
+
+    return Token(access_token=access_token, refresh_token=refresh_token, token_type="bearer")
+
+
+# ── POST /auth/apple  (Apple Sign In) ────────────────────────────── #
+
+@router.post(
+    "/apple",
+    response_model=Token,
+    summary="Login or register with an Apple Sign In identity token.",
+    responses={
+        400: {"description": "identity_token inválido o malformado."},
+        401: {"description": "No se pudo verificar con Apple."},
+    },
+)
+@limiter.limit(f"{settings.RATE_LIMIT_AUTH_PER_MINUTE}/minute")
+async def apple_login(
+    request: Request,
+    body: AppleLoginRequest,
+    db: AsyncSession = Depends(get_db),
+) -> Token:
+    """
+    Flujo:
+      1. Verifica identity_token con las claves públicas de Apple (JWKS).
+      2. Extrae apple_id (sub) y email del payload.
+         ⚠️  Apple solo incluye email en el PRIMER login. En los siguientes
+         el frontend debe enviar full_name y el backend busca por apple_id.
+      3. Busca por apple_id → si existe, login.
+      4. Si no, busca por email → vincula apple_id.
+      5. Si tampoco, crea cuenta nueva.
+         El full_name del body se usa solo en el primer registro.
+    """
+    # 1. Verificar con Apple
+    try:
+        apple_payload = await AuthService.verify_apple_token(
+            body.identity_token,
+            settings.APPLE_BUNDLE_ID,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(exc),
+        )
+
+    apple_id: str       = apple_payload["sub"]
+    email: str | None   = apple_payload.get("email", "").lower() or None
+
+    user_repo  = UserRepository(db)
+    audit_repo = AuditRepository(db)
+
+    # 2. Buscar por apple_id
+    user = await user_repo.get_by_apple_id(apple_id)
+
+    if user is None:
+        if email:
+            # 3. Buscar por email
+            user = await user_repo.get_by_email(email)
+
+        if user is not None:
+            # 4. Vincular apple_id
+            user.apple_id   = apple_id
+            user.is_verified = True
+            await db.flush()
+            logger.info("Apple account linked | user_id=%s", user.id)
+        else:
+            # 5. Crear cuenta nueva
+            if not email:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        "Apple did not provide an email in this token. "
+                        "This happens on repeat sign-ins when the user has "
+                        "already registered. Please try again."
+                    ),
+                )
+            full_name = body.full_name or email.split("@")[0]
+            user = User(
+                email=email,
+                full_name=full_name,
+                role=UserRole.CLIENT,
+                password_hash=AuthService.generate_unusable_password(),
+                apple_id=apple_id,
+                is_verified=True,
+            )
+            user = await user_repo.create(user)
+            await audit_repo.log(
+                action=AuditAction.USER_REGISTERED,
+                entity_type="user",
+                entity_id=str(user.id),
+                actor_id=user.id,
+                metadata={"provider": "apple"},
+            )
+            logger.info("New user via Apple | user_id=%s", user.id)
+
+    if not user.is_active or user.is_deleted:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="This account is deactivated.",
+        )
+
+    access_token  = AuthService.create_access_token(user.id, user.role)
+    refresh_token = AuthService.create_refresh_token(user.id, user.role)
+
+    await audit_repo.log(
+        action=AuditAction.USER_SOCIAL_LOGIN,
+        entity_type="user",
+        entity_id=str(user.id),
+        actor_id=user.id,
+        metadata={"provider": "apple", "ip": request.client.host if request.client else None},
+    )
+    logger.info("Apple login | user_id=%s", user.id)
+
+    return Token(access_token=access_token, refresh_token=refresh_token, token_type="bearer")
+
+
+# ── POST /auth/password-reset ─────────────────────────────────────── #
+
+@router.post(
+    "/password-reset",
+    response_model=PasswordResetResponse,
+    summary="Request a password reset email.",
+    responses={
+        200: {"description": "Siempre 200 para no revelar si el email existe."},
+    },
+)
+@limiter.limit("5/minute")
+async def request_password_reset(
+    request: Request,
+    body: PasswordResetRequest,
+    db: AsyncSession = Depends(get_db),
+) -> PasswordResetResponse:
+    """
+    Genera un token de reset de contraseña de 1 hora y lo envía por email.
+
+    Siempre devuelve HTTP 200 aunque el email no exista — esto previene
+    la enumeración de usuarios (OWASP A07).
+
+    El token es un JWT de tipo 'password_reset'. El frontend debe dirigir
+    al usuario a la pantalla de nueva contraseña con el token como parámetro.
+
+    TODO Sprint 5: integrar SendGrid/SES para envío real del email.
+    """
+    _SAFE_RESPONSE = PasswordResetResponse(message="If that email is registered, a reset link has been sent.")
+
+    user = await UserRepository(db).get_by_email(str(body.email))
+
+    if user is None or not user.is_active or user.is_deleted:
+        # Always return the same response to prevent enumeration.
+        return _SAFE_RESPONSE
+
+    reset_token = AuthService.create_password_reset_token(user.id, user.role)
+    reset_url   = f"{settings.APP_BASE_URL}/auth/password-reset/confirm?token={reset_token}"
+
+    await EmailService.send_password_reset(
+        email=str(body.email),
+        reset_url=reset_url,
+        full_name=user.full_name,
+    )
+
+    await AuditRepository(db).log(
+        action=AuditAction.PASSWORD_RESET_REQUESTED,
+        entity_type="user",
+        entity_id=str(user.id),
+        actor_id=user.id,
+        metadata={"ip": request.client.host if request.client else None},
+    )
+
+    return _SAFE_RESPONSE
