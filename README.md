@@ -15,21 +15,21 @@ raycarwash-project/
 │   │   ├── config/    # App configuration
 │   │   ├── theme/     # Theme/colors
 │   │   └── utils/     # Utilities
-│   ├── scripts/       # Setup scripts
 │   └── package.json
 │
-└── backend/           # FastAPI Python backend
-    ├── app/
-    │   ├── routers/   # API endpoints
-    │   ├── services/  # Business logic
-    │   ├── repositories/ # Data access
-    │   ├── models/    # SQLAlchemy models
-    │   ├── schemas/   # Pydantic schemas
-    │   ├── core/      # Config & utilities
-    │   └── db/        # Database & seeds
-    ├── scripts/       # Setup scripts
-    ├── main.py        # App entry point
-    └── requirements.txt
+├── backend/           # FastAPI Python backend
+│   ├── app/
+│   │   ├── routers/   # API endpoints
+│   │   ├── services/  # Business logic
+│   │   ├── repositories/ # Data access
+│   │   ├── models/    # SQLAlchemy models
+│   │   ├── schemas/   # Pydantic schemas
+│   │   ├── core/      # Config & utilities
+│   │   └── db/        # Database & seeds
+│   ├── main.py        # App entry point
+│   └── requirements.txt
+│
+└── package.json       # Root scripts for both projects
 ```
 
 ## Prerequisites
@@ -39,55 +39,76 @@ raycarwash-project/
 
 ## Quick Start
 
-### Backend Setup
+### 1. Install all dependencies
 
 ```bash
-cd backend
-.\scripts\setup.bat
+npm run install
 ```
 
-Edit `.env` with your configuration:
-- `DATABASE_URL`: PostgreSQL connection string
-- `SECRET_KEY`: Generate with `openssl rand -hex 32`
+This will:
+- Install Node.js dependencies (concurrently)
+- Create Python virtual environment
+- Install Python dependencies
+- Create `.env` files from examples
 
-Start the backend:
-```bash
-.\scripts\start.bat
+### 2. Configure environment variables
+
+Edit the following files:
+
+**Backend** (`backend/.env`):
+```env
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/raycarwash
+SECRET_KEY=your-secret-key-here
+DEBUG=true
 ```
 
-API available at http://localhost:8000
-
-### Frontend Setup
-
-```bash
-cd frontend
-npm install
+**Frontend** (`frontend/.env.local`):
+```env
+EXPO_PUBLIC_API_URL=http://localhost:8000
 ```
 
-Copy `.env.example` to `.env.local` and configure:
-- `EXPO_PUBLIC_API_URL`: Backend URL (use your local IP for mobile testing)
+> **Tip**: For mobile testing, use your computer's IP instead of localhost (e.g., `http://192.168.0.10:8000`)
 
-Start the frontend:
+### 3. Start both projects
+
 ```bash
 npm start
 ```
+
+This opens:
+- **Backend**: http://localhost:8000
+- **Frontend**: http://localhost:8081 (Expo)
+
+### 4. Open API documentation
+
+- Swagger UI: http://localhost:8000/docs
+- ReDoc: http://localhost:8000/redoc
+
+## Available Scripts
+
+| Command | Description |
+|---------|-------------|
+| `npm start` | Start both backend and frontend |
+| `npm run install` | Install all dependencies |
+| `npm run backend` | Start only backend |
+| `npm run frontend` | Start only frontend |
 
 ## Environment Variables
 
 ### Backend (.env)
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `DATABASE_URL` | PostgreSQL connection string | Required |
-| `SECRET_KEY` | JWT secret key (32+ chars) | Required |
-| `DEBUG` | Enable debug mode | true |
-| `STRIPE_SECRET_KEY` | Stripe API key | sk_test_placeholder |
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `DATABASE_URL` | PostgreSQL connection string | Yes |
+| `SECRET_KEY` | JWT secret (32+ chars) | Yes |
+| `DEBUG` | Enable debug mode | No |
+| `STRIPE_SECRET_KEY` | Stripe API key | No |
 
 ### Frontend (.env.local)
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `EXPO_PUBLIC_API_URL` | Backend API URL | http://192.168.0.10:8000 |
+| `EXPO_PUBLIC_API_URL` | Backend API URL | http://localhost:8000 |
 
 ## Tech Stack
 
@@ -102,12 +123,6 @@ npm start
 - SQLAlchemy (async)
 - PostgreSQL (asyncpg)
 - Pydantic
-
-## API Documentation
-
-Once running, visit:
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
 
 ## License
 
