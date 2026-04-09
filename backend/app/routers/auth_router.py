@@ -229,7 +229,7 @@ async def verify_credentials(
     if body.password:
         auth_methods.append("password")
         user = await AuthService.authenticate_user(
-            identifier=body.identifier,
+            email=body.identifier,
             password=body.password,
             db=db,
         )
