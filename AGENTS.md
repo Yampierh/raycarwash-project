@@ -105,12 +105,16 @@ All REST endpoints are at `http://localhost:8000/api/v1/` (except webhooks and h
 ### Auth (`/auth`)
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
+| POST | `/auth/identify` | — | Identifier-First: identify by email or phone |
+| POST | `/auth/verify` | — | Identifier-First: verify credentials (password/social) |
+| PUT | `/auth/complete-profile` | — | Complete profile after registration (temp token) |
+| POST | `/auth/check-email` | — | Check if email exists (legacy) |
 | POST | `/auth/token` | — | Email/password login (10 req/min rate limit) |
 | POST | `/auth/refresh` | — | Refresh token rotation (5 req/min) |
 | POST | `/auth/google` | — | Google OAuth token exchange |
 | POST | `/auth/apple` | — | Apple identity token exchange |
 | POST | `/auth/password-reset` | — | Email password reset |
-| POST | `/users` | — | Register new user |
+| POST | `/users` | — | Register new user (legacy) |
 
 ### Vehicles (`/vehicles`)
 | Method | Path | Auth | Description |
@@ -258,8 +262,16 @@ Configurable via env: `CANCELLATION_FULL_REFUND_HOURS`, `CANCELLATION_PARTIAL_RE
 ### JWT Flow
 - **Access token**: 30 min, HS256, payload `{ sub, role, type:"access", iat, exp }`
 - **Refresh token**: 7 days, payload `{ sub, role, type:"refresh", iat, exp }`
+- **Registration token**: 30 min, payload `{ sub, role, type:"registration", iat, exp }` - temporary token for completing profile
 - Token type discriminator prevents cross-type reuse
 - Stored on client via `expo-secure-store`
+
+### Identifier-First Auth (Estilo Uber)
+El flujo de autenticación sigue el patrón Uber:
+1. **Identify**: Usuario ingresa email o teléfono → Backend retorna métodos disponibles
+2. **Verify**: Usuario verifica credenciales (password, social, OTP)
+3. **CompleteProfile**: Si es nuevo usuario → completar perfil básico (nombre, teléfono)
+4. **Redirect**: Según rol → Main (cliente) o DetailerOnboarding (detailer sin perfil)
 
 ### Social Login
 - **Google**: verifies via `googleapis.com/oauth2/v1/tokeninfo`, stores `google_id`
@@ -273,9 +285,10 @@ Configurable via env: `CANCELLATION_FULL_REFUND_HOURS`, `CANCELLATION_PARTIAL_RE
 ### Security
 - PII encrypted at rest (`EncryptedType` with `SECRET_KEY`)
 - bcrypt password hashing (social-only users get unusable hash)
-- Rate limit: 10 req/min on `/auth/token`, 5 req/min on `/auth/refresh`
+- Rate limit: 10 req/min on `/auth/identify`, `/auth/verify`, `/auth/token`, 5 req/min on `/auth/refresh`
 - Request body limit: 5 MB (configurable, bypassed for Stripe webhooks)
 - Stripe webhooks verified via HMAC-SHA256 (`Stripe-Signature` header)
+- Registration tokens expire in 30 minutes, scoped to profile completion only
 
 ---
 
