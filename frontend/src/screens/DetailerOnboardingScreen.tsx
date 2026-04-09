@@ -64,14 +64,24 @@ export default function DetailerOnboardingScreen() {
 
     setSaving(true);
     try {
-      await upsertDetailerProfile({
+      console.log("Sending profile to backend:", {
         bio: bio.trim(),
         years_of_experience: yearsNum,
         service_radius_miles: radius,
         specialties,
+        timezone: "America/Indiana/Indianapolis",
       });
+      const result = await upsertDetailerProfile({
+        bio: bio.trim(),
+        years_of_experience: yearsNum,
+        service_radius_miles: radius,
+        specialties,
+        timezone: "America/Indiana/Indianapolis",
+      });
+      console.log("Profile saved successfully:", result);
       await navigateAfterAuth(navigation);
-    } catch {
+    } catch (err: any) {
+      console.log("Error saving profile:", err?.response?.data || err?.message);
       Alert.alert("Error", "Could not save your profile. Please try again.");
     } finally {
       setSaving(false);

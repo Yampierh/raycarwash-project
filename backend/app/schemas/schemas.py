@@ -881,6 +881,11 @@ class DetailerProfileCreate(BaseModel):
             "Omit to use the platform default (Mon–Sat 08:00–18:00, Sun off)."
         ),
     )
+    specialties: list[str] | None = Field(
+        default=None,
+        examples=[["ceramic_coating", "interior_deep_clean"]],
+        description="List of specialty tags.",
+    )
 
     @field_validator("working_hours", mode="before")
     @classmethod

@@ -191,6 +191,7 @@ async def upsert_my_profile(
             timezone=payload.timezone,
             working_hours=working_hours_dict,
             is_accepting_bookings=True,
+            specialties=payload.specialties,
         )
         profile = await repo.create_profile(profile)
         await AuditRepository(db).log(
@@ -209,6 +210,7 @@ async def upsert_my_profile(
             "service_radius_miles": payload.service_radius_miles,
             "timezone": payload.timezone,
             "working_hours": working_hours_dict,
+            "specialties": payload.specialties,
         }
         profile = await repo.update_profile(current_user.id, fields)
         await AuditRepository(db).log(

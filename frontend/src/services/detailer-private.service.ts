@@ -30,6 +30,8 @@ export interface UpsertDetailerProfilePayload {
   years_of_experience?: number;
   service_radius_miles?: number;
   specialties?: string[];
+  timezone?: string;
+  working_hours?: Record<string, { start: string; end: string; enabled: boolean }>;
 }
 
 /**

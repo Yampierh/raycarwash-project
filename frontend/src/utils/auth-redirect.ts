@@ -19,10 +19,14 @@ export async function navigateAfterAuth(navigation: any): Promise<void> {
       return;
     }
 
-    const detailerProfile = await getMyDetailerProfile().catch(() => null);
+    const detailerProfile = await getMyDetailerProfile().catch((err) => {
+      console.log("Error fetching detailer profile:", err?.response?.status);
+      return null;
+    });
     const route = detailerProfile ? "DetailerMain" : "DetailerOnboarding";
     navigation.reset({ index: 0, routes: [{ name: route }] });
-  } catch {
+  } catch (err) {
+    console.log("Error in navigateAfterAuth:", err);
     // Fallback to client main — user can re-login if needed
     navigation.reset({ index: 0, routes: [{ name: "Main" }] });
   }
