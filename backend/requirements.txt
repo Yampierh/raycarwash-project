@@ -12,6 +12,7 @@ sqlalchemy==2.0.36
 asyncpg==0.30.0                    # Async PostgreSQL driver (required)
 alembic==1.14.0                    # Schema migrations
 greenlet==3.1.1                    # Required for SQLAlchemy async
+aiosqlite==0.20.0                  # SQLite driver for testing
 
 # ---- Validation & Settings ----
 pydantic==2.10.3
