@@ -4,15 +4,17 @@ import { getUserProfile } from "../services/user.service";
 /**
  * Called after any successful login or registration.
  * Fetches the user role and redirects to the appropriate root navigator:
- *   - client   → Main (client tabs)
+ *   - client only   → Main (client tabs)
  *   - detailer, no profile yet → DetailerOnboarding
  *   - detailer, profile exists → DetailerMain (detailer tabs)
+ * 
+ * RBAC Note: roles is now an array, e.g., ["client"] or ["detailer"]
  */
 export async function navigateAfterAuth(navigation: any): Promise<void> {
   try {
     const profile = await getUserProfile();
 
-    if (profile.role !== "detailer") {
+    if (!profile.roles.includes("detailer")) {
       navigation.reset({ index: 0, routes: [{ name: "Main" }] });
       return;
     }

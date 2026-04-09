@@ -15,7 +15,7 @@ from typing import Any
 from sqlalchemy import and_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import DetailerProfile, User, UserRole
+from app.models.models import DetailerProfile, User, Role, UserRoleAssociation
 
 
 # ------------------------------------------------------------------ #
@@ -93,7 +93,7 @@ class DetailerRepository:
         ST_DWithin() + ST_Distance() for O(log n) index-backed geo queries.
         """
         filters = [
-            User.role == UserRole.DETAILER,
+            Role.name == "detailer",
             User.is_active.is_(True),
             User.is_deleted.is_(False),
             DetailerProfile.is_deleted.is_(False),
@@ -111,14 +111,16 @@ class DetailerRepository:
                 0.001, 69.0 * math.cos(math.radians(lat))
             )
             filters.extend([
-                User.current_lat.isnot(None),
-                User.current_lng.isnot(None),
-                User.current_lat.between(lat - lat_delta, lat + lat_delta),
-                User.current_lng.between(lng - lng_delta, lng + lng_delta),
+                DetailerProfile.current_lat.isnot(None),
+                DetailerProfile.current_lng.isnot(None),
+                DetailerProfile.current_lat.between(lat - lat_delta, lat + lat_delta),
+                DetailerProfile.current_lng.between(lng - lng_delta, lng + lng_delta),
             ])
 
         stmt = (
             select(User, DetailerProfile)
+            .join(UserRoleAssociation, UserRoleAssociation.user_id == User.id)
+            .join(Role, Role.id == UserRoleAssociation.role_id)
             .join(DetailerProfile, DetailerProfile.user_id == User.id)
             .where(and_(*filters))
         )
@@ -130,10 +132,10 @@ class DetailerRepository:
         for user, profile in rows:
             distance: float | None = None
             if lat is not None and lng is not None:
-                if user.current_lat is not None and user.current_lng is not None:
+                if profile.current_lat is not None and profile.current_lng is not None:
                     distance = _haversine_miles(
                         lat, lng,
-                        float(user.current_lat), float(user.current_lng),
+                        float(profile.current_lat), float(profile.current_lng),
                     )
                     # Exact filter — bounding box may include corners outside radius
                     if distance > radius_miles:

@@ -22,6 +22,17 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy_utils import EncryptedType
+
+from app.core.config import get_settings
+
+
+# ------------------------------------------------------------------ #
+#  Settings for PII encryption                                       #
+# ------------------------------------------------------------------ #
+
+def _get_secret_key() -> str:
+    return get_settings().SECRET_KEY
 
 
 # ------------------------------------------------------------------ #
@@ -59,32 +70,32 @@ TERMINAL_STATUSES: frozenset[AppointmentStatus] = frozenset({
 })
 
 # ---- State machine: allowed forward transitions per role ----
-# Structure:  {current_status: {new_status: {roles_that_can_trigger}}}
+# Structure:  {current_status: {new_status: {role_names_that_can_trigger}}}
 VALID_TRANSITIONS: dict[
     AppointmentStatus,
-    dict[AppointmentStatus, frozenset[UserRole]]
+    dict[AppointmentStatus, frozenset[str]]
 ] = {
     AppointmentStatus.PENDING: {
         AppointmentStatus.CONFIRMED:
-            frozenset({UserRole.DETAILER, UserRole.ADMIN}),
+            frozenset({"detailer", "admin"}),
         AppointmentStatus.CANCELLED_BY_CLIENT:
-            frozenset({UserRole.CLIENT,   UserRole.ADMIN}),
+            frozenset({"client",   "admin"}),
         AppointmentStatus.CANCELLED_BY_DETAILER:
-            frozenset({UserRole.DETAILER, UserRole.ADMIN}),
+            frozenset({"detailer", "admin"}),
     },
     AppointmentStatus.CONFIRMED: {
         AppointmentStatus.IN_PROGRESS:
-            frozenset({UserRole.DETAILER, UserRole.ADMIN}),
+            frozenset({"detailer", "admin"}),
         AppointmentStatus.CANCELLED_BY_CLIENT:
-            frozenset({UserRole.CLIENT,   UserRole.ADMIN}),
+            frozenset({"client",   "admin"}),
         AppointmentStatus.CANCELLED_BY_DETAILER:
-            frozenset({UserRole.DETAILER, UserRole.ADMIN}),
+            frozenset({"detailer", "admin"}),
     },
     AppointmentStatus.IN_PROGRESS: {
         AppointmentStatus.COMPLETED:
-            frozenset({UserRole.DETAILER, UserRole.ADMIN}),
+            frozenset({"detailer", "admin"}),
         AppointmentStatus.NO_SHOW:
-            frozenset({UserRole.DETAILER, UserRole.ADMIN}),
+            frozenset({"detailer", "admin"}),
     },
     # Terminal states — no outbound transitions
     AppointmentStatus.COMPLETED:              {},
@@ -157,18 +168,264 @@ class TimestampMixin:
 
 
 # ------------------------------------------------------------------ #
+#  Model: Permission  (RBAC)                                         #
+# ------------------------------------------------------------------ #
+
+class Permission(Base):
+    """
+    Granular permission entity for RBAC.
+    
+    Each permission defines an action on a resource.
+    Examples:
+        - "read:appointments"
+        - "write:users"
+        - "delete:vehicles"
+        - "manage:payments"
+    """
+
+    __tablename__ = "permissions"
+    __table_args__ = (
+        UniqueConstraint("name", name="uq_permission_name"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    name: Mapped[str] = mapped_column(
+        String(100), nullable=False, unique=True,
+        comment="Format: action:resource (e.g., 'read:appointments')",
+    )
+    resource: Mapped[str] = mapped_column(
+        String(50), nullable=False, index=True,
+        comment="The resource being protected (e.g., 'appointments', 'users')",
+    )
+    action: Mapped[str] = mapped_column(
+        String(50), nullable=False,
+        comment="The action allowed (e.g., 'read', 'write', 'delete', 'manage')",
+    )
+    description: Mapped[str | None] = mapped_column(
+        Text, nullable=True,
+        comment="Human-readable description of this permission",
+    )
+
+    roles: Mapped[list[Role]] = relationship(
+        "Role", 
+        secondary="role_permissions", 
+        back_populates="permissions",
+        overlaps="role_permissions"
+    )
+    role_permissions: Mapped[list[RolePermission]] = relationship(
+        "RolePermission", back_populates="permission", lazy="selectin",
+        overlaps="roles"
+    )
+
+    def __repr__(self) -> str:
+        return f"<Permission {self.name}>"
+
+
+# ------------------------------------------------------------------ #
+#  Association: Role <-> Permission                                  #
+# ------------------------------------------------------------------ #
+
+class RolePermission(Base):
+    """Many-to-many association between Role and Permission."""
+
+    __tablename__ = "role_permissions"
+
+    role_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("roles.id", ondelete="CASCADE"),
+        nullable=False, primary_key=True,
+    )
+    permission_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("permissions.id", ondelete="CASCADE"),
+        nullable=False, primary_key=True,
+    )
+    assigned_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    role: Mapped[Role] = relationship("Role", back_populates="role_permissions")
+    permission: Mapped[Permission] = relationship("Permission", back_populates="role_permissions")
+
+
+# ------------------------------------------------------------------ #
+#  Model: Role  (RBAC)                                               #
+# ------------------------------------------------------------------ #
+
+class Role(TimestampMixin, Base):
+    """
+    Dynamic role entity for RBAC.
+    
+    Replaces the static UserRole Enum with a flexible, many-to-many
+    relationship to both Users and Permissions.
+    
+    System roles (is_system=True) cannot be deleted:
+        - admin: Full system access
+        - detailer: Can manage appointments, services, reviews
+        - client: Can book appointments, manage own vehicles
+    """
+
+    __tablename__ = "roles"
+    __table_args__ = (
+        UniqueConstraint("name", name="uq_role_name"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    name: Mapped[str] = mapped_column(
+        String(50), nullable=False, unique=True,
+        comment="Unique role identifier (e.g., 'admin', 'detailer', 'client')",
+    )
+    description: Mapped[str | None] = mapped_column(
+        Text, nullable=True,
+        comment="Human-readable description of this role",
+    )
+    is_system: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False,
+        comment="System roles cannot be deleted via API",
+    )
+
+    permissions: Mapped[list[Permission]] = relationship(
+        "Permission", secondary="role_permissions", back_populates="roles",
+        overlaps="role_permissions"
+    )
+    role_permissions: Mapped[list[RolePermission]] = relationship(
+        "RolePermission", back_populates="role", lazy="selectin",
+        overlaps="permissions"
+    )
+
+    def __repr__(self) -> str:
+        return f"<Role {self.name}>"
+
+
+# ------------------------------------------------------------------ #
+#  Association: User <-> Role                                        #
+# ------------------------------------------------------------------ #
+
+class UserRoleAssociation(Base):
+    """
+    Many-to-many association between User and Role.
+    
+    Tracks role assignments with timestamp for audit purposes.
+    """
+
+    __tablename__ = "user_roles"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False, primary_key=True,
+    )
+    role_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("roles.id", ondelete="CASCADE"),
+        nullable=False, primary_key=True,
+    )
+    assigned_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    assigned_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="User who assigned this role (NULL if system-assigned)",
+    )
+
+    user: Mapped[User] = relationship(
+        "User", 
+        foreign_keys="UserRoleAssociation.user_id",
+    )
+    role: Mapped[Role] = relationship("Role")
+
+
+# ------------------------------------------------------------------ #
+#  Model: ClientProfile                                              #
+# ------------------------------------------------------------------ #
+
+class ClientProfile(TimestampMixin, Base):
+    """
+    One-to-one extension of User for CLIENT-specific configuration.
+    
+    WHY a separate table instead of more columns on User?
+    - Client-specific fields (service_address, marketing_preferences, 
+      payment_methods) are irrelevant for DETAILER/ADMIN users.
+    - Keeps the User table lean and focused on identity/auth.
+    - Supports future expansion of client-specific features without
+      schema migrations.
+    """
+
+    __tablename__ = "client_profiles"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False, unique=True, index=True,
+    )
+
+    # ---- Service address ----
+    service_address: Mapped[str | None] = mapped_column(
+        String(255), nullable=True,
+        comment="Default service address for appointments",
+    )
+
+    # ---- Marketing preferences ----
+    marketing_preferences: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True,
+        comment=(
+            "User's marketing opt-ins. Structure: "
+            '{"email_sms": true, "push_notifications": false, "newsletter": true}'
+        ),
+    )
+
+    # ---- Payment methods ----
+    payment_methods: Mapped[list | None] = mapped_column(
+        JSONB, nullable=True,
+        comment=(
+            "Stored payment preferences. Structure: "
+            '[{"type": "card", "last4": "4242", "brand": "visa"}]'
+        ),
+    )
+
+    user: Mapped[User] = relationship("User", back_populates="client_profile")
+
+    def __repr__(self) -> str:
+        return f"<ClientProfile user_id={self.user_id}>"
+
+
+# ------------------------------------------------------------------ #
 #  Model: User                                                        #
 # ------------------------------------------------------------------ #
 
 class User(TimestampMixin, Base):
     """
     Unified user table (CLIENT / DETAILER / ADMIN).
+    
+    This is the central identity table containing authentication credentials
+    and OAuth integration fields. Business logic is decoupled into:
+        - ClientProfile: client-specific configuration (address, preferences)
+        - DetailerProfile: detailer-specific configuration (bio, working hours)
+    
+    RBAC is implemented via many-to-many relationship with Role through
+    the user_roles association table.
+    
+    PII fields (full_name, phone_number) are encrypted at rest using
+    the application's SECRET_KEY.
 
     Sprint 3 additions:
     - stripe_customer_id: Stripe's customer object ID, set on first payment.
-    - current_lat/lng + last_location_update: for real-time detailer tracking.
-      These three columns are only meaningful when role == DETAILER, but
-      keeping them on User avoids a JOIN on every location update.
+    
+    Sprint 5 additions:
+    - google_id, apple_id: Social login integration
     """
 
     __tablename__ = "users"
@@ -181,15 +438,21 @@ class User(TimestampMixin, Base):
     )
     email: Mapped[str] = mapped_column(
         String(254), nullable=False, index=True,
-        comment="Stored lowercase. RFC 5321 max length.",
+        comment="Stored lowercase. RFC 5321 max length. Unique.",
     )
-    full_name: Mapped[str] = mapped_column(String(120), nullable=False)
-    phone_number: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    role: Mapped[UserRole] = mapped_column(
-        Enum(UserRole, name="user_role_enum"),
+
+    # ---- PII: Encrypted at rest ----
+    full_name: Mapped[str] = mapped_column(
+        EncryptedType(String(120), _get_secret_key),
         nullable=False,
-        default=UserRole.CLIENT,
+        comment="Full name, encrypted at rest using SECRET_KEY",
     )
+    phone_number: Mapped[str | None] = mapped_column(
+        EncryptedType(String(20), _get_secret_key),
+        nullable=True,
+        comment="Phone number, encrypted at rest using SECRET_KEY",
+    )
+
     password_hash: Mapped[str] = mapped_column(
         String(255), nullable=False,
         comment="bcrypt digest. NEVER expose.",
@@ -213,27 +476,34 @@ class User(TimestampMixin, Base):
         comment="Apple 'sub' claim from identity_token. NULL for non-Apple users.",
     )
 
-    # ---- Client address (Sprint 6) ----
-    service_address: Mapped[str | None] = mapped_column(
-        String(255), nullable=True,
-        comment="Default service address for this user (client-side convenience).",
+    # NOTE: roles relationship removed due to FK ambiguity in user_roles table
+    # (has user_id AND assigned_by both pointing to users)
+    # Use UserRoleAssociation queries to access user roles
+    user_roles: Mapped[list[UserRoleAssociation]] = relationship(
+        "UserRoleAssociation",
+        foreign_keys="UserRoleAssociation.user_id",
+        lazy="selectin",
+        cascade="all, delete-orphan",
     )
 
-    # ---- Real-time location (detailers only, Sprint 3) ----
-    current_lat: Mapped[float | None] = mapped_column(
-        Numeric(9, 6), nullable=True,
-        comment="Last known latitude. Only updated for DETAILER role.",
+    @property
+    def roles(self) -> list[str]:
+        """Get role names from user_roles for serialization."""
+        return [ur.role.name for ur in self.user_roles]
+    client_profile: Mapped[ClientProfile | None] = relationship(
+        "ClientProfile",
+        back_populates="user",
+        uselist=False,
+        lazy="selectin",
+        cascade="all, delete-orphan",
     )
-    current_lng: Mapped[float | None] = mapped_column(
-        Numeric(9, 6), nullable=True,
-        comment="Last known longitude.",
+    detailer_profile: Mapped[DetailerProfile | None] = relationship(
+        "DetailerProfile",
+        back_populates="user",
+        uselist=False,
+        lazy="selectin",
+        cascade="all, delete-orphan",
     )
-    last_location_update: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True,
-        comment="UTC timestamp of last location ping.",
-    )
-
-    # Relationships
     vehicles: Mapped[list[Vehicle]] = relationship(
         "Vehicle", back_populates="owner", lazy="selectin"
     )
@@ -249,12 +519,6 @@ class User(TimestampMixin, Base):
         back_populates="detailer",
         lazy="selectin",
     )
-    detailer_profile: Mapped[DetailerProfile | None] = relationship(
-        "DetailerProfile",
-        back_populates="user",
-        uselist=False,
-        lazy="selectin",
-    )
     reviews_given: Mapped[list[Review]] = relationship(
         "Review",foreign_keys="Review.reviewer_id", back_populates="reviewer", lazy="selectin"
     )
@@ -262,8 +526,144 @@ class User(TimestampMixin, Base):
         "AuditLog", back_populates="actor", lazy="selectin"
     )
 
+    def has_permission(self, permission_name: str) -> bool:
+        """
+        Check if the user has a specific permission through any of their roles.
+        
+        Args:
+            permission_name: The permission to check (e.g., 'read:appointments')
+            
+        Returns:
+            True if the user has the permission via any role, False otherwise.
+        """
+        for user_role in self.user_roles:
+            role = user_role.role
+            for perm in role.permissions:
+                if perm.name == permission_name:
+                    return True
+        return False
+
+    def get_all_permissions(self) -> set[str]:
+        """
+        Get all permissions granted to the user through all their roles.
+        
+        Returns:
+            Set of permission names (e.g., {'read:appointments', 'write:users'})
+        """
+        permissions: set[str] = set()
+        for user_role in self.user_roles:
+            role = user_role.role
+            for perm in role.permissions:
+                permissions.add(perm.name)
+        return permissions
+
+    def has_role(self, role_name: str) -> bool:
+        """
+        Check if the user has a specific role by name.
+        
+        Args:
+            role_name: The role name to check (e.g., 'admin', 'detailer', 'client')
+            
+        Returns:
+            True if the user has the role, False otherwise.
+        """
+        return any(user_role.role.name == role_name for user_role in self.user_roles)
+
+    def is_admin(self) -> bool:
+        """Check if user has admin role."""
+        return self.has_role("admin")
+
+    def is_client(self) -> bool:
+        """Check if user has client role."""
+        return self.has_role("client")
+
+    def is_detailer(self) -> bool:
+        """Check if user has detailer role."""
+        return self.has_role("detailer")
+
+    @property
+    def primary_role(self) -> str | None:
+        """
+        Get the user's primary role for JWT token payload.
+        
+        Returns the first role name, defaulting to 'client' if no roles assigned.
+        """
+        if self.user_roles:
+            return self.user_roles[0].role.name
+        return "client"
+
+    @classmethod
+    async def create_with_profiles(
+        cls,
+        email: str,
+        password_hash: str,
+        full_name: str,
+        role_names: list[str],
+        *,
+        phone_number: str | None = None,
+        session: "AsyncSession | None" = None,
+    ) -> "User":
+        """
+        Factory method to create a user with the appropriate profile(s).
+        
+        This method handles the creation of both the User instance and any
+        associated profile (ClientProfile or DetailerProfile) based on the
+        assigned roles.
+        
+        Args:
+            email: User's email address (must be unique)
+            password_hash: Pre-hashed bcrypt password
+            full_name: User's full name (will be encrypted)
+            role_names: List of role names to assign (e.g., ['client'], ['detailer'])
+            phone_number: Optional phone number (will be encrypted)
+            session: Optional async SQLAlchemy session for database operations
+            
+        Returns:
+            A new User instance with associated profile(s) created
+            
+        Note:
+            If using with a session, you must call session.add() and commit()
+            after this method returns. The method does not commit by default
+            to allow for transactional control.
+        """
+        from sqlalchemy import select
+        from sqlalchemy.ext.asyncio import AsyncSession as AsyncSession
+
+        user = cls(
+            email=email,
+            password_hash=password_hash,
+            full_name=full_name,
+            phone_number=phone_number,
+        )
+
+        if session is not None:
+            session.add(user)
+            await session.flush()
+
+            role_stmt = select(Role).where(Role.name.in_(role_names))
+            result = await session.execute(role_stmt)
+            roles = result.scalars().all()
+            for role in roles:
+                user_role = UserRoleAssociation(
+                    user_id=user.id,
+                    role_id=role.id,
+                )
+                session.add(user_role)
+
+            if "detailer" in role_names:
+                detailer_profile = DetailerProfile(user_id=user.id)
+                session.add(detailer_profile)
+
+            if "client" in role_names:
+                client_profile = ClientProfile(user_id=user.id)
+                session.add(client_profile)
+        else:
+            user._pending_role_names = role_names
+
+        return user
+
     def __repr__(self) -> str:
-        return f"<User id={self.id} email={self.email!r} role={self.role}>"
+        return f"<User id={self.id} email={self.email!r}>"
 
 
 # ------------------------------------------------------------------ #
@@ -348,6 +748,20 @@ class DetailerProfile(TimestampMixin, Base):
     specialties: Mapped[list | None] = mapped_column(
         JSONB, nullable=True, default=list,
         comment='List of specialty tags, e.g. ["ceramic_coating", "full_detail"].',
+    )
+
+    # ---- Real-time location (detailers only) ----
+    current_lat: Mapped[float | None] = mapped_column(
+        Numeric(9, 6), nullable=True,
+        comment="Last known latitude. Updated on detailer's location pings.",
+    )
+    current_lng: Mapped[float | None] = mapped_column(
+        Numeric(9, 6), nullable=True,
+        comment="Last known longitude.",
+    )
+    last_location_update: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+        comment="UTC timestamp of last location ping.",
     )
 
     user: Mapped[User] = relationship("User", back_populates="detailer_profile")
@@ -593,7 +1007,7 @@ class Appointment(TimestampMixin, Base):
     service_latitude: Mapped[float | None] = mapped_column(Numeric(9, 6), nullable=True)
     service_longitude: Mapped[float | None] = mapped_column(Numeric(9, 6), nullable=True)
 
-    # Relationships
+# Relationships
     client: Mapped[User] = relationship(
         "User", foreign_keys=[client_id], back_populates="client_appointments",
         lazy="selectin",

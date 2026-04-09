@@ -3,8 +3,11 @@ import { apiClient } from "./api";
 export interface Addon {
   id: string;
   name: string;
-  price_cents: number; // flat-rate in cents
-  description?: string;
+  description: string | null;
+  price_cents: number;
+  duration_minutes: number;
+  is_active: boolean;
+  created_at: string;
 }
 
 /**

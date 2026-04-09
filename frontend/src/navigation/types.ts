@@ -2,26 +2,28 @@ import type { UserProfile as BaseUserProfile } from "../services/user.service";
 import type { Vehicle } from "../services/vehicle.service";
 
 /**
- * Coincide exactamente con UserRole de FastAPI en el backend.
- * Usamos un Enum para evitar errores de escritura ("client" vs "Client").
+ * Role constants for convenience.
+ * Note: Backend now uses roles as an array (e.g., ["client"], ["detailer"])
  */
-export enum UserRole {
-  CLIENT = "client",
-  DETAILER = "detailer",
-  ADMIN = "admin",
-}
+export const UserRole = {
+  CLIENT: "client",
+  DETAILER: "detailer",
+  ADMIN: "admin",
+} as const;
+
+export type UserRoleType = (typeof UserRole)[keyof typeof UserRole];
 
 /**
- * Extendemos la interfaz del perfil para asegurar que el rol sea tipado
+ * Extendemos la interfaz del perfil para usar roles como array
  */
 export interface UserProfile extends BaseUserProfile {
-  role: UserRole;
+  roles: string[];
 }
 
 export type RootStackParamList = {
   Login: undefined;
   // Register puede recibir un rol sugerido (opcional)
-  Register: { initialRole?: UserRole } | undefined;
+  Register: { initialRole?: UserRoleType } | undefined;
 
   // Flujo Principal de Clientes
   Main: undefined;

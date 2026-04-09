@@ -24,14 +24,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.db.session import get_db
 from app.models.models import (
-    Appointment,
-    AppointmentStatus,
-    AuditAction,
     DetailerProfile,
     DetailerService,
     Service,
     User,
-    UserRole,
     VehicleSize,
 )
 from app.repositories.audit_repository import AuditRepository
@@ -120,7 +116,7 @@ async def list_detailers(
     },
 )
 async def get_my_profile(
-    current_user: User = Depends(require_role(UserRole.DETAILER)),
+    current_user: User = Depends(require_role("detailer")),
     db: AsyncSession = Depends(get_db),
 ) -> DetailerMeRead:
     """Returns full profile including computed stats (earnings, service count)."""
@@ -161,7 +157,7 @@ async def get_my_profile(
 )
 async def upsert_my_profile(
     payload: DetailerProfileCreate,
-    current_user: User = Depends(require_role(UserRole.DETAILER)),
+    current_user: User = Depends(require_role("detailer")),
     db: AsyncSession = Depends(get_db),
 ) -> DetailerMeRead:
     """
@@ -251,7 +247,7 @@ async def upsert_my_profile(
 )
 async def update_accepting_status(
     payload: DetailerStatusUpdate,
-    current_user: User = Depends(require_role(UserRole.DETAILER)),
+    current_user: User = Depends(require_role("detailer")),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Activates or deactivates the detailer's visibility in matching/discovery."""
@@ -285,7 +281,7 @@ async def update_accepting_status(
     summary="List all platform services with the detailer's own state.",
 )
 async def list_my_services(
-    current_user: User = Depends(require_role(UserRole.DETAILER)),
+    current_user: User = Depends(require_role("detailer")),
     db: AsyncSession = Depends(get_db),
 ) -> list[DetailerServiceRead]:
     """
@@ -331,7 +327,7 @@ async def list_my_services(
 async def update_my_service(
     service_id: uuid.UUID,
     payload: DetailerServiceUpdate,
-    current_user: User = Depends(require_role(UserRole.DETAILER)),
+    current_user: User = Depends(require_role("detailer")),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """
@@ -448,10 +444,10 @@ async def update_detailer_location(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> LocationResponse:
-    if current_user.role != UserRole.DETAILER:
+    if not current_user.is_detailer():
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only DETAILER accounts can update location.",
+            detail="Only detailer accounts can update location.",
         )
     await DetailerRepository(db).update_location(
         user_id=current_user.id,

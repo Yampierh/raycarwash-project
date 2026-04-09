@@ -14,9 +14,10 @@ from __future__ import annotations
 import uuid
 
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import User, UserRole
+from app.models.models import User, Role, UserRoleAssociation
 
 
 class UserRepository:
@@ -53,25 +54,36 @@ class UserRepository:
         lowercase (enforced by UserCreate validator), but we lower() the
         lookup value too as a defensive measure.
         """
-        stmt = select(User).where(
-            User.email == email.lower(),
-            User.is_deleted.is_(False),
+        stmt = (
+            select(User)
+            .where(
+                User.email == email.lower(),
+                User.is_deleted.is_(False),
+            )
+            .options(
+                selectinload(User.user_roles).selectinload(UserRoleAssociation.role)
+            )
         )
         result = await self._db.execute(stmt)
         return result.scalar_one_or_none()
 
     async def get_active_detailer(self, detailer_id: uuid.UUID) -> User | None:
         """
-        Fetch a user who is both active and has the DETAILER role.
+        Fetch an active (non-deleted) user with the 'detailer' role.
 
         Used by AppointmentService to validate the chosen detailer before
         creating a booking. A regular CLIENT id must not be bookable.
         """
-        stmt = select(User).where(
-            User.id == detailer_id,
-            User.role == UserRole.DETAILER,
-            User.is_active.is_(True),
-            User.is_deleted.is_(False),
+        stmt = (
+            select(User)
+            .join(UserRoleAssociation, UserRoleAssociation.user_id == User.id)
+            .join(Role, Role.id == UserRoleAssociation.role_id)
+            .where(
+                User.id == detailer_id,
+                Role.name == "detailer",
+                User.is_active.is_(True),
+                User.is_deleted.is_(False),
+            )
         )
         result = await self._db.execute(stmt)
         return result.scalar_one_or_none()

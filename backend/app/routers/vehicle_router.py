@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
-from app.models.models import User, UserRole, Vehicle
+from app.models.models import User, Vehicle
 from app.repositories.vehicle_repository import VehicleRepository
 from app.schemas.schemas import VehicleCreate, VehicleRead
 from app.services.auth import get_current_user
@@ -30,7 +30,7 @@ async def create_vehicle(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> VehicleRead:
-    if current_user.role != UserRole.CLIENT:
+    if not current_user.is_client():
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Solo clientes pueden registrar vehículos.",

@@ -17,7 +17,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { GOOGLE_CLIENT_IDS } from "../config/oauth";
-import { UserRole } from "../navigation/types"; // <-- Importación del Enum de Roles
+import { UserRole, UserRoleType } from "../navigation/types"; // <-- Importación del Enum de Roles
 import { loginWithGoogle, registerUser } from "../services/auth.service";
 import { Colors } from "../theme/colors";
 import { navigateAfterAuth } from "../utils/auth-redirect";
@@ -52,7 +52,7 @@ const STRENGTH_CONFIG: Record<
 export default function RegisterScreen({ navigation, route }: any) {
   // ─── Estado del Rol ─────────────────────────────────────────────────────────
   const { initialRole } = route?.params || {};
-  const [role, setRole] = useState<UserRole>(initialRole || UserRole.CLIENT);
+  const [role, setRole] = useState<UserRoleType>(initialRole || UserRole.CLIENT);
 
   const [form, setForm] = useState({
     full_name: "",
@@ -146,12 +146,17 @@ export default function RegisterScreen({ navigation, route }: any) {
     if (!validate()) return;
     setLoading(true);
     try {
+      // RBAC: send role_names as array instead of single role
+      const roleNames = role === UserRole.DETAILER 
+        ? ["detailer"] 
+        : ["client"];
+      
       await registerUser({
         full_name: form.full_name.trim(),
         email: form.email.trim(),
         password: form.password,
         phone_number: form.phone_number.trim() || undefined,
-        role: role as "client" | "detailer",
+        role_names: roleNames,
       });
       Alert.alert(
         "Account Created!",

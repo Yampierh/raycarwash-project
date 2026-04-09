@@ -19,11 +19,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.limiter import limiter
 from app.db.seed import seed_addons, seed_services
+from app.db.seed_rbac import seed_rbac
 from app.db.detailer_seed import seed_detailers
 from app.db.session import AsyncSessionLocal, engine, get_db
-from app.models.models import AuditAction, Base, User
+from app.models.models import AuditAction, Base, Role, User, UserRoleAssociation
 from app.repositories.audit_repository import AuditRepository
 from app.repositories.user_repository import UserRepository
+from sqlalchemy import select
 
 # ── All routers ──────────────────────────────────────────────────────
 from app.routers.addon_router       import router as addon_router        # Sprint 5
@@ -58,7 +60,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
       1. create_all — idempotent table creation for dev/test.
          PRODUCTION: remove create_all and run `alembic upgrade head`
          in CI/CD BEFORE deploying new app code.
-      2. seed_services — upsert 3-tier service catalogue.
+      2. seed_rbac — create system roles (admin, detailer, client).
+      3. seed_services — upsert 3-tier service catalogue.
 
     SHUTDOWN:
       - engine.dispose() flushes in-flight queries and releases all
@@ -69,6 +72,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         logger.info("✅  Schema verified.")
+
+    async with AsyncSessionLocal() as seed_session:
+        await seed_rbac(seed_session)
+        logger.info("✅  RBAC roles seeded.")
 
     async with AsyncSessionLocal() as seed_session:
         await seed_services(seed_session)
@@ -281,21 +288,36 @@ async def create_user(
         email=payload.email,
         full_name=payload.full_name,
         phone_number=payload.phone_number,
-        role=payload.role,
         password_hash=AuthService.hash_password(payload.password),
     )
 
     created = await user_repo.create(user)
+
+    role_names = payload.role_names or ["client"]
+    for role_name in role_names:
+        if role_name == "admin":
+            continue
+        result = await db.execute(select(Role).where(Role.name == role_name))
+        role = result.scalar_one_or_none()
+        if role:
+            user_role = UserRoleAssociation(
+                user_id=created.id,
+                role_id=role.id,
+            )
+            db.add(user_role)
+
+    await db.commit()
+    await db.refresh(created, ["user_roles"])
 
     await AuditRepository(db).log(
         action=AuditAction.USER_REGISTERED,
         entity_type="user",
         entity_id=str(created.id),
         actor_id=created.id,
-        metadata={"role": created.role.value},
+        metadata={"roles": role_names},
     )
 
-    logger.info("User registered | id=%s email=%s role=%s",
-                created.id, created.email, created.role)
+    logger.info("User registered | id=%s email=%s roles=%s",
+                created.id, created.email, role_names)
 
     return UserRead.model_validate(created)

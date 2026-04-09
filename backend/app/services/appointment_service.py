@@ -37,7 +37,6 @@ from app.models.models import (
     TERMINAL_STATUSES,
     VALID_TRANSITIONS,
     User,
-    UserRole,
     Vehicle,
     VehicleSize,
 )
@@ -381,7 +380,7 @@ class AppointmentService:
           total_duration = Σ ceil(base_dur   × mult_per_size) + Σ addon.duration_minutes
         """
         # Role guards
-        if client.role == UserRole.DETAILER:
+        if client.is_detailer():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Detailers cannot create client bookings. Use a CLIENT account.",
@@ -588,7 +587,7 @@ class AppointmentService:
             appointment.client_id == actor.id
             or appointment.detailer_id == actor.id
         )
-        if not is_participant and actor.role != UserRole.ADMIN:
+        if not is_participant and not actor.is_admin():
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You are not authorised to update this appointment.",

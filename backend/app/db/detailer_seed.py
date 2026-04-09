@@ -2,12 +2,12 @@
 #
 # Test seed: 6 realistic detailers in Fort Wayne, IN.
 # Each detailer gets:
-#   - A User row (role=DETAILER, bcrypt-hashed password "TestPass1!")
+#   - A User row with 'detailer' role (via RBAC)
 #   - A DetailerProfile row (bio, working_hours, timezone, location)
 #   - A set of active services with some custom prices
 #
 # Idempotent: keyed on email — safe to call on every startup.
-# Call order: must run AFTER seed_services() so services exist.
+# Call order: must run AFTER seed_rbac() and seed_services().
 
 from __future__ import annotations
 
@@ -23,9 +23,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.models import (
     DetailerProfile,
     DetailerService,
+    Role,
     Service,
     User,
-    UserRole,
+    UserRoleAssociation,
 )
 from app.services.auth import AuthService
 
@@ -248,7 +249,7 @@ async def seed_detailers(db: AsyncSession) -> None:
     Keyed on email — calling this multiple times is safe.
     Must be called AFTER seed_services() so platform services exist.
     """
-    hashed_pw = AuthService.hash_password("TestPass1!")
+    hashed_pw = AuthService.hash_password("TestP1!")
 
     # Pre-load all services into a name→object map
     svc_result = await db.execute(select(Service).where(Service.is_active.is_(True)))
@@ -262,23 +263,33 @@ async def seed_detailers(db: AsyncSession) -> None:
             logger.debug("Detailer already seeded: %s", d["email"])
             continue
 
-        # Create user
+        # Get the 'detailer' role (must exist from seed_rbac)
+        role_result = await db.execute(select(Role).where(Role.name == "detailer"))
+        detailer_role = role_result.scalar_one_or_none()
+        if detailer_role is None:
+            logger.error("Role 'detailer' not found — run seed_rbac() first!")
+            continue
+
+        # Create user (RBAC: role assigned via user_roles association)
         user = User(
             email=d["email"],
             full_name=d["full_name"],
             phone_number=d["phone_number"],
-            role=UserRole.DETAILER,
             password_hash=hashed_pw,
             is_active=True,
             is_verified=True,
-            current_lat=d["current_lat"],
-            current_lng=d["current_lng"],
-            last_location_update=datetime.now(timezone.utc),
         )
         db.add(user)
         await db.flush()  # get user.id
 
-        # Create detailer profile
+        # Assign role via UserRoleAssociation
+        user_role = UserRoleAssociation(
+            user_id=user.id,
+            role_id=detailer_role.id,
+        )
+        db.add(user_role)
+
+        # Create detailer profile (location now on profile, not user)
         profile = DetailerProfile(
             user_id=user.id,
             bio=d["bio"],
@@ -290,6 +301,9 @@ async def seed_detailers(db: AsyncSession) -> None:
             timezone=d["timezone"],
             working_hours=d["working_hours"],
             specialties=d["specialties"],
+            current_lat=d["current_lat"],
+            current_lng=d["current_lng"],
+            last_location_update=datetime.now(timezone.utc),
         )
         db.add(profile)
         await db.flush()  # get profile.id

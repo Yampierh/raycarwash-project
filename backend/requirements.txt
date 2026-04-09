@@ -7,6 +7,7 @@ fastapi==0.115.5
 uvicorn[standard]==0.32.1          # ASGI: uvloop + httptools
 
 # ---- Database ----
+sqlalchemy-utils==0.41.0           # For EncryptedType (PII protection)
 sqlalchemy==2.0.36
 asyncpg==0.30.0                    # Async PostgreSQL driver (required)
 alembic==1.14.0                    # Schema migrations

@@ -20,7 +20,6 @@ from pydantic import (
 from app.models.models import (
     AppointmentStatus,
     ServiceCategory,
-    UserRole,
     VehicleSize,
 )
 
@@ -82,7 +81,7 @@ class TokenData(_BaseSchema):
     Nunca retornado al cliente — usado solo en get_current_user().
     """
     user_id: uuid.UUID
-    role: UserRole
+    role: str  # Role name string (e.g., "client", "detailer", "admin")
 
 
 # ---- Social login request schemas ---- #
@@ -129,7 +128,10 @@ class UserCreate(BaseModel):
         examples=["+12605550100"],
     )
     password: str = Field(..., min_length=8, max_length=128)
-    role: UserRole = Field(default=UserRole.CLIENT)
+    role_names: list[str] | None = Field(
+        default=None,
+        description="Optional roles to assign. Default is ['client'] if not provided.",
+    )
 
     @field_validator("email", mode="before")
     @classmethod
@@ -140,16 +142,15 @@ class UserCreate(BaseModel):
         """
         return value.lower()
 
-    @field_validator("role", mode="before")
+    @field_validator("role_names", mode="before")
     @classmethod
-    def restrict_admin_registration(cls, value: str | UserRole) -> UserRole:
-        role = UserRole(value) if isinstance(value, str) else value
-        if role == UserRole.ADMIN:
+    def restrict_admin_registration(cls, value: list[str] | None) -> list[str] | None:
+        if value and "admin" in value:
             raise ValueError(
                 "No es posible registrarse como ADMIN. "
                 "Contacta un administrador de la plataforma."
             )
-        return role
+        return value
 
 
 class UserRead(_BaseSchema):
@@ -161,10 +162,9 @@ class UserRead(_BaseSchema):
     email: str
     full_name: str
     phone_number: str | None = Field(default=None)
-    role: UserRole
+    roles: list[str]  # Role names (e.g., ["client"], ["detailer"])
     is_active: bool
     is_verified: bool
-    service_address: str | None = Field(default=None)
     created_at: datetime
     updated_at: datetime
 
@@ -174,7 +174,7 @@ class UserUpdate(BaseModel):
 
     full_name: str | None = Field(default=None, min_length=2, max_length=120)
     phone_number: str | None = Field(default=None, pattern=r"^\+?[1-9]\d{1,14}$")
-    service_address: str | None = Field(default=None, max_length=255)
+    # Note: service_address moved to ClientProfile
 
 
 # ================================================================== #

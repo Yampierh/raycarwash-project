@@ -17,6 +17,11 @@
 #
 #   Sprint 4 upgrade path: swap to opaque tokens stored in a
 #   `refresh_tokens` table with a revoked_at column.
+#
+# RBAC Changes (Sprint 6):
+#   - role is now stored as a string (role name) in JWT payload
+#   - User model uses has_role() method to check permissions
+#   - require_role() accepts role names as strings
 
 from __future__ import annotations
 
@@ -35,7 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.db.session import get_db
-from app.models.models import User, UserRole
+from app.models.models import User
 from app.repositories.user_repository import UserRepository
 
 logger = logging.getLogger(__name__)
@@ -67,7 +72,7 @@ class AuthService:
     @staticmethod
     def _build_token(
         subject: uuid.UUID,
-        role: UserRole,
+        role_name: str,
         token_type: str,
         expires_delta: timedelta,
     ) -> str:
@@ -75,7 +80,7 @@ class AuthService:
         expire = now + expires_delta
         payload = {
             "sub":  str(subject),
-            "role": role.value,
+            "role": role_name,
             "type": token_type,          
             "iat":  int(now.timestamp()),
             "exp":  int(expire.timestamp()),
@@ -85,13 +90,13 @@ class AuthService:
     @staticmethod
     def create_access_token(
         subject: uuid.UUID,
-        role: UserRole,
+        role_name: str,
         expires_delta: timedelta | None = None,
     ) -> str:
         """Short-lived token (30 min default). Attached to every API request."""
         return AuthService._build_token(
             subject=subject,
-            role=role,
+            role_name=role_name,
             token_type=_TOKEN_TYPE_ACCESS,
             expires_delta=expires_delta
             or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
@@ -100,7 +105,7 @@ class AuthService:
     @staticmethod
     def create_refresh_token(
         subject: uuid.UUID,
-        role: UserRole,
+        role_name: str,
     ) -> str:
         """
         Long-lived token (7 days default). Used ONLY at POST /auth/refresh.
@@ -110,7 +115,7 @@ class AuthService:
         """
         return AuthService._build_token(
             subject=subject,
-            role=role,
+            role_name=role_name,
             token_type=_TOKEN_TYPE_REFRESH,
             expires_delta=timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
         )
@@ -139,11 +144,11 @@ class AuthService:
     # ---- Password reset token -------------------------------------- #
 
     @staticmethod
-    def create_password_reset_token(user_id: uuid.UUID, role: UserRole) -> str:
+    def create_password_reset_token(user_id: uuid.UUID, role_name: str) -> str:
         """Short-lived token (1 h) sent inside a reset link. Type = 'password_reset'."""
         return AuthService._build_token(
             subject=user_id,
-            role=role,
+            role_name=role_name,
             token_type=_TOKEN_TYPE_RESET,
             expires_delta=timedelta(hours=1),
         )
@@ -318,19 +323,23 @@ async def get_current_user(
 #  RBAC dependency factory                                            #
 # ------------------------------------------------------------------ #
 
-def require_role(*roles: UserRole):
+def require_role(*role_names: str):
     """
     Usage:
         @router.post("/admin/resource")
-        async def handler(_: User = Depends(require_role(UserRole.ADMIN))):
+        async def handler(_: User = Depends(require_role("admin"))):
+    
+    Or for multiple allowed roles:
+        @router.get("/detailer-only")
+        async def handler(_: User = Depends(require_role("detailer", "admin"))):
     """
     async def _dep(current_user: Annotated[User, Depends(get_current_user)]) -> User:
-        if current_user.role not in roles:
+        if not any(current_user.has_role(name) for name in role_names):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=(
-                    f"Requires one of: {[r.value for r in roles]}. "
-                    f"Your role: '{current_user.role.value}'."
+                    f"Requires one of: {list(role_names)}. "
+                    f"Your roles: {list(current_user.roles)}."
                 ),
             )
         return current_user

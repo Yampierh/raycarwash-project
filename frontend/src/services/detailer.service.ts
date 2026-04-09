@@ -97,3 +97,14 @@ export const getMatching = async (
   });
   return response.data;
 };
+
+/**
+ * GET /api/v1/detailers/{detailerId}/profile
+ * Get detailer's public profile.
+ */
+export const getDetailerProfile = async (
+  detailerId: string
+): Promise<DetailerPublicRead> => {
+  const response = await apiClient.get(`/detailers/${detailerId}/profile`);
+  return response.data;
+};

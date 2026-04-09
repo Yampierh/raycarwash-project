@@ -26,12 +26,12 @@ export const registerUser = async (payload: {
   email: string;
   password: string;
   phone_number?: string;
-  role?: "client" | "detailer";
+  role_names?: string[];  // e.g., ["client"], ["detailer"], or ["client", "detailer"]
 }) => {
   const response = await apiClient.post("/users", {
     ...payload,
     email: payload.email.toLowerCase().trim(),
-    role: payload.role ?? "client",
+    role_names: payload.role_names ?? ["client"],
   });
   return response.data;
 };

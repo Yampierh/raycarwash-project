@@ -12,12 +12,13 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from jose import JWTError
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.limiter import limiter
 from app.db.session import get_db
-from app.models.models import AuditAction, User, UserRole
+from app.models.models import AuditAction, User, Role, UserRoleAssociation
 from app.repositories.audit_repository import AuditRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.schemas import (
@@ -88,8 +89,8 @@ async def login_for_access_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    access_token  = AuthService.create_access_token(user.id, user.role)
-    refresh_token = AuthService.create_refresh_token(user.id, user.role)
+    access_token  = AuthService.create_access_token(user.id, user.primary_role)
+    refresh_token = AuthService.create_refresh_token(user.id, user.primary_role)
 
     await AuditRepository(db).log(
         action=AuditAction.USER_LOGIN,
@@ -99,7 +100,7 @@ async def login_for_access_token(
         metadata={"ip": request.client.host if request.client else None},
     )
 
-    logger.info("Login success | user_id=%s role=%s", user.id, user.role)
+    logger.info("Login success | user_id=%s role=%s", user.id, user.primary_role)
 
     return Token(
         access_token=access_token,
@@ -147,8 +148,8 @@ async def refresh_access_token(
     if user is None or not user.is_active or user.is_deleted:
         raise credentials_exception
 
-    new_access  = AuthService.create_access_token(user.id, user.role)
-    new_refresh = AuthService.create_refresh_token(user.id, user.role)
+    new_access  = AuthService.create_access_token(user.id, user.primary_role)
+    new_refresh = AuthService.create_refresh_token(user.id, user.primary_role)
 
     logger.info("Token refreshed | user_id=%s", user.id)
 
@@ -258,16 +259,22 @@ async def google_login(
             await db.flush()
             logger.info("Google account linked | user_id=%s email=%s", user.id, email)
         else:
-            # 5. Crear cuenta nueva
+            # 5. Crear cuenta nueva con rol 'client'
             full_name: str = google_data.get("name") or email.split("@")[0]
             user = User(
                 email=email,
                 full_name=full_name,
-                role=UserRole.CLIENT,
                 password_hash=AuthService.generate_unusable_password(),
                 google_id=google_id,
                 is_verified=True,
             )
+            # Get 'client' role and assign
+            role_result = await db.execute(
+                select(Role).where(Role.name == "client")
+            )
+            client_role = role_result.scalar_one()
+            user.primary_roles = [client_role]
+            
             user = await user_repo.create(user)
             await audit_repo.log(
                 action=AuditAction.USER_REGISTERED,
@@ -284,8 +291,8 @@ async def google_login(
             detail="This account is deactivated.",
         )
 
-    access_token  = AuthService.create_access_token(user.id, user.role)
-    refresh_token = AuthService.create_refresh_token(user.id, user.role)
+    access_token  = AuthService.create_access_token(user.id, user.primary_role)
+    refresh_token = AuthService.create_refresh_token(user.id, user.primary_role)
 
     await audit_repo.log(
         action=AuditAction.USER_SOCIAL_LOGIN,
@@ -374,12 +381,24 @@ async def apple_login(
             user = User(
                 email=email,
                 full_name=full_name,
-                role=UserRole.CLIENT,
                 password_hash=AuthService.generate_unusable_password(),
                 apple_id=apple_id,
                 is_verified=True,
             )
+            # Get 'client' role and assign via UserRoleAssociation
+            role_result = await db.execute(
+                select(Role).where(Role.name == "client")
+            )
+            client_role = role_result.scalar_one()
             user = await user_repo.create(user)
+            
+            # Assign role via UserRoleAssociation
+            user_role = UserRoleAssociation(
+                user_id=user.id,
+                role_id=client_role.id,
+            )
+            db.add(user_role)
+            await db.commit()
             await audit_repo.log(
                 action=AuditAction.USER_REGISTERED,
                 entity_type="user",
@@ -395,8 +414,8 @@ async def apple_login(
             detail="This account is deactivated.",
         )
 
-    access_token  = AuthService.create_access_token(user.id, user.role)
-    refresh_token = AuthService.create_refresh_token(user.id, user.role)
+    access_token  = AuthService.create_access_token(user.id, user.primary_role)
+    refresh_token = AuthService.create_refresh_token(user.id, user.primary_role)
 
     await audit_repo.log(
         action=AuditAction.USER_SOCIAL_LOGIN,
@@ -445,7 +464,7 @@ async def request_password_reset(
         # Always return the same response to prevent enumeration.
         return _SAFE_RESPONSE
 
-    reset_token = AuthService.create_password_reset_token(user.id, user.role)
+    reset_token = AuthService.create_password_reset_token(user.id, user.primary_role)
     reset_url   = f"{settings.APP_BASE_URL}/auth/password-reset/confirm?token={reset_token}"
 
     await EmailService.send_password_reset(

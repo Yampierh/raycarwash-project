@@ -5,10 +5,9 @@ export interface UserProfile {
   email: string;
   full_name: string;
   phone_number: string | null;
-  role: "client" | "detailer" | "admin";
+  roles: string[];  // e.g., ["client"] or ["detailer"]
   is_active: boolean;
   is_verified: boolean;
-  service_address?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -21,7 +20,6 @@ export const getUserProfile = async (): Promise<UserProfile> => {
 export const updateUserProfile = async (userData: {
   full_name: string;
   phone_number?: string;
-  service_address?: string;
 }): Promise<UserProfile> => {
   const response = await authClient.put("/update", userData);
   return response.data;

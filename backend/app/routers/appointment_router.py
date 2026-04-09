@@ -22,7 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
-from app.models.models import User, UserRole
+from app.models.models import User
 from app.repositories.appointment_repository import AppointmentRepository
 from app.schemas.schemas import (
     AppointmentCreate,
@@ -204,7 +204,7 @@ async def list_my_appointments(
     repo   = AppointmentRepository(db)
     offset = (page - 1) * page_size
 
-    if current_user.role == UserRole.DETAILER:
+    if current_user.is_detailer():
         items, total = await repo.get_by_detailer(
             current_user.id, offset=offset, limit=page_size
         )
@@ -254,7 +254,7 @@ async def get_appointment(
         appointment.client_id   == current_user.id
         or appointment.detailer_id == current_user.id
     )
-    if not is_participant and current_user.role != UserRole.ADMIN:
+    if not is_participant and not current_user.is_admin():
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You are not authorised to view this appointment.",
