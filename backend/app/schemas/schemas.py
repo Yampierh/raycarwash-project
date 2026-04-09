@@ -75,6 +75,67 @@ class Token(_BaseSchema):
     token_type: str = "bearer"
 
 
+class CheckEmailRequest(BaseModel):
+    """Request para verificar si un email existe."""
+    email: EmailStr
+
+
+class CheckEmailResponse(_BaseSchema):
+    """Respuesta de verificación de email para el flujo de login/register."""
+    email: str
+    exists: bool
+    auth_method: str  # "password", "google", "apple", "both"
+    suggested_action: str  # "login", "register", "social_login"
+
+
+class IdentifierRequest(BaseModel):
+    """Request para identificar usuario por email o teléfono."""
+    identifier: str = Field(..., description="Email o número de teléfono")
+    identifier_type: str | None = Field(
+        default=None,
+        description="Tipo: 'email' o 'phone'. El backend detecta si no se provee"
+    )
+
+
+class IdentifierResponse(_BaseSchema):
+    """Respuesta de identificación para el flujo Identifier-First."""
+    identifier: str
+    identifier_type: str  # "email" | "phone"
+    exists: bool
+    auth_methods: list[str]  # ["password", "google", "apple", "otp"]
+    is_new_user: bool
+    suggested_action: str  # "login_password" | "login_social" | "login_otp" | "register"
+
+
+class VerifyRequest(BaseModel):
+    """Request para verificar credenciales en el flujo Identifier-First."""
+    identifier: str
+    identifier_type: str
+    password: str | None = Field(default=None, description="Contraseña")
+    access_token: str | None = Field(
+        default=None, description="Token social (Google/Apple)"
+    )
+    otp_code: str | None = Field(default=None, description="Código OTP")
+
+
+class VerifyResponse(_BaseSchema):
+    """Respuesta de verificación para el flujo Identifier-First."""
+    access_token: str | None = None
+    refresh_token: str | None = None
+    is_new_user: bool
+    temp_token: str | None = None
+    needs_profile_completion: bool = False
+    next_step: str  # "complete_profile" | "detailer_onboarding" | "app"
+    assigned_role: str | None = None
+
+
+class CompleteProfileRequest(BaseModel):
+    """Request para completar perfil después del registro."""
+    full_name: str
+    phone_number: str | None = None
+    role: str = Field(default="client", description="Rol inicial: 'client' o 'detailer'")
+
+
 class TokenData(_BaseSchema):
     """
     Representación interna del payload JWT decodificado.

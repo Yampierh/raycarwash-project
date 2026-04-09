@@ -53,6 +53,7 @@ _oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
 _TOKEN_TYPE_ACCESS  = "access"
 _TOKEN_TYPE_REFRESH = "refresh"
 _TOKEN_TYPE_RESET   = "password_reset"
+_TOKEN_TYPE_REGISTRATION = "registration"
 
 
 class AuthService:
@@ -151,6 +152,20 @@ class AuthService:
             role_name=role_name,
             token_type=_TOKEN_TYPE_RESET,
             expires_delta=timedelta(hours=1),
+        )
+
+    @staticmethod
+    def create_registration_token(user_id: uuid.UUID, role_name: str) -> str:
+        """
+        Temporary token for completing profile after registration.
+        Type = 'registration'. Valid for 30 minutes.
+        Used in the Identifier-First auth flow.
+        """
+        return AuthService._build_token(
+            subject=user_id,
+            role_name=role_name,
+            token_type=_TOKEN_TYPE_REGISTRATION,
+            expires_delta=timedelta(minutes=30),
         )
 
     # ---- Social login helpers -------------------------------------- #

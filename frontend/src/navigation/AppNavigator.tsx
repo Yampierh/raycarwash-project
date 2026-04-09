@@ -8,16 +8,20 @@ import React from "react";
 import AddVehicleScreen from "../screens/AddVehicleScreen";
 import BookingScreen from "../screens/BookingScreen";
 import BookingSummaryScreen from "../screens/BookingSummaryScreen";
+import CompleteProfileScreen from "../screens/CompleteProfileScreen";
 import DetailerSelectionScreen from "../screens/DetailerSelectionScreen";
 import EditProfileScreen from "../screens/EditProfileScreen";
 import HomeScreen from "../screens/HomeScreen";
+import IdentifyScreen from "../screens/IdentifyScreen";
 import LoginScreen from "../screens/LoginScreen";
 import ProfileScreen from "../screens/ProfileScreen";
+import RegisterDetailerScreen from "../screens/RegisterDetailerScreen";
 import RegisterScreen from "../screens/RegisterScreen";
 import ScheduleScreen from "../screens/ScheduleScreen";
 import SelectVehiclesScreen from "../screens/SelectVehiclesScreen";
 import VehicleDetailScreen from "../screens/VehicleDetailScreen";
 import VehiclesScreen from "../screens/VehiclesScreen";
+import VerifyScreen from "../screens/VerifyScreen";
 // Detailer screens
 import DetailerHomeScreen from "../screens/DetailerHomeScreen";
 import DetailerOnboardingScreen from "../screens/DetailerOnboardingScreen";
@@ -127,7 +131,15 @@ export default function AppNavigator() {
       >
         {/* Flujo de Autenticación */}
         <Stack.Screen name="Login" component={LoginScreen} />
+        
+        {/* Identifier-First Auth */}
+        <Stack.Screen name="Identify" component={IdentifyScreen} />
+        <Stack.Screen name="Verify" component={VerifyScreen} />
+        <Stack.Screen name="CompleteProfile" component={CompleteProfileScreen} />
+        
+        {/* Legacy Register */}
         <Stack.Screen name="Register" component={RegisterScreen} />
+        <Stack.Screen name="RegisterDetailer" component={RegisterDetailerScreen} />
 
         {/* Client tabs */}
         <Stack.Screen name="Main" component={TabNavigator} />

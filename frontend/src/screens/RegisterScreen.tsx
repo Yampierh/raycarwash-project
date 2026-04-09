@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import * as AppleAuthentication from "expo-apple-authentication";
 import * as Google from "expo-auth-session/providers/google";
 import { LinearGradient } from "expo-linear-gradient";
 import * as WebBrowser from "expo-web-browser";
@@ -17,13 +18,22 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { GOOGLE_CLIENT_IDS } from "../config/oauth";
-import { UserRole, UserRoleType } from "../navigation/types"; // <-- Importación del Enum de Roles
-import { loginWithGoogle, registerUser } from "../services/auth.service";
+import { UserRole, UserRoleType } from "../navigation/types";
+import {
+  checkEmail,
+  loginWithApple,
+  loginWithBackend,
+  loginWithGoogle,
+  registerUser,
+} from "../services/auth.service";
 import { Colors } from "../theme/colors";
 import { navigateAfterAuth } from "../utils/auth-redirect";
 import { saveRefreshToken, saveToken } from "../utils/storage";
 
 WebBrowser.maybeCompleteAuthSession();
+
+type AuthMethod = "password" | "google" | "apple" | "both" | "none";
+type FlowState = "email" | "password" | "social_options" | "register";
 
 type PasswordStrength = "empty" | "weak" | "fair" | "good" | "strong";
 
@@ -50,10 +60,10 @@ const STRENGTH_CONFIG: Record<
 };
 
 export default function RegisterScreen({ navigation, route }: any) {
-  // ─── Estado del Rol ─────────────────────────────────────────────────────────
-  const { initialRole } = route?.params || {};
-  const [role, setRole] = useState<UserRoleType>(initialRole || UserRole.CLIENT);
-
+  const [flowState, setFlowState] = useState<FlowState>("email");
+  const [checkedEmail, setCheckedEmail] = useState("");
+  const [authMethod, setAuthMethod] = useState<AuthMethod>("none");
+  
   const [form, setForm] = useState({
     full_name: "",
     email: "",
@@ -65,15 +75,13 @@ export default function RegisterScreen({ navigation, route }: any) {
   const [showConfirm, setShowConfirm] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [socialLoading, setSocialLoading] = useState(false);
-  const [errors, setErrors] = useState<
-    Partial<typeof form & { terms: string }>
-  >({});
+  const [socialLoading, setSocialLoading] = useState<"google" | "apple" | null>(null);
+  const [errors, setErrors] = useState<Partial<typeof form & { terms: string }>>({});
 
   const strength = getPasswordStrength(form.password);
   const strengthCfg = STRENGTH_CONFIG[strength];
 
-  // ─── Google OAuth ───────────────────────────────────────────────────────────
+  // Google OAuth
   const [, googleResponse, googlePromptAsync] = Google.useAuthRequest({
     clientId: GOOGLE_CLIENT_IDS.web,
     iosClientId: GOOGLE_CLIENT_IDS.ios,
@@ -86,8 +94,8 @@ export default function RegisterScreen({ navigation, route }: any) {
       if (token) handleGoogleToken(token);
     }
     if (googleResponse?.type === "error") {
-      setSocialLoading(false);
-      Alert.alert("Google Sign-Up", "Authentication failed. Please try again.");
+      setSocialLoading(null);
+      Alert.alert("Google Sign-In", "Authentication failed. Please try again.");
     }
   }, [googleResponse]);
 
@@ -99,11 +107,11 @@ export default function RegisterScreen({ navigation, route }: any) {
       await navigateAfterAuth(navigation);
     } catch {
       Alert.alert(
-        "Google Sign-Up",
-        "Could not create account with Google. Please try again.",
+        "Google Sign-In",
+        "Could not sign in with Google. Please try again.",
       );
     } finally {
-      setSocialLoading(false);
+      setSocialLoading(null);
     }
   };
 
@@ -115,15 +123,95 @@ export default function RegisterScreen({ navigation, route }: any) {
     ) {
       Alert.alert(
         "Setup Required",
-        "Add your Google Client IDs in src/config/oauth.ts to enable Google Sign-Up.",
+        "Add your Google Client IDs in src/config/oauth.ts to enable Google Sign-In.",
       );
       return;
     }
-    setSocialLoading(true);
+    setSocialLoading("google");
     await googlePromptAsync();
   };
 
-  // ─── Validation ─────────────────────────────────────────────────────────────
+  const handleApplePress = async () => {
+    try {
+      const credential = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+      });
+
+      if (!credential.identityToken) throw new Error("No identity token");
+
+      const fullName = [
+        credential.fullName?.givenName,
+        credential.fullName?.familyName,
+      ]
+        .filter(Boolean)
+        .join(" ");
+
+      const data = await loginWithApple(credential.identityToken, fullName || undefined);
+      await saveToken(data.access_token);
+      await saveRefreshToken(data.refresh_token);
+      await navigateAfterAuth(navigation);
+    } catch (error: any) {
+      if (error.code !== "ERR_REQUEST_CANCELED") {
+        Alert.alert("Apple Sign-In", "Could not sign in with Apple.");
+      }
+    } finally {
+      setSocialLoading(null);
+    }
+  };
+
+  const handleCheckEmail = async () => {
+    if (!form.email.trim()) {
+      setErrors((e) => ({ ...e, email: "Email is required" }));
+      return;
+    }
+    if (!/\S+@\S+\.\S+/.test(form.email)) {
+      setErrors((e) => ({ ...e, email: "Enter a valid email" }));
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const email = form.email.trim().toLowerCase();
+      const result = await checkEmail(email);
+      setCheckedEmail(email);
+      
+      if (result.suggested_action === "login" || result.auth_method === "password" || result.auth_method === "both") {
+        setFlowState("password");
+      } else if (result.suggested_action === "social_login") {
+        setAuthMethod(result.auth_method);
+        setFlowState("social_options");
+      } else {
+        setFlowState("register");
+      }
+    } catch (error: any) {
+      const msg = error.response?.data?.detail || "Could not verify email. Please try again.";
+      Alert.alert("Error", msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLogin = async () => {
+    if (!form.password) {
+      setErrors((e) => ({ ...e, password: "Password is required" }));
+      return;
+    }
+    setLoading(true);
+    try {
+      const data = await loginWithBackend(checkedEmail, form.password);
+      await saveToken(data.access_token);
+      await saveRefreshToken(data.refresh_token);
+      await navigateAfterAuth(navigation);
+    } catch (error: any) {
+      Alert.alert("Sign In Failed", "Incorrect email or password.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const validate = () => {
     const e: typeof errors = {};
     if (!form.full_name.trim()) e.full_name = "Full name is required";
@@ -141,22 +229,16 @@ export default function RegisterScreen({ navigation, route }: any) {
     return Object.keys(e).length === 0;
   };
 
-  // ─── Register ────────────────────────────────────────────────────────────────
   const handleRegister = async () => {
     if (!validate()) return;
     setLoading(true);
     try {
-      // RBAC: send role_names as array instead of single role
-      const roleNames = role === UserRole.DETAILER 
-        ? ["detailer"] 
-        : ["client"];
-      
       await registerUser({
         full_name: form.full_name.trim(),
-        email: form.email.trim(),
+        email: checkedEmail || form.email.trim(),
         password: form.password,
         phone_number: form.phone_number.trim() || undefined,
-        role_names: roleNames,
+        role_names: ["client"],
       });
       Alert.alert(
         "Account Created!",
@@ -187,7 +269,47 @@ export default function RegisterScreen({ navigation, route }: any) {
     setErrors((e) => ({ ...e, [field]: undefined }));
   };
 
-  const isAnyLoading = loading || socialLoading;
+  const isAnyLoading = loading || socialLoading !== null;
+
+  const goBack = () => {
+    if (flowState === "email") {
+      navigation.goBack();
+    } else if (flowState === "password") {
+      setFlowState("email");
+      setForm((f) => ({ ...f, password: "" }));
+      setErrors((e) => ({ ...e, password: undefined }));
+    } else if (flowState === "social_options") {
+      setFlowState("email");
+    } else if (flowState === "register") {
+      setFlowState("email");
+    }
+  };
+
+  const getTitle = () => {
+    switch (flowState) {
+      case "email":
+        return "Continue";
+      case "password":
+        return "Welcome Back";
+      case "social_options":
+        return "Continue";
+      case "register":
+        return "Create Account";
+    }
+  };
+
+  const getSubtitle = () => {
+    switch (flowState) {
+      case "email":
+        return "Enter your email to get started";
+      case "password":
+        return `Sign in to ${checkedEmail}`;
+      case "social_options":
+        return "You previously signed in with a social account";
+      case "register":
+        return "Join RayCarWash today";
+    }
+  };
 
   return (
     <View style={styles.container}>
@@ -200,16 +322,14 @@ export default function RegisterScreen({ navigation, route }: any) {
           style={{ flex: 1 }}
           behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
-          {/* Header */}
           <View style={styles.header}>
-            <TouchableOpacity
-              onPress={() => navigation.goBack()}
-              style={styles.backBtn}
-            >
-              <Ionicons name="chevron-back" size={22} color="white" />
-            </TouchableOpacity>
-            <Text style={styles.headerTitle}>Create Account</Text>
-            <View style={{ width: 40 }} />
+            {flowState !== "email" && (
+              <TouchableOpacity onPress={goBack} style={styles.backBtn}>
+                <Ionicons name="chevron-back" size={22} color="white" />
+              </TouchableOpacity>
+            )}
+            <Text style={styles.headerTitle}>{getTitle()}</Text>
+            <View style={{ width: flowState === "email" ? 40 : 40 }} />
           </View>
 
           <ScrollView
@@ -217,109 +337,16 @@ export default function RegisterScreen({ navigation, route }: any) {
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
-            <Text style={styles.subtitle}>Join RayCarWash today</Text>
+            <Text style={styles.subtitle}>{getSubtitle()}</Text>
 
-            {/* ─── Role Selector ───────────────────────────────────────────── */}
-            <Text style={styles.sectionLabel}>I AM A...</Text>
-            <View style={styles.roleRow}>
-              <TouchableOpacity
-                style={[
-                  styles.roleBtn,
-                  role === UserRole.CLIENT && styles.roleBtnActive,
-                ]}
-                onPress={() => setRole(UserRole.CLIENT)}
-              >
-                <Ionicons
-                  name="person-outline"
-                  size={18}
-                  color={role === UserRole.CLIENT ? "#0F172A" : "#94A3B8"}
-                />
-                <Text
-                  style={[
-                    styles.roleBtnText,
-                    role === UserRole.CLIENT && styles.roleBtnTextActive,
-                  ]}
-                >
-                  Client
-                </Text>
-                <Text
-                  style={[
-                    styles.roleBtnSub,
-                    role === UserRole.CLIENT && { color: "#0F172A80" },
-                  ]}
-                >
-                  Book detailing
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.roleBtn,
-                  role === UserRole.DETAILER && styles.roleBtnActive,
-                ]}
-                onPress={() => setRole(UserRole.DETAILER)}
-              >
-                <Ionicons
-                  name="construct-outline"
-                  size={18}
-                  color={role === UserRole.DETAILER ? "#0F172A" : "#94A3B8"}
-                />
-                <Text
-                  style={[
-                    styles.roleBtnText,
-                    role === UserRole.DETAILER && styles.roleBtnTextActive,
-                  ]}
-                >
-                  Professional
-                </Text>
-                <Text
-                  style={[
-                    styles.roleBtnSub,
-                    role === UserRole.DETAILER && { color: "#0F172A80" },
-                  ]}
-                >
-                  Offer services
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* ─── Personal Info ───────────────────────────────────────────── */}
-            <Text style={[styles.sectionLabel, { marginTop: 20 }]}>
-              PERSONAL INFORMATION
-            </Text>
-
-            {/* Full Name */}
+            {/* EMAIL INPUT (always visible, disabled after first step) */}
             <View style={styles.fieldGroup}>
+              <Text style={styles.label}>EMAIL ADDRESS</Text>
               <View
                 style={[
                   styles.inputWrapper,
-                  errors.full_name && styles.inputError,
+                  errors.email && styles.inputError,
                 ]}
-              >
-                <Ionicons
-                  name="person-outline"
-                  size={18}
-                  color="#475569"
-                  style={styles.inputIcon}
-                />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Full Name"
-                  placeholderTextColor="#334155"
-                  value={form.full_name}
-                  onChangeText={update("full_name")}
-                  autoCapitalize="words"
-                  returnKeyType="next"
-                />
-              </View>
-              {errors.full_name && (
-                <Text style={styles.errorText}>{errors.full_name}</Text>
-              )}
-            </View>
-
-            {/* Email */}
-            <View style={styles.fieldGroup}>
-              <View
-                style={[styles.inputWrapper, errors.email && styles.inputError]}
               >
                 <Ionicons
                   name="mail-outline"
@@ -328,15 +355,14 @@ export default function RegisterScreen({ navigation, route }: any) {
                   style={styles.inputIcon}
                 />
                 <TextInput
-                  style={styles.input}
-                  placeholder="Email Address"
+                  style={[styles.input, flowState !== "email" && styles.inputDisabled]}
+                  placeholder="you@example.com"
                   placeholderTextColor="#334155"
                   value={form.email}
                   onChangeText={update("email")}
                   keyboardType="email-address"
                   autoCapitalize="none"
-                  autoCorrect={false}
-                  returnKeyType="next"
+                  editable={flowState === "email"}
                 />
               </View>
               {errors.email && (
@@ -344,264 +370,395 @@ export default function RegisterScreen({ navigation, route }: any) {
               )}
             </View>
 
-            {/* Phone (optional) */}
-            <View style={styles.fieldGroup}>
-              <View style={styles.inputWrapper}>
-                <Ionicons
-                  name="call-outline"
-                  size={18}
-                  color="#475569"
-                  style={styles.inputIcon}
-                />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Phone Number (optional)"
-                  placeholderTextColor="#334155"
-                  value={form.phone_number}
-                  onChangeText={update("phone_number")}
-                  keyboardType="phone-pad"
-                  returnKeyType="next"
-                />
-                <View style={styles.optionalBadge}>
-                  <Text style={styles.optionalText}>Optional</Text>
-                </View>
-              </View>
-            </View>
-
-            {/* ─── Security ────────────────────────────────────────────────── */}
-            <Text style={[styles.sectionLabel, { marginTop: 20 }]}>
-              SECURITY
-            </Text>
-
-            {/* Password */}
-            <View style={styles.fieldGroup}>
-              <View
-                style={[
-                  styles.inputWrapper,
-                  errors.password && styles.inputError,
-                ]}
-              >
-                <Ionicons
-                  name="lock-closed-outline"
-                  size={18}
-                  color="#475569"
-                  style={styles.inputIcon}
-                />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Password (min 8 characters)"
-                  placeholderTextColor="#334155"
-                  value={form.password}
-                  onChangeText={update("password")}
-                  secureTextEntry={!showPassword}
-                  returnKeyType="next"
-                />
-                <TouchableOpacity
-                  onPress={() => setShowPassword((v) => !v)}
-                  style={styles.eyeBtn}
-                >
-                  <Ionicons
-                    name={showPassword ? "eye-off-outline" : "eye-outline"}
-                    size={18}
-                    color="#475569"
-                  />
-                </TouchableOpacity>
-              </View>
-              {errors.password && (
-                <Text style={styles.errorText}>{errors.password}</Text>
-              )}
-
-              {/* Password strength */}
-              {form.password.length > 0 && (
-                <View style={styles.strengthContainer}>
-                  <View style={styles.strengthBars}>
-                    {[1, 2, 3, 4].map((i) => (
-                      <View
-                        key={i}
-                        style={[
-                          styles.strengthBar,
-                          {
-                            backgroundColor:
-                              i <= strengthCfg.bars
-                                ? strengthCfg.color
-                                : "#1E293B",
-                          },
-                        ]}
-                      />
-                    ))}
-                  </View>
-                  <Text
-                    style={[styles.strengthLabel, { color: strengthCfg.color }]}
-                  >
-                    {strengthCfg.label}
-                  </Text>
-                </View>
-              )}
-            </View>
-
-            {/* Confirm Password */}
-            <View style={styles.fieldGroup}>
-              <View
-                style={[
-                  styles.inputWrapper,
-                  errors.confirm_password && styles.inputError,
-                ]}
-              >
-                <Ionicons
-                  name="shield-checkmark-outline"
-                  size={18}
-                  color="#475569"
-                  style={styles.inputIcon}
-                />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Confirm Password"
-                  placeholderTextColor="#334155"
-                  value={form.confirm_password}
-                  onChangeText={update("confirm_password")}
-                  secureTextEntry={!showConfirm}
-                  returnKeyType="done"
-                />
-                <TouchableOpacity
-                  onPress={() => setShowConfirm((v) => !v)}
-                  style={styles.eyeBtn}
-                >
-                  <Ionicons
-                    name={showConfirm ? "eye-off-outline" : "eye-outline"}
-                    size={18}
-                    color="#475569"
-                  />
-                </TouchableOpacity>
-              </View>
-              {errors.confirm_password && (
-                <Text style={styles.errorText}>{errors.confirm_password}</Text>
-              )}
-              {/* Match indicator */}
-              {form.confirm_password.length > 0 && (
-                <View style={styles.matchRow}>
-                  <Ionicons
-                    name={
-                      form.password === form.confirm_password
-                        ? "checkmark-circle"
-                        : "close-circle"
-                    }
-                    size={14}
-                    color={
-                      form.password === form.confirm_password
-                        ? "#10B981"
-                        : "#EF4444"
-                    }
-                  />
-                  <Text
+            {/* PASSWORD (only if exists with password) */}
+            {flowState === "password" && (
+              <>
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.label}>PASSWORD</Text>
+                  <View
                     style={[
-                      styles.matchText,
-                      {
-                        color:
-                          form.password === form.confirm_password
-                            ? "#10B981"
-                            : "#EF4444",
-                      },
+                      styles.inputWrapper,
+                      errors.password && styles.inputError,
                     ]}
                   >
-                    {form.password === form.confirm_password
-                      ? "Passwords match"
-                      : "Passwords do not match"}
-                  </Text>
+                    <Ionicons
+                      name="lock-closed-outline"
+                      size={18}
+                      color="#475569"
+                      style={styles.inputIcon}
+                    />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="••••••••"
+                      placeholderTextColor="#334155"
+                      value={form.password}
+                      onChangeText={update("password")}
+                      secureTextEntry={!showPassword}
+                      onSubmitEditing={handleLogin}
+                    />
+                    <TouchableOpacity
+                      onPress={() => setShowPassword((v) => !v)}
+                      style={styles.eyeBtn}
+                    >
+                      <Ionicons
+                        name={showPassword ? "eye-off-outline" : "eye-outline"}
+                        size={18}
+                        color="#475569"
+                      />
+                    </TouchableOpacity>
+                  </View>
+                  {errors.password && (
+                    <Text style={styles.errorText}>{errors.password}</Text>
+                  )}
                 </View>
-              )}
-            </View>
 
-            {/* Terms & Conditions */}
-            <TouchableOpacity
-              style={styles.termsRow}
-              onPress={() => {
-                setAcceptedTerms((v) => !v);
-                setErrors((e) => ({ ...e, terms: undefined }));
-              }}
-              activeOpacity={0.7}
-            >
-              <View
-                style={[
-                  styles.checkbox,
-                  acceptedTerms && styles.checkboxChecked,
-                ]}
-              >
-                {acceptedTerms && (
-                  <Ionicons name="checkmark" size={14} color="#fff" />
-                )}
-              </View>
-              <Text style={styles.termsText}>
-                I agree to the{" "}
-                <Text
-                  style={styles.termsLink}
-                  onPress={() =>
-                    Alert.alert(
-                      "Terms & Conditions",
-                      "Available at raycarwash.com/terms",
-                    )
-                  }
+                <TouchableOpacity
+                  style={[styles.primaryBtn, isAnyLoading && styles.btnDisabled]}
+                  onPress={handleLogin}
+                  disabled={isAnyLoading}
                 >
-                  Terms & Conditions
-                </Text>{" "}
-                and{" "}
-                <Text
-                  style={styles.termsLink}
-                  onPress={() =>
-                    Alert.alert(
-                      "Privacy Policy",
-                      "Available at raycarwash.com/privacy",
-                    )
-                  }
-                >
-                  Privacy Policy
-                </Text>
-              </Text>
-            </TouchableOpacity>
-            {errors.terms && (
-              <Text
-                style={[styles.errorText, { marginTop: -8, marginBottom: 12 }]}
-              >
-                {errors.terms}
-              </Text>
+                  {loading ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.primaryBtnText}>SIGN IN</Text>
+                  )}
+                </TouchableOpacity>
+              </>
             )}
 
-            {/* Create Account button */}
-            <TouchableOpacity
-              style={[styles.primaryBtn, isAnyLoading && styles.btnDisabled]}
-              onPress={handleRegister}
-              disabled={isAnyLoading}
-            >
-              {loading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.primaryBtnText}>CREATE ACCOUNT</Text>
-              )}
-            </TouchableOpacity>
+            {/* SOCIAL OPTIONS (only if exists with social only) */}
+            {flowState === "social_options" && (
+              <>
+                <Text style={styles.socialMsg}>
+                  It looks like you previously signed in with{" "}
+                  {authMethod === "google" ? "Google" : "Apple"}. 
+                  Continue with that account below.
+                </Text>
 
-            {/* Divider */}
-            <View style={styles.divider}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>or sign up with</Text>
-              <View style={styles.dividerLine} />
-            </View>
+                <View style={styles.socialRow}>
+                  {authMethod === "google" || authMethod === "both" ? (
+                    <TouchableOpacity
+                      style={[styles.socialBtn, isAnyLoading && styles.btnDisabled]}
+                      onPress={handleGooglePress}
+                      disabled={isAnyLoading}
+                    >
+                      {socialLoading === "google" ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                      ) : (
+                        <>
+                          <Text style={styles.googleG}>G</Text>
+                          <Text style={styles.socialBtnText}>Continue with Google</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  ) : null}
 
-            {/* Google */}
-            <TouchableOpacity
-              style={[styles.googleBtn, isAnyLoading && styles.btnDisabled]}
-              onPress={handleGooglePress}
-              disabled={isAnyLoading}
-            >
-              {socialLoading ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <>
-                  <Text style={styles.googleG}>G</Text>
-                  <Text style={styles.googleBtnText}>Continue with Google</Text>
-                </>
-              )}
-            </TouchableOpacity>
+                  {authMethod === "apple" || authMethod === "both" ? (
+                    Platform.OS === "ios" && (
+                      <TouchableOpacity
+                        style={[
+                          styles.socialBtn,
+                          styles.appleBtn,
+                          isAnyLoading && styles.btnDisabled,
+                        ]}
+                        onPress={handleApplePress}
+                        disabled={isAnyLoading}
+                      >
+                        {socialLoading === "apple" ? (
+                          <ActivityIndicator size="small" color="#000" />
+                        ) : (
+                          <>
+                            <Ionicons name="logo-apple" size={18} color="#000" />
+                            <Text style={styles.appleBtnText}>Continue with Apple</Text>
+                          </>
+                        )}
+                      </TouchableOpacity>
+                    )
+                  ) : null}
+                </View>
 
-            {/* Sign in link */}
+                <TouchableOpacity
+                  style={styles.switchMethod}
+                  onPress={() => setFlowState("register")}
+                >
+                  <Text style={styles.switchMethodText}>
+                    Or create a new account with email
+                  </Text>
+                </TouchableOpacity>
+              </>
+            )}
+
+            {/* REGISTER FORM (only if doesn't exist) */}
+            {flowState === "register" && (
+              <>
+                <Text style={styles.sectionLabel}>PERSONAL INFORMATION</Text>
+
+                <View style={styles.fieldGroup}>
+                  <View
+                    style={[
+                      styles.inputWrapper,
+                      errors.full_name && styles.inputError,
+                    ]}
+                  >
+                    <Ionicons
+                      name="person-outline"
+                      size={18}
+                      color="#475569"
+                      style={styles.inputIcon}
+                    />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Full Name"
+                      placeholderTextColor="#334155"
+                      value={form.full_name}
+                      onChangeText={update("full_name")}
+                      autoCapitalize="words"
+                      returnKeyType="next"
+                    />
+                  </View>
+                  {errors.full_name && (
+                    <Text style={styles.errorText}>{errors.full_name}</Text>
+                  )}
+                </View>
+
+                <View style={styles.fieldGroup}>
+                  <View style={styles.inputWrapper}>
+                    <Ionicons
+                      name="call-outline"
+                      size={18}
+                      color="#475569"
+                      style={styles.inputIcon}
+                    />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Phone Number (optional)"
+                      placeholderTextColor="#334155"
+                      value={form.phone_number}
+                      onChangeText={update("phone_number")}
+                      keyboardType="phone-pad"
+                      returnKeyType="next"
+                    />
+                    <View style={styles.optionalBadge}>
+                      <Text style={styles.optionalText}>Optional</Text>
+                    </View>
+                  </View>
+                </View>
+
+                <Text style={[styles.sectionLabel, { marginTop: 16 }]}>
+                  SECURITY
+                </Text>
+
+                <View style={styles.fieldGroup}>
+                  <View
+                    style={[
+                      styles.inputWrapper,
+                      errors.password && styles.inputError,
+                    ]}
+                  >
+                    <Ionicons
+                      name="lock-closed-outline"
+                      size={18}
+                      color="#475569"
+                      style={styles.inputIcon}
+                    />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Password (min 8 characters)"
+                      placeholderTextColor="#334155"
+                      value={form.password}
+                      onChangeText={update("password")}
+                      secureTextEntry={!showPassword}
+                      returnKeyType="next"
+                    />
+                    <TouchableOpacity
+                      onPress={() => setShowPassword((v) => !v)}
+                      style={styles.eyeBtn}
+                    >
+                      <Ionicons
+                        name={showPassword ? "eye-off-outline" : "eye-outline"}
+                        size={18}
+                        color="#475569"
+                      />
+                    </TouchableOpacity>
+                  </View>
+                  {errors.password && (
+                    <Text style={styles.errorText}>{errors.password}</Text>
+                  )}
+
+                  {form.password.length > 0 && (
+                    <View style={styles.strengthContainer}>
+                      <View style={styles.strengthBars}>
+                        {[1, 2, 3, 4].map((i) => (
+                          <View
+                            key={i}
+                            style={[
+                              styles.strengthBar,
+                              {
+                                backgroundColor:
+                                  i <= strengthCfg.bars
+                                    ? strengthCfg.color
+                                    : "#1E293B",
+                              },
+                            ]}
+                          />
+                        ))}
+                      </View>
+                      <Text
+                        style={[styles.strengthLabel, { color: strengthCfg.color }]}
+                      >
+                        {strengthCfg.label}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+
+                <View style={styles.fieldGroup}>
+                  <View
+                    style={[
+                      styles.inputWrapper,
+                      errors.confirm_password && styles.inputError,
+                    ]}
+                  >
+                    <Ionicons
+                      name="shield-checkmark-outline"
+                      size={18}
+                      color="#475569"
+                      style={styles.inputIcon}
+                    />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Confirm Password"
+                      placeholderTextColor="#334155"
+                      value={form.confirm_password}
+                      onChangeText={update("confirm_password")}
+                      secureTextEntry={!showConfirm}
+                      returnKeyType="done"
+                    />
+                    <TouchableOpacity
+                      onPress={() => setShowConfirm((v) => !v)}
+                      style={styles.eyeBtn}
+                    >
+                      <Ionicons
+                        name={showConfirm ? "eye-off-outline" : "eye-outline"}
+                        size={18}
+                        color="#475569"
+                      />
+                    </TouchableOpacity>
+                  </View>
+                  {errors.confirm_password && (
+                    <Text style={styles.errorText}>{errors.confirm_password}</Text>
+                  )}
+                </View>
+
+                <TouchableOpacity
+                  style={styles.termsRow}
+                  onPress={() => {
+                    setAcceptedTerms((v) => !v);
+                    setErrors((e) => ({ ...e, terms: undefined }));
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <View
+                    style={[
+                      styles.checkbox,
+                      acceptedTerms && styles.checkboxChecked,
+                    ]}
+                  >
+                    {acceptedTerms && (
+                      <Ionicons name="checkmark" size={14} color="#fff" />
+                    )}
+                  </View>
+                  <Text style={styles.termsText}>
+                    I agree to the{" "}
+                    <Text style={styles.termsLink}>Terms & Conditions</Text>
+                    {" "}and{" "}
+                    <Text style={styles.termsLink}>Privacy Policy</Text>
+                  </Text>
+                </TouchableOpacity>
+                {errors.terms && (
+                  <Text style={[styles.errorText, { marginTop: -8, marginBottom: 12 }]}>
+                    {errors.terms}
+                  </Text>
+                )}
+
+                <TouchableOpacity
+                  style={[styles.primaryBtn, isAnyLoading && styles.btnDisabled]}
+                  onPress={handleRegister}
+                  disabled={isAnyLoading}
+                >
+                  {loading ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.primaryBtnText}>CREATE ACCOUNT</Text>
+                  )}
+                </TouchableOpacity>
+              </>
+            )}
+
+            {/* CONTINUE BUTTON (for email step) */}
+            {flowState === "email" && (
+              <TouchableOpacity
+                style={[styles.primaryBtn, isAnyLoading && styles.btnDisabled]}
+                onPress={handleCheckEmail}
+                disabled={isAnyLoading}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.primaryBtnText}>CONTINUE</Text>
+                )}
+              </TouchableOpacity>
+            )}
+
+            {/* Divider (only for email step) */}
+            {flowState === "email" && (
+              <>
+                <View style={styles.divider}>
+                  <View style={styles.dividerLine} />
+                  <Text style={styles.dividerText}>or continue with</Text>
+                  <View style={styles.dividerLine} />
+                </View>
+
+                <View style={styles.socialRow}>
+                  <TouchableOpacity
+                    style={[styles.socialBtn, isAnyLoading && styles.btnDisabled]}
+                    onPress={handleGooglePress}
+                    disabled={isAnyLoading}
+                  >
+                    {socialLoading === "google" ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <>
+                        <Text style={styles.googleG}>G</Text>
+                        <Text style={styles.socialBtnText}>Google</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+
+                  {Platform.OS === "ios" && (
+                    <TouchableOpacity
+                      style={[
+                        styles.socialBtn,
+                        styles.appleBtn,
+                        isAnyLoading && styles.btnDisabled,
+                      ]}
+                      onPress={handleApplePress}
+                      disabled={isAnyLoading}
+                    >
+                      {socialLoading === "apple" ? (
+                        <ActivityIndicator size="small" color="#000" />
+                      ) : (
+                        <>
+                          <Ionicons name="logo-apple" size={18} color="#000" />
+                          <Text style={styles.appleBtnText}>Apple</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </>
+            )}
+
             <TouchableOpacity
               style={styles.loginLink}
               onPress={() => navigation.navigate("Login")}
@@ -639,44 +796,13 @@ const styles = StyleSheet.create({
     marginBottom: 28,
     textAlign: "center",
   },
-
-  // ─── Estilos Nuevos para el Selector de Rol ───
-  roleContainer: {
-    flexDirection: "row",
-    backgroundColor: "#161E2E",
-    padding: 6,
-    borderRadius: 16,
-    marginBottom: 24,
-    borderWidth: 1,
-    borderColor: "#262F3F",
+  label: {
+    color: "#94A3B8",
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 1,
+    marginBottom: 8,
   },
-  roleTab: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 12,
-    borderRadius: 12,
-    gap: 8,
-  },
-  activeTab: {
-    backgroundColor: Colors.primary,
-    shadowColor: Colors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  roleTabText: {
-    color: "#475569",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  activeTabText: {
-    color: "#fff",
-  },
-  // ──────────────────────────────────────────────
-
   sectionLabel: {
     color: "#475569",
     fontSize: 11,
@@ -684,7 +810,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     marginBottom: 14,
   },
-  fieldGroup: { marginBottom: 14 },
+  fieldGroup: { marginBottom: 16 },
   inputWrapper: {
     flexDirection: "row",
     alignItems: "center",
@@ -696,7 +822,9 @@ const styles = StyleSheet.create({
   inputError: { borderColor: "#EF4444" },
   inputIcon: { marginLeft: 14 },
   input: { flex: 1, color: "#fff", padding: 15, fontSize: 15 },
+  inputDisabled: { color: "#64748B" },
   eyeBtn: { padding: 14 },
+  errorText: { color: "#EF4444", fontSize: 11, marginTop: 5, marginLeft: 4 },
   optionalBadge: {
     backgroundColor: "#1E293B",
     borderRadius: 6,
@@ -705,7 +833,6 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   optionalText: { color: "#475569", fontSize: 10, fontWeight: "700" },
-  errorText: { color: "#EF4444", fontSize: 11, marginTop: 5, marginLeft: 4 },
   strengthContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -720,13 +847,6 @@ const styles = StyleSheet.create({
     width: 44,
     textAlign: "right",
   },
-  matchRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    marginTop: 6,
-  },
-  matchText: { fontSize: 11 },
   termsRow: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -776,13 +896,15 @@ const styles = StyleSheet.create({
   },
   dividerLine: { flex: 1, height: 1, backgroundColor: "#1E293B" },
   dividerText: { color: "#334155", fontSize: 12 },
-  googleBtn: {
+  socialRow: { flexDirection: "row", gap: 12 },
+  socialBtn: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 10,
+    gap: 8,
     backgroundColor: "#161E2E",
-    padding: 15,
+    padding: 14,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: "#262F3F",
@@ -793,27 +915,19 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontStyle: "italic",
   },
-  googleBtnText: { color: "#fff", fontWeight: "600", fontSize: 15 },
+  socialBtnText: { color: "#fff", fontWeight: "600", fontSize: 14 },
+  appleBtn: { backgroundColor: "#fff" },
+  appleBtnText: { color: "#000", fontWeight: "600", fontSize: 14 },
+  socialMsg: {
+    color: "#64748B",
+    fontSize: 13,
+    textAlign: "center",
+    marginBottom: 16,
+    lineHeight: 20,
+  },
+  switchMethod: { marginTop: 16, alignItems: "center" },
+  switchMethodText: { color: Colors.primary, fontSize: 14, fontWeight: "600" },
   loginLink: { marginTop: 20, alignItems: "center" },
   loginLinkText: { color: "#475569", fontSize: 14 },
   loginLinkBold: { color: Colors.primary, fontWeight: "700" },
-  // Role selector
-  roleRow: { flexDirection: "row", gap: 12, marginBottom: 20 },
-  roleBtn: {
-    flex: 1,
-    backgroundColor: "#161E2E",
-    borderRadius: 16,
-    padding: 16,
-    alignItems: "center",
-    gap: 4,
-    borderWidth: 1,
-    borderColor: "#262F3F",
-  },
-  roleBtnActive: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
-  },
-  roleBtnText: { color: "#94A3B8", fontWeight: "700", fontSize: 15 },
-  roleBtnTextActive: { color: "#0F172A" },
-  roleBtnSub: { color: "#475569", fontSize: 11 },
 });

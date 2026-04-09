@@ -22,8 +22,25 @@ export interface UserProfile extends BaseUserProfile {
 
 export type RootStackParamList = {
   Login: undefined;
-  // Register puede recibir un rol sugerido (opcional)
-  Register: { initialRole?: UserRoleType } | undefined;
+  
+  // Identifier-First Auth
+  Identify: { isDetailer?: boolean };
+  Verify: {
+    identifier: string;
+    identifierType: string;
+    isNewUser: boolean;
+    isDetailer?: boolean;
+  };
+  CompleteProfile: {
+    tempToken: string;
+    role: string;
+    identifier: string;
+    identifierType: string;
+  };
+
+  // Register (legacy - pentru usuarios existentes)
+  Register: undefined;
+  RegisterDetailer: undefined;
 
   // Flujo Principal de Clientes
   Main: undefined;

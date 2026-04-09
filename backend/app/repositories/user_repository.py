@@ -142,3 +142,33 @@ class UserRepository:
         )
         result = await self._db.execute(stmt)
         return result.scalar_one_or_none() is not None
+
+    async def get_by_phone(self, phone: str) -> User | None:
+        """
+        Fetch an active user by phone number.
+
+        Used by Identifier-First auth flow.
+        Phone numbers are stored encrypted, so we search using the exact match.
+        """
+        stmt = (
+            select(User)
+            .where(
+                User.phone_number == phone,
+                User.is_deleted.is_(False),
+            )
+            .options(
+                selectinload(User.user_roles).selectinload(UserRoleAssociation.role)
+            )
+        )
+        result = await self._db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def get_by_identifier(self, identifier: str, identifier_type: str) -> User | None:
+        """
+        Fetch an active user by email or phone.
+
+        Used by the identify endpoint to check existence.
+        """
+        if identifier_type == "phone":
+            return await self.get_by_phone(identifier)
+        return await self.get_by_email(identifier)

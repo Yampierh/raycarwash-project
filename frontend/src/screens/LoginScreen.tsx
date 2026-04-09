@@ -346,11 +346,29 @@ export default function LoginScreen() {
               {/* Footer */}
               <TouchableOpacity
                 style={styles.registerLink}
-                onPress={() => navigation.navigate("Register")}
+                onPress={() => navigation.navigate("Identify", { isDetailer: false })}
               >
                 <Text style={styles.registerText}>
                   Don't have an account?{" "}
                   <Text style={styles.registerTextBold}>Create one</Text>
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.registerLink}
+                onPress={() => navigation.navigate("Identify", { isDetailer: true })}
+              >
+                <Text style={styles.registerText}>
+                  Don't have an account?{" "}
+                  <Text style={styles.registerTextBold}>Create one</Text>
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.registerLink}
+                onPress={() => navigation.navigate("Identify", { isDetailer: true })}
+              >
+                <Text style={styles.registerText}>
+                  Are you a detailer?{" "}
+                  <Text style={styles.registerTextBold}>Register as Pro</Text>
                 </Text>
               </TouchableOpacity>
             </View>

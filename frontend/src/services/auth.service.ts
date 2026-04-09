@@ -1,5 +1,31 @@
 import { apiClient, authClient } from "./api";
 
+export interface CheckEmailResponse {
+  email: string;
+  exists: boolean;
+  auth_method: "password" | "google" | "apple" | "both" | "none";
+  suggested_action: "login" | "social_login" | "register";
+}
+
+export interface IdentifyResponse {
+  identifier: string;
+  identifier_type: "email" | "phone";
+  exists: boolean;
+  auth_methods: string[];
+  is_new_user: boolean;
+  suggested_action: string;
+}
+
+export interface VerifyResponse {
+  access_token?: string;
+  refresh_token?: string;
+  is_new_user: boolean;
+  temp_token?: string;
+  needs_profile_completion: boolean;
+  next_step: string;
+  assigned_role?: string;
+}
+
 // ─── Logout ──────────────────────────────────────────────────────────────────
 
 export const logout = async (): Promise<void> => {
@@ -91,4 +117,78 @@ export const requestPasswordReset = async (email: string): Promise<void> => {
   await authClient.post("/password-reset", {
     email: email.toLowerCase().trim(),
   });
+};
+
+// ─── Check email exists ────────────────────────────────────────────────────────
+
+/**
+ * Check if an email is registered and get auth method.
+ * Backend endpoint: POST /auth/check-email  { email: string }
+ * NOTE: Uses authClient (base: /auth) not apiClient (base: /api/v1)
+ */
+export const checkEmail = async (
+  email: string,
+): Promise<CheckEmailResponse> => {
+  const response = await authClient.post<CheckEmailResponse>("/check-email", {
+    email: email.toLowerCase().trim(),
+  });
+  return response.data;
+};
+
+// ─── Identifier-First Auth ────────────────────────────────────────────────
+
+/**
+ * Identify user by email or phone.
+ * Backend endpoint: POST /auth/identify
+ */
+export const identify = async (
+  identifier: string,
+  identifierType?: string,
+): Promise<IdentifyResponse> => {
+  const response = await authClient.post<IdentifyResponse>("/identify", {
+    identifier: identifier.toLowerCase().trim(),
+    identifier_type: identifierType || null,
+  });
+  return response.data;
+};
+
+/**
+ * Verify credentials in Identifier-First flow.
+ * Backend endpoint: POST /auth/verify
+ */
+export const verify = async (
+  identifier: string,
+  identifierType: string,
+  options: {
+    password?: string;
+    accessToken?: string;
+    otpCode?: string;
+  },
+): Promise<VerifyResponse> => {
+  const response = await authClient.post<VerifyResponse>("/verify", {
+    identifier,
+    identifier_type: identifierType,
+    password: options.password || null,
+    access_token: options.accessToken || null,
+    otp_code: options.otpCode || null,
+  });
+  return response.data;
+};
+
+/**
+ * Complete user profile after registration.
+ * Backend endpoint: PUT /auth/complete-profile
+ */
+export const completeProfile = async (
+  tempToken: string,
+  payload: {
+    full_name: string;
+    phone_number?: string;
+    role: string;
+  },
+): Promise<VerifyResponse> => {
+  const response = await authClient.put<VerifyResponse>("/complete-profile", payload, {
+    headers: { "X-Temp-Token": tempToken },
+  });
+  return response.data;
 };
