@@ -186,17 +186,16 @@ async def update_user_profile(
     db: AsyncSession = Depends(get_db),
 ) -> UserRead:
     """
-    Updates full_name, phone_number, and/or service_address.
-    Only supplied (non-None) fields are changed — PUT semantics for simplicity,
-    but behaves like PATCH (partial update).
+    Updates full_name and/or phone_number.
+    Note: service_address was moved to ClientProfile/DetailerProfile (Sprint 6).
+    Only supplied (non-None) fields are changed.
     """
     fields: dict = {}
     if payload.full_name is not None:
         fields["full_name"] = payload.full_name
     if payload.phone_number is not None:
         fields["phone_number"] = payload.phone_number
-    if payload.service_address is not None:
-        fields["service_address"] = payload.service_address
+    # NOTE: service_address removed - it now lives in ClientProfile/DetailerProfile
 
     if fields:
         current_user = await UserRepository(db).update(current_user, fields)

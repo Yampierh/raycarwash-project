@@ -41,10 +41,9 @@ export const registerUser = async (payload: {
 export const refreshAccessToken = async (
   refreshToken: string,
 ): Promise<{ access_token: string; refresh_token: string }> => {
-  // Backend expects JSON body, not query param
+  // Backend expects query parameter, not JSON body
   const response = await authClient.post(
-    "/refresh",
-    { refresh_token: refreshToken },
+    `/refresh?refresh_token=${encodeURIComponent(refreshToken)}`,
   );
   return response.data;
 };

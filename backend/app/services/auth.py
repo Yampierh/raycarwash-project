@@ -316,6 +316,11 @@ async def get_current_user(
         logger.warning("Auth failed — user inactive or missing: %s", user_id)
         raise credentials_exception
 
+    # Eager load user_roles relationship for RBAC methods (is_client, is_detailer, etc.)
+    await db.refresh(user, attribute_names=['user_roles'])
+    for ur in user.user_roles:
+        await db.refresh(ur, attribute_names=['role'])
+
     return user
 
 
