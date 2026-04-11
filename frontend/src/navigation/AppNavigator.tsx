@@ -12,7 +12,6 @@ import CompleteProfileScreen from "../screens/CompleteProfileScreen";
 import DetailerSelectionScreen from "../screens/DetailerSelectionScreen";
 import EditProfileScreen from "../screens/EditProfileScreen";
 import HomeScreen from "../screens/HomeScreen";
-import IdentifyScreen from "../screens/IdentifyScreen";
 import LoginScreen from "../screens/LoginScreen";
 import ProfileScreen from "../screens/ProfileScreen";
 import RegisterScreen from "../screens/RegisterScreen";
@@ -20,13 +19,8 @@ import ScheduleScreen from "../screens/ScheduleScreen";
 import SelectVehiclesScreen from "../screens/SelectVehiclesScreen";
 import VehicleDetailScreen from "../screens/VehicleDetailScreen";
 import VehiclesScreen from "../screens/VehiclesScreen";
-import VerifyScreen from "../screens/VerifyScreen";
-// Detailer screens
-import DetailerHomeScreen from "../screens/DetailerHomeScreen";
-import DetailerOnboardingScreen from "../screens/DetailerOnboardingScreen";
-import DetailerProfileScreen from "../screens/DetailerProfileScreen";
-import DetailerServicesScreen from "../screens/DetailerServicesScreen";
 import { Colors } from "../theme/colors";
+import VerifyScreen from "../screens/VerifyScreen";
 import { navigationRef } from "./navigationRef";
 import { RootStackParamList } from "./types";
 
@@ -130,10 +124,6 @@ export default function AppNavigator() {
       >
         {/* Flujo de Autenticación */}
         <Stack.Screen name="Login" component={LoginScreen} />
-        
-        {/* Identifier-First Auth */}
-        <Stack.Screen name="Identify" component={IdentifyScreen} />
-        <Stack.Screen name="Verify" component={VerifyScreen} />
         <Stack.Screen name="CompleteProfile" component={CompleteProfileScreen} />
         
         {/* Register (acepta isDetailer para cliente o detailer) */}

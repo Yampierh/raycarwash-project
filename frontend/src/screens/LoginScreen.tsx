@@ -348,7 +348,7 @@ export default function LoginScreen() {
               <View style={styles.footerLinks}>
                 <TouchableOpacity
                   style={styles.registerLink}
-                  onPress={() => navigation.navigate("Identify", { isDetailer: false })}
+                  onPress={() => navigation.navigate("Register", { isDetailer: false })}
                 >
                   <Text style={styles.registerText}>
                     Don't have an account?{" "}
@@ -357,7 +357,7 @@ export default function LoginScreen() {
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.registerLink}
-                  onPress={() => navigation.navigate("Identify", { isDetailer: true })}
+                  onPress={() => navigation.navigate("Register", { isDetailer: true })}
                 >
                   <Text style={styles.registerText}>
                     Are you a detailer?{" "}

@@ -256,17 +256,25 @@ export default function RegisterScreen({ navigation, route }: any) {
         phone_number: form.phone_number.trim() || undefined,
         role_names: isDetailer ? ["detailer"] : ["client"],
       });
-      Alert.alert(
-        "Account Created!",
-        "Welcome to RayCarWash. Please sign in.",
-        [
-          {
-            text: "Sign In",
-            onPress: () =>
-              navigation.reset({ index: 0, routes: [{ name: "Login" }] }),
-          },
-        ],
-      );
+      
+      if (isDetailer) {
+        navigation.reset({
+          index: 0,
+          routes: [{ name: "DetailerOnboarding" }],
+        });
+      } else {
+        Alert.alert(
+          "Account Created!",
+          "Welcome to RayCarWash. Please sign in.",
+          [
+            {
+              text: "Sign In",
+              onPress: () =>
+                navigation.reset({ index: 0, routes: [{ name: "Login" }] }),
+            },
+          ],
+        );
+      }
     } catch (error: any) {
       const detail = error.response?.data?.detail;
       const msg = Array.isArray(detail)
