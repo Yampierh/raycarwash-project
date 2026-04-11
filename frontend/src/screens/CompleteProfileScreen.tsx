@@ -9,26 +9,30 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { completeProfile, VerifyResponse } from "../services/auth.service";
+import AnimatedInput from "../components/AnimatedInput";
+import { VerifyResponse, completeProfile } from "../services/auth.service";
 import { Colors } from "../theme/colors";
 import { navigateAfterAuth } from "../utils/auth-redirect";
 import { saveRefreshToken, saveToken } from "../utils/storage";
 
 export default function CompleteProfileScreen({ navigation, route }: any) {
-  const { tempToken, role, identifier, identifierType } = route.params || {};
+  const { tempToken, role: initialRole, identifierType } = route.params || {};
 
-  const [form, setForm] = useState({
-    full_name: "",
-    phone_number: "",
-  });
+  const [selectedRole, setSelectedRole] = useState<"client" | "detailer" | null>(
+    initialRole === "detailer" ? "detailer" : initialRole === "client" ? "client" : null,
+  );
+  const [form, setForm] = useState({ full_name: "", phone_number: "" });
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [errors, setErrors] = useState<{ full_name?: string; terms?: string }>({});
+  const [errors, setErrors] = useState<{
+    full_name?: string;
+    terms?: string;
+    role?: string;
+  }>({});
 
   const update = (field: keyof typeof form) => (value: string) => {
     setForm((f) => ({ ...f, [field]: value }));
@@ -38,6 +42,7 @@ export default function CompleteProfileScreen({ navigation, route }: any) {
   const validate = () => {
     const e: typeof errors = {};
     if (!form.full_name.trim()) e.full_name = "Full name is required";
+    if (!selectedRole) e.role = "Please choose your account type";
     if (!acceptedTerms) e.terms = "You must accept the Terms & Conditions";
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -51,35 +56,32 @@ export default function CompleteProfileScreen({ navigation, route }: any) {
       const result: VerifyResponse = await completeProfile(tempToken, {
         full_name: form.full_name.trim(),
         phone_number: form.phone_number.trim() || undefined,
-        role,
+        role: selectedRole!,
       });
 
       if (result.access_token) {
         await saveToken(result.access_token);
-        if (result.refresh_token) {
-          await saveRefreshToken(result.refresh_token);
-        }
+        if (result.refresh_token) await saveRefreshToken(result.refresh_token);
       }
 
-      if (result.next_step === "detailer_onboarding") {
-        navigation.reset({
-          index: 0,
-          routes: [{ name: "DetailerOnboarding" }],
-        });
+      if (result.next_step === "detailer_onboarding" || selectedRole === "detailer") {
+        navigation.reset({ index: 0, routes: [{ name: "DetailerOnboarding" }] });
       } else {
         await navigateAfterAuth(navigation);
       }
     } catch (error: any) {
       const detail = error.response?.data?.detail;
       const msg =
-        typeof detail === "string" ? detail : "Could not complete profile. Please try again.";
+        typeof detail === "string"
+          ? detail
+          : "Could not complete profile. Please try again.";
       Alert.alert("Error", msg);
     } finally {
       setLoading(false);
     }
   };
 
-  const isDetailer = role === "detailer";
+  const showRoleSelector = !initialRole;
 
   return (
     <View style={styles.container}>
@@ -95,7 +97,7 @@ export default function CompleteProfileScreen({ navigation, route }: any) {
           <View style={styles.header}>
             <View style={{ width: 40 }} />
             <Text style={styles.headerTitle}>
-              {isDetailer ? "Complete Profile" : "Almost There!"}
+              {selectedRole === "detailer" ? "Complete Profile" : "Almost There!"}
             </Text>
             <View style={{ width: 40 }} />
           </View>
@@ -106,69 +108,126 @@ export default function CompleteProfileScreen({ navigation, route }: any) {
             showsVerticalScrollIndicator={false}
           >
             <Text style={styles.subtitle}>
-              {isDetailer
+              {selectedRole === "detailer"
                 ? "Complete your professional profile to start accepting jobs"
                 : "Complete your profile to get started"}
             </Text>
 
+            {/* Role selector — only when role not pre-determined */}
+            {showRoleSelector && (
+              <View style={styles.fieldGroup}>
+                <Text style={styles.label}>I AM A</Text>
+                <View style={styles.roleRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.roleBtn,
+                      selectedRole === "client" && styles.roleBtnActive,
+                    ]}
+                    onPress={() => {
+                      setSelectedRole("client");
+                      setErrors((e) => ({ ...e, role: undefined }));
+                    }}
+                    activeOpacity={0.75}
+                  >
+                    <Ionicons
+                      name="person-outline"
+                      size={22}
+                      color={selectedRole === "client" ? Colors.primary : "#475569"}
+                    />
+                    <Text
+                      style={[
+                        styles.roleBtnText,
+                        selectedRole === "client" && styles.roleBtnTextActive,
+                      ]}
+                    >
+                      Client
+                    </Text>
+                    <Text
+                      style={[
+                        styles.roleBtnDesc,
+                        selectedRole === "client" && styles.roleBtnDescActive,
+                      ]}
+                    >
+                      Book car wash services
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.roleBtn,
+                      selectedRole === "detailer" && styles.roleBtnActive,
+                    ]}
+                    onPress={() => {
+                      setSelectedRole("detailer");
+                      setErrors((e) => ({ ...e, role: undefined }));
+                    }}
+                    activeOpacity={0.75}
+                  >
+                    <Ionicons
+                      name="car-sport-outline"
+                      size={22}
+                      color={selectedRole === "detailer" ? Colors.primary : "#475569"}
+                    />
+                    <Text
+                      style={[
+                        styles.roleBtnText,
+                        selectedRole === "detailer" && styles.roleBtnTextActive,
+                      ]}
+                    >
+                      Detailer Pro
+                    </Text>
+                    <Text
+                      style={[
+                        styles.roleBtnDesc,
+                        selectedRole === "detailer" && styles.roleBtnDescActive,
+                      ]}
+                    >
+                      Offer detailing services
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                {errors.role && (
+                  <Text style={styles.errorText}>{errors.role}</Text>
+                )}
+              </View>
+            )}
+
             {/* Full Name */}
             <View style={styles.fieldGroup}>
               <Text style={styles.label}>FULL NAME</Text>
-              <View
-                style={[
-                  styles.inputWrapper,
-                  errors.full_name && styles.inputError,
-                ]}
-              >
-                <Ionicons
-                  name="person-outline"
-                  size={18}
-                  color="#475569"
-                  style={styles.inputIcon}
-                />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Your full name"
-                  placeholderTextColor="#334155"
-                  value={form.full_name}
-                  onChangeText={update("full_name")}
-                  autoCapitalize="words"
-                  returnKeyType="next"
-                />
-              </View>
+              <AnimatedInput
+                value={form.full_name}
+                onChangeText={update("full_name")}
+                placeholder="Your full name"
+                icon="person-outline"
+                autoCapitalize="words"
+                returnKeyType="next"
+                error={!!errors.full_name}
+              />
               {errors.full_name && (
                 <Text style={styles.errorText}>{errors.full_name}</Text>
               )}
             </View>
 
-            {/* Phone (if identifier was email) */}
+            {/* Phone — only when identifier was email */}
             {identifierType === "email" && (
               <View style={styles.fieldGroup}>
                 <View style={styles.labelRow}>
                   <Text style={styles.label}>PHONE NUMBER</Text>
                   <Text style={styles.optionalLabel}>Optional</Text>
                 </View>
-                <View style={styles.inputWrapper}>
-                  <Ionicons
-                    name="call-outline"
-                    size={18}
-                    color="#475569"
-                    style={styles.inputIcon}
-                  />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="+1 555 123 4567"
-                    placeholderTextColor="#334155"
-                    value={form.phone_number}
-                    onChangeText={update("phone_number")}
-                    keyboardType="phone-pad"
-                    returnKeyType="done"
-                  />
-                </View>
+                <AnimatedInput
+                  value={form.phone_number}
+                  onChangeText={update("phone_number")}
+                  placeholder="+1 555 123 4567"
+                  icon="call-outline"
+                  keyboardType="phone-pad"
+                  returnKeyType="done"
+                />
               </View>
             )}
 
-            {/* Show identifier info */}
+            {/* Identifier info badge */}
             <View style={styles.identifierRow}>
               <Ionicons
                 name={identifierType === "email" ? "mail-outline" : "call-outline"}
@@ -191,12 +250,7 @@ export default function CompleteProfileScreen({ navigation, route }: any) {
               }}
               activeOpacity={0.7}
             >
-              <View
-                style={[
-                  styles.checkbox,
-                  acceptedTerms && styles.checkboxChecked,
-                ]}
-              >
+              <View style={[styles.checkbox, acceptedTerms && styles.checkboxChecked]}>
                 {acceptedTerms && (
                   <Ionicons name="checkmark" size={14} color="#fff" />
                 )}
@@ -214,7 +268,6 @@ export default function CompleteProfileScreen({ navigation, route }: any) {
               </Text>
             )}
 
-            {/* Complete Button */}
             <TouchableOpacity
               style={[styles.primaryBtn, loading && styles.btnDisabled]}
               onPress={handleComplete}
@@ -224,7 +277,7 @@ export default function CompleteProfileScreen({ navigation, route }: any) {
                 <ActivityIndicator color="#fff" />
               ) : (
                 <Text style={styles.primaryBtnText}>
-                  {isDetailer ? "CONTINUE" : "GET STARTED"}
+                  {selectedRole === "detailer" ? "CONTINUE" : "GET STARTED"}
                 </Text>
               )}
             </TouchableOpacity>
@@ -255,6 +308,7 @@ const styles = StyleSheet.create({
     marginBottom: 28,
     textAlign: "center",
   },
+  fieldGroup: { marginBottom: 16 },
   labelRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -268,24 +322,36 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     marginBottom: 8,
   },
-  optionalLabel: {
-    color: "#64748B",
-    fontSize: 10,
-    fontWeight: "600",
-  },
-  fieldGroup: { marginBottom: 16 },
-  inputWrapper: {
-    flexDirection: "row",
-    alignItems: "center",
+  optionalLabel: { color: "#64748B", fontSize: 10, fontWeight: "600" },
+  errorText: { color: "#EF4444", fontSize: 11, marginTop: 5, marginLeft: 4 },
+  roleRow: { flexDirection: "row", gap: 12 },
+  roleBtn: {
+    flex: 1,
     backgroundColor: "#111827",
     borderRadius: 14,
     borderWidth: 1,
     borderColor: "#1E293B",
+    padding: 16,
+    alignItems: "center",
+    gap: 6,
   },
-  inputError: { borderColor: "#EF4444" },
-  inputIcon: { marginLeft: 14 },
-  input: { flex: 1, color: "#fff", padding: 15, fontSize: 15 },
-  errorText: { color: "#EF4444", fontSize: 11, marginTop: 5, marginLeft: 4 },
+  roleBtnActive: {
+    borderColor: Colors.primary,
+    backgroundColor: "rgba(59,130,246,0.08)",
+  },
+  roleBtnText: {
+    color: "#64748B",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  roleBtnTextActive: { color: Colors.primary },
+  roleBtnDesc: {
+    color: "#334155",
+    fontSize: 11,
+    textAlign: "center",
+    lineHeight: 15,
+  },
+  roleBtnDescActive: { color: "#475569" },
   identifierRow: {
     flexDirection: "row",
     alignItems: "center",

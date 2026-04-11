@@ -86,3 +86,62 @@ export const updateDetailerService = async (
 ): Promise<void> => {
   await apiClient.patch(`/detailers/me/services/${serviceId}`, payload);
 };
+
+// ------------------------------------------------------------------ //
+//  Identity Verification (Stripe Identity)                           //
+// ------------------------------------------------------------------ //
+
+export interface VerificationStartResponse {
+  is_dev_bypass: boolean;
+  client_secret?: string;
+  session_id?: string;
+  stripe_publishable_key?: string;
+}
+
+export interface VerificationSubmitPayload {
+  legal_full_name: string;
+  date_of_birth: string;        // ISO date "YYYY-MM-DD"
+  address_line1: string;
+  city: string;
+  state: string;
+  zip_code: string;
+  background_check_consent: boolean;
+  session_id?: string | null;   // null = dev bypass
+}
+
+export interface VerificationStatusResponse {
+  verification_status: "not_submitted" | "pending" | "approved" | "rejected";
+  legal_full_name: string | null;
+  verification_submitted_at: string | null;
+  verification_reviewed_at: string | null;
+  rejection_reason: string | null;
+}
+
+/**
+ * POST /api/v1/detailers/verification/start
+ * Creates a Stripe Identity VerificationSession.
+ * Returns is_dev_bypass=true in dev/debug mode — skip Stripe sheet.
+ */
+export const verificationStart = async (): Promise<VerificationStartResponse> => {
+  const response = await apiClient.post("/detailers/verification/start");
+  return response.data;
+};
+
+/**
+ * POST /api/v1/detailers/verification/submit
+ * Saves personal info + consent. Pass session_id=null for dev bypass.
+ */
+export const verificationSubmit = async (
+  payload: VerificationSubmitPayload,
+): Promise<{ verification_status: string; message: string }> => {
+  const response = await apiClient.post("/detailers/verification/submit", payload);
+  return response.data;
+};
+
+/**
+ * GET /api/v1/detailers/verification/status
+ */
+export const getVerificationStatus = async (): Promise<VerificationStatusResponse> => {
+  const response = await apiClient.get("/detailers/verification/status");
+  return response.data;
+};

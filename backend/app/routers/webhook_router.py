@@ -23,13 +23,16 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 
 import stripe
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.db.session import get_db
+from app.models.models import DetailerProfile
 from app.services.payment_service import PaymentService
 
 logger   = logging.getLogger(__name__)
@@ -83,7 +86,7 @@ async def stripe_webhook(
         import json
         try:
             event = json.loads(payload)
-        except Exception:
+        except (json.JSONDecodeError, UnicodeDecodeError):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid JSON payload.",
@@ -124,12 +127,96 @@ async def stripe_webhook(
             .get("message", "unknown")
         )
         logger.warning(
-            "Payment failed | pi=%s reason=%s — TODO: notify client via push",
+            "Payment failed | pi=%s reason=%s — push notification pending implementation",
             pi_id, reason,
         )
-        # Sprint 5: trigger push notification to client
+        # Push notification to client not yet implemented (requires FCM/APNs integration)
+
+    # ---- Stripe Identity events ---------------------------------------- #
+
+    elif event_type == "identity.verification_session.verified":
+        await _handle_identity_verified(event, db)
+
+    elif event_type == "identity.verification_session.requires_input":
+        await _handle_identity_requires_input(event, db)
+
+    elif event_type == "identity.verification_session.canceled":
+        session_id = event["data"]["object"]["id"]
+        logger.info("Identity session canceled | session=%s", session_id)
 
     else:
         logger.debug("Unhandled Stripe event type: %s", event_type)
 
     return {"received": True}
+
+
+# ------------------------------------------------------------------ #
+#  Stripe Identity handlers                                           #
+# ------------------------------------------------------------------ #
+
+async def _handle_identity_verified(event: dict, db: AsyncSession) -> None:
+    """Mark detailer as approved when Stripe verifies their identity."""
+    session_obj = event["data"]["object"]
+    session_id  = session_obj["id"]
+    user_id_str = session_obj.get("metadata", {}).get("user_id")
+
+    result = await db.execute(
+        select(DetailerProfile).where(
+            DetailerProfile.stripe_verification_session_id == session_id
+        )
+    )
+    profile = result.scalar_one_or_none()
+
+    if profile is None:
+        logger.warning(
+            "Identity verified but no profile found | session=%s user_id=%s",
+            session_id, user_id_str,
+        )
+        return
+
+    now = datetime.now(timezone.utc)
+    profile.verification_status    = "approved"
+    profile.verification_reviewed_at = now
+    profile.is_accepting_bookings  = True
+    await db.commit()
+
+    logger.info(
+        "Detailer identity approved | user_id=%s session=%s",
+        profile.user_id, session_id,
+    )
+
+
+async def _handle_identity_requires_input(event: dict, db: AsyncSession) -> None:
+    """Mark detailer as rejected when Stripe cannot verify their identity."""
+    session_obj    = event["data"]["object"]
+    session_id     = session_obj["id"]
+    last_error     = session_obj.get("last_error") or {}
+    reason_code    = last_error.get("code", "unknown")
+    reason_reason  = last_error.get("reason", "")
+    rejection_msg  = f"{reason_code}: {reason_reason}".strip(": ")
+
+    result = await db.execute(
+        select(DetailerProfile).where(
+            DetailerProfile.stripe_verification_session_id == session_id
+        )
+    )
+    profile = result.scalar_one_or_none()
+
+    if profile is None:
+        logger.warning(
+            "Identity requires_input but no profile found | session=%s",
+            session_id,
+        )
+        return
+
+    now = datetime.now(timezone.utc)
+    profile.verification_status      = "rejected"
+    profile.verification_reviewed_at = now
+    profile.rejection_reason         = rejection_msg
+    profile.is_accepting_bookings    = False
+    await db.commit()
+
+    logger.warning(
+        "Detailer identity rejected | user_id=%s session=%s reason=%s",
+        profile.user_id, session_id, rejection_msg,
+    )

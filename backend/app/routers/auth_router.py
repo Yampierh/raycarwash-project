@@ -36,9 +36,23 @@ from app.schemas.schemas import (
     UserUpdate,
     VerifyRequest,
     VerifyResponse,
+    WebAuthnRegisterBeginResponse,
+    WebAuthnRegisterCompleteRequest,
+    WebAuthnRegisterCompleteResponse,
+    WebAuthnAuthBeginRequest,
+    WebAuthnAuthBeginResponse,
+    WebAuthnAuthCompleteRequest,
 )
-from app.services.auth import AuthService, _TOKEN_TYPE_REFRESH, get_current_user
+from app.services.auth import (
+    AuthService,
+    TOKEN_TYPE_WEBAUTHN_REG,
+    TOKEN_TYPE_WEBAUTHN_AUTH,
+    _TOKEN_TYPE_REFRESH,
+    get_current_user,
+)
 from app.services.email_service import EmailService
+from app.services.webauthn_service import WebAuthnService
+from app.repositories.webauthn_repository import WebAuthnRepository
 
 logger   = logging.getLogger(__name__)
 settings = get_settings()
@@ -225,7 +239,8 @@ async def verify_credentials(
     user_repo = UserRepository(db)
     auth_methods: list[str] = []
     user = None
-    
+    is_new_user = False
+
     if body.password:
         auth_methods.append("password")
         user = await AuthService.authenticate_user(
@@ -233,9 +248,53 @@ async def verify_credentials(
             password=body.password,
             db=db,
         )
+
+        # ── New-user registration path ──────────────────────────────────────
+        # If authenticate_user returned None, the user may not exist yet.
+        # Check explicitly: if the email is truly new, create the account
+        # with the supplied password and flag it for profile completion.
+        if user is None:
+            existing = await user_repo.get_by_email(body.identifier.lower().strip())
+            if existing is not None:
+                # User exists but password is wrong → real "Invalid credentials"
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid credentials.",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            # Validate password length before creating the account
+            if len(body.password) < 8:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Password must be at least 8 characters.",
+                )
+            # Create skeleton account — profile completion required
+            new_user = User(
+                email=body.identifier.lower().strip(),
+                password_hash=AuthService.hash_password(body.password),
+            )
+            user = await user_repo.create(new_user)
+
+            # Assign default role
+            role_name = "client"
+            role_result = await db.execute(select(Role).where(Role.name == role_name))
+            role = role_result.scalar_one_or_none()
+            if role:
+                db.add(UserRoleAssociation(user_id=user.id, role_id=role.id))
+                await db.flush()
+
+            await AuditRepository(db).log(
+                action=AuditAction.USER_REGISTERED,
+                entity_type="user",
+                entity_id=str(user.id),
+                actor_id=user.id,
+                metadata={"ip": request.client.host if request.client else None, "flow": "identifier_first"},
+            )
+            is_new_user = True
+
     elif body.access_token:
         try:
-            if "google" in body.access_token.lower()[:20]:
+            if body.provider == "google":
                 google_data = await AuthService.verify_google_token(body.access_token)
                 user = await user_repo.get_by_google_id(google_data["user_id"])
             else:
@@ -249,7 +308,7 @@ async def verify_credentials(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=str(exc),
             )
-    
+
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -265,14 +324,15 @@ async def verify_credentials(
     
     access_token = AuthService.create_access_token(user.id, user.primary_role)
     refresh_token = AuthService.create_refresh_token(user.id, user.primary_role)
-    
-    needs_completion = not user.full_name or (
+
+    # New accounts always need profile completion (no full_name yet)
+    needs_completion = is_new_user or not user.full_name or (
         not user.phone_number and body.identifier_type == "email"
     )
-    
+
     temp_token = None
     next_step = "app"
-    
+
     if needs_completion:
         temp_token = AuthService.create_registration_token(user.id, user.primary_role)
         next_step = "complete_profile"
@@ -280,14 +340,17 @@ async def verify_credentials(
     if user.primary_role == "detailer" and not needs_completion:
         next_step = "detailer_onboarding"
     
-    await AuditRepository(db).log(
-        action=AuditAction.USER_LOGIN,
-        entity_type="user",
-        entity_id=str(user.id),
-        actor_id=user.id,
-        metadata={"ip": request.client.host if request.client else None},
-    )
-    
+    if not is_new_user:
+        await AuditRepository(db).log(
+            action=AuditAction.USER_LOGIN,
+            entity_type="user",
+            entity_id=str(user.id),
+            actor_id=user.id,
+            metadata={"ip": request.client.host if request.client else None},
+        )
+
+    await db.commit()
+
     return VerifyResponse(
         access_token=access_token,
         refresh_token=refresh_token,
@@ -351,17 +414,22 @@ async def complete_user_profile(
     )
     role = role_result.scalar_one_or_none()
     if role:
-        user.primary_roles = [role]
-    
+        # Clear existing role assignments and set the new one via ORM association
+        for existing in list(user.user_roles):
+            await db.delete(existing)
+        db.add(UserRoleAssociation(user_id=user.id, role_id=role.id))
+
     await db.flush()
-    
-    access_token = AuthService.create_access_token(user.id, user.primary_role)
-    refresh_token = AuthService.create_refresh_token(user.id, user.primary_role)
-    
-    next_step = "app"
-    if user.primary_role == "detailer":
-        next_step = "detailer_onboarding"
-    
+
+    # Use body.role directly — user.primary_role reads from the stale in-memory
+    # user_roles list and won't reflect the role we just added until a DB refresh.
+    effective_role = body.role if role else (user.primary_role or "client")
+
+    access_token = AuthService.create_access_token(user.id, effective_role)
+    refresh_token = AuthService.create_refresh_token(user.id, effective_role)
+
+    next_step = "detailer_onboarding" if effective_role == "detailer" else "app"
+
     return VerifyResponse(
         access_token=access_token,
         refresh_token=refresh_token,
@@ -369,7 +437,7 @@ async def complete_user_profile(
         temp_token=None,
         needs_profile_completion=False,
         next_step=next_step,
-        assigned_role=user.primary_role,
+        assigned_role=effective_role,
     )
 
 
@@ -787,7 +855,7 @@ async def request_password_reset(
     El token es un JWT de tipo 'password_reset'. El frontend debe dirigir
     al usuario a la pantalla de nueva contraseña con el token como parámetro.
 
-    TODO Sprint 5: integrar SendGrid/SES para envío real del email.
+    El envío real de email (SendGrid/SES) requiere configurar SMTP_ENABLED=True en .env.
     """
     _SAFE_RESPONSE = PasswordResetResponse(message="If that email is registered, a reset link has been sent.")
 
@@ -815,3 +883,233 @@ async def request_password_reset(
     )
 
     return _SAFE_RESPONSE
+
+
+# ------------------------------------------------------------------ #
+#  WebAuthn / FIDO2 Passkeys                                         #
+# ------------------------------------------------------------------ #
+
+import os
+from webauthn.helpers import bytes_to_base64url
+
+
+@router.post(
+    "/webauthn/register/begin",
+    response_model=WebAuthnRegisterBeginResponse,
+    summary="Begin WebAuthn passkey registration",
+)
+@limiter.limit(f"{settings.RATE_LIMIT_AUTH_PER_MINUTE}/minute")
+async def webauthn_register_begin(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> WebAuthnRegisterBeginResponse:
+    """
+    Step 1 of passkey registration (requires a valid Bearer token).
+
+    Returns a `challenge_token` (short-lived JWT) and `options`
+    (PublicKeyCredentialCreationOptions) that the client passes to
+    `Passkey.register()`. The client must echo `challenge_token` back
+    in the /complete request — the challenge is embedded inside it.
+    """
+    challenge = os.urandom(32)
+    challenge_b64 = bytes_to_base64url(challenge)
+
+    existing = await WebAuthnRepository(db).get_credentials_by_user(current_user.id)
+
+    options = WebAuthnService.generate_registration_options(
+        user=current_user,
+        existing_credentials=existing,
+        challenge=challenge,
+    )
+    challenge_token = AuthService.create_webauthn_challenge_token(
+        user_id=current_user.id,
+        challenge_b64=challenge_b64,
+        ctype=TOKEN_TYPE_WEBAUTHN_REG,
+    )
+
+    return WebAuthnRegisterBeginResponse(
+        challenge_token=challenge_token,
+        options=options,
+    )
+
+
+@router.post(
+    "/webauthn/register/complete",
+    response_model=WebAuthnRegisterCompleteResponse,
+    summary="Complete WebAuthn passkey registration",
+)
+@limiter.limit(f"{settings.RATE_LIMIT_AUTH_PER_MINUTE}/minute")
+async def webauthn_register_complete(
+    request: Request,
+    body: WebAuthnRegisterCompleteRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> WebAuthnRegisterCompleteResponse:
+    """
+    Step 2 of passkey registration (requires a valid Bearer token).
+
+    Verifies the attestation returned by `Passkey.register()` and
+    stores the new credential in the database.
+    """
+    from webauthn.helpers.exceptions import InvalidRegistrationResponse, InvalidAuthenticationResponse
+    from app.models.models import WebAuthnCredential
+
+    # Decode the challenge JWT (also validates it hasn't expired / is the right type)
+    user_id, challenge = AuthService.decode_webauthn_challenge_token(
+        body.challenge_token, expected_type=TOKEN_TYPE_WEBAUTHN_REG
+    )
+    if user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token user mismatch.")
+
+    try:
+        verified = WebAuthnService.verify_registration_response(
+            challenge=challenge,
+            credential_response=body.credential,
+        )
+    except (InvalidRegistrationResponse, Exception) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Passkey registration verification failed: {exc}",
+        ) from exc
+
+    credential = WebAuthnCredential(
+        user_id=current_user.id,
+        credential_id=verified.credential_id,
+        public_key=verified.credential_public_key,
+        sign_count=verified.sign_count,
+        transports=list(verified.credential_device_type) if verified.credential_device_type else None,
+        device_name=body.device_name,
+    )
+    await WebAuthnRepository(db).create_credential(credential)
+    await db.commit()
+
+    return WebAuthnRegisterCompleteResponse(
+        credential_id=bytes_to_base64url(verified.credential_id),
+        device_name=body.device_name,
+    )
+
+
+@router.post(
+    "/webauthn/authenticate/begin",
+    response_model=WebAuthnAuthBeginResponse,
+    summary="Begin WebAuthn passkey authentication",
+)
+@limiter.limit(f"{settings.RATE_LIMIT_AUTH_PER_MINUTE}/minute")
+async def webauthn_authenticate_begin(
+    request: Request,
+    body: WebAuthnAuthBeginRequest,
+    db: AsyncSession = Depends(get_db),
+) -> WebAuthnAuthBeginResponse:
+    """
+    Step 1 of passkey authentication (public endpoint).
+
+    The client provides the user's email so we can look up their stored
+    credential IDs and include them in `allowCredentials`. Returns a
+    `challenge_token` and `options` to pass to `Passkey.authenticate()`.
+    """
+    user = await UserRepository(db).get_by_email(body.email.lower().strip())
+    if not user or not user.is_active or user.is_deleted:
+        # Return a generic error to prevent user enumeration
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No passkey found for this account.",
+        )
+
+    credentials = await WebAuthnRepository(db).get_credentials_by_user(user.id)
+    if not credentials:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No passkey found for this account.",
+        )
+
+    challenge = os.urandom(32)
+    challenge_b64 = bytes_to_base64url(challenge)
+
+    options = WebAuthnService.generate_authentication_options(
+        credentials=credentials,
+        challenge=challenge,
+    )
+    challenge_token = AuthService.create_webauthn_challenge_token(
+        user_id=user.id,
+        challenge_b64=challenge_b64,
+        ctype=TOKEN_TYPE_WEBAUTHN_AUTH,
+    )
+
+    return WebAuthnAuthBeginResponse(
+        challenge_token=challenge_token,
+        options=options,
+    )
+
+
+@router.post(
+    "/webauthn/authenticate/complete",
+    response_model=Token,
+    summary="Complete WebAuthn passkey authentication",
+)
+@limiter.limit(f"{settings.RATE_LIMIT_AUTH_PER_MINUTE}/minute")
+async def webauthn_authenticate_complete(
+    request: Request,
+    body: WebAuthnAuthCompleteRequest,
+    db: AsyncSession = Depends(get_db),
+) -> Token:
+    """
+    Step 2 of passkey authentication (public endpoint).
+
+    Verifies the assertion from `Passkey.authenticate()`, updates the
+    sign_count in the DB, and returns an access_token + refresh_token pair.
+    """
+    from webauthn.helpers import base64url_to_bytes
+    from webauthn.helpers.exceptions import InvalidRegistrationResponse, InvalidAuthenticationResponse
+    from datetime import datetime, timezone
+
+    # Decode challenge JWT
+    user_id, challenge = AuthService.decode_webauthn_challenge_token(
+        body.challenge_token, expected_type=TOKEN_TYPE_WEBAUTHN_AUTH
+    )
+
+    # Find the credential being used (by the credential ID in the response)
+    raw_credential_id = base64url_to_bytes(body.credential.get("id", ""))
+    repo = WebAuthnRepository(db)
+    stored_cred = await repo.get_credential_by_id(raw_credential_id)
+
+    if not stored_cred or stored_cred.user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Passkey authentication failed.",
+        )
+
+    try:
+        verified = WebAuthnService.verify_authentication_response(
+            challenge=challenge,
+            credential_response=body.credential,
+            stored_credential=stored_cred,
+        )
+    except (InvalidAuthenticationResponse, Exception) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Passkey authentication failed: {exc}",
+        ) from exc
+
+    # Update sign count
+    await repo.update_sign_count(
+        credential_id=raw_credential_id,
+        sign_count=verified.new_sign_count,
+        last_used_at=datetime.now(timezone.utc),
+    )
+
+    # Load user and issue tokens
+    user = await UserRepository(db).get_by_id(user_id)
+    if not user or not user.is_active or user.is_deleted:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Account is inactive.",
+        )
+
+    await db.commit()
+
+    return Token(
+        access_token=AuthService.create_access_token(user.id, user.primary_role),
+        refresh_token=AuthService.create_refresh_token(user.id, user.primary_role),
+        token_type="bearer",
+    )

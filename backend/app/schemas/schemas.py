@@ -49,6 +49,21 @@ class _BaseSchema(BaseModel):
 
 
 # ------------------------------------------------------------------ #
+#  Base para schemas de REQUEST                                       #
+# ------------------------------------------------------------------ #
+
+class _BaseRequestSchema(BaseModel):
+    """
+    Base para todos los schemas de REQUEST (entrada de datos).
+
+    str_strip_whitespace: elimina espacios al inicio/fin automáticamente.
+    No incluye from_attributes=True (los datos de entrada vienen de JSON,
+    nunca de un objeto ORM).
+    """
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+
+# ------------------------------------------------------------------ #
 #  Tipo anotado reutilizable                                          #
 # ------------------------------------------------------------------ #
 
@@ -111,6 +126,9 @@ class VerifyRequest(BaseModel):
     """Request para verificar credenciales en el flujo Identifier-First."""
     identifier: str
     identifier_type: str
+    provider: str | None = Field(
+        default=None, description="Proveedor social: 'google' o 'apple'"
+    )
     password: str | None = Field(default=None, description="Contraseña")
     access_token: str | None = Field(
         default=None, description="Token social (Google/Apple)"
@@ -178,9 +196,7 @@ class PasswordResetResponse(BaseModel):
 #  USER SCHEMAS                                                       #
 # ================================================================== #
 
-class UserCreate(BaseModel):
-    model_config = ConfigDict(str_strip_whitespace=True)
-
+class UserCreate(_BaseRequestSchema):
     email: EmailStr = Field(..., examples=["jane.doe@example.com"])
     full_name: str = Field(..., min_length=2, max_length=120, examples=["Jane Doe"])
     phone_number: str | None = Field(
@@ -230,9 +246,7 @@ class UserRead(_BaseSchema):
     updated_at: datetime
 
 
-class UserUpdate(BaseModel):
-    model_config = ConfigDict(str_strip_whitespace=True)
-
+class UserUpdate(_BaseRequestSchema):
     full_name: str | None = Field(default=None, min_length=2, max_length=120)
     phone_number: str | None = Field(default=None, pattern=r"^\+?[1-9]\d{1,14}$")
     # Note: service_address moved to ClientProfile
@@ -242,9 +256,7 @@ class UserUpdate(BaseModel):
 #  VEHICLE SCHEMAS                                                    #
 # ================================================================== #
 
-class VehicleCreate(BaseModel):
-    model_config = ConfigDict(str_strip_whitespace=True)
-
+class VehicleCreate(_BaseRequestSchema):
     make: str = Field(..., min_length=1, max_length=60, examples=["Kia"])
     model: str = Field(..., min_length=1, max_length=60, examples=["K5"])
     year: int = Field(..., ge=1970, le=2030, examples=[2023])
@@ -300,15 +312,13 @@ class AppointmentVehicleCreate(BaseModel):
     addon_ids: list[uuid.UUID] = Field(default_factory=list)
 
 
-class AppointmentCreate(BaseModel):
+class AppointmentCreate(_BaseRequestSchema):
     """
     Payload de creación de cita — frontend contract (Sprint 6).
 
     New format: `vehicles` array, each item carries its own service + addons.
     Legacy single-vehicle format also accepted for backward compat.
     """
-    model_config = ConfigDict(str_strip_whitespace=True)
-
     detailer_id: uuid.UUID
     scheduled_time: datetime = Field(
         ...,
@@ -625,7 +635,7 @@ class AvailabilityRequest(_BaseSchema):
 #  SPRINT 3: SCHEMAS DE UBICACIÓN                                     #
 # ================================================================== #
 
-class LocationUpdate(BaseModel):
+class LocationUpdate(_BaseRequestSchema):
     """
     Payload para POST /api/v1/detailers/location.
 
@@ -633,7 +643,6 @@ class LocationUpdate(BaseModel):
     lo cual es semánticamente incorrecto para un schema de REQUEST.
     Los schemas de entrada nunca se construyen desde objetos ORM.
     """
-    model_config = ConfigDict(str_strip_whitespace=True)
 
     latitude: float = Field(..., ge=-90.0, le=90.0)
     longitude: float = Field(..., ge=-180.0, le=180.0)
@@ -650,12 +659,11 @@ class LocationResponse(_BaseSchema):
 #  SPRINT 3: SCHEMAS DE REVIEWS                                       #
 # ================================================================== #
 
-class ReviewCreate(BaseModel):
+class ReviewCreate(_BaseRequestSchema):
     """
     Payload para POST /api/v1/reviews.
-    Hereda BaseModel (no _BaseSchema) — es un schema de REQUEST.
+    Hereda _BaseRequestSchema (no _BaseSchema) — es un schema de REQUEST.
     """
-    model_config = ConfigDict(str_strip_whitespace=True)
 
     appointment_id: uuid.UUID
     rating: int = Field(
@@ -771,10 +779,8 @@ class DetailerServiceRead(_BaseSchema):
     is_active: bool
 
 
-class DetailerServiceUpdate(BaseModel):
+class DetailerServiceUpdate(_BaseRequestSchema):
     """PATCH /detailers/me/services/{service_id}"""
-    model_config = ConfigDict(str_strip_whitespace=True)
-
     is_active: bool
     custom_price_cents: int | None = Field(
         default=None,
@@ -847,14 +853,13 @@ class WorkingHoursDay(BaseModel):
         return self
 
 
-class DetailerProfileCreate(BaseModel):
+class DetailerProfileCreate(_BaseRequestSchema):
     """
     Payload for POST /api/v1/detailers/profile.
 
     Creates the DetailerProfile row for an existing DETAILER user.
     All fields except timezone are optional (sensible defaults are applied).
     """
-    model_config = ConfigDict(str_strip_whitespace=True)
 
     bio: str | None = Field(
         default=None,
@@ -901,13 +906,11 @@ class DetailerProfileCreate(BaseModel):
         return v
 
 
-class DetailerProfileUpdate(BaseModel):
+class DetailerProfileUpdate(_BaseRequestSchema):
     """
     Payload for PATCH /api/v1/detailers/profile.
     All fields are optional — only supplied fields are updated.
     """
-    model_config = ConfigDict(str_strip_whitespace=True)
-
     bio: str | None = Field(default=None, max_length=1000)
     years_of_experience: int | None = Field(default=None, ge=0, le=50)
     is_accepting_bookings: bool | None = Field(default=None)
@@ -978,3 +981,82 @@ class RefundResponse(_BaseSchema):
         default=None,
         description="Stripe re_xxx ID. Null if no payment was captured or refund is zero.",
     )
+
+
+# ------------------------------------------------------------------ #
+#  WebAuthn / FIDO2 Passkeys                                         #
+# ------------------------------------------------------------------ #
+
+class WebAuthnRegisterBeginResponse(_BaseSchema):
+    """
+    Returned by POST /auth/webauthn/register/begin.
+    The client passes `options` directly to Passkey.register() and sends
+    `challenge_token` back with the complete request.
+    """
+    challenge_token: str = Field(
+        description="Short-lived JWT (5 min) embedding the challenge bytes and user ID."
+    )
+    options: dict = Field(
+        description="PublicKeyCredentialCreationOptions serialized to JSON-compatible dict."
+    )
+
+
+class WebAuthnRegisterCompleteRequest(_BaseRequestSchema):
+    """Body for POST /auth/webauthn/register/complete."""
+    challenge_token: str = Field(description="JWT returned by register/begin.")
+    credential: dict = Field(
+        description=(
+            "AuthenticatorAttestationResponse from Passkey.register(). "
+            "Must include id, rawId, response (clientDataJSON, attestationObject), type."
+        )
+    )
+    device_name: str = Field(
+        default="My Device",
+        max_length=120,
+        description="User-visible label for this passkey (e.g. 'iPhone 16').",
+    )
+
+
+class WebAuthnRegisterCompleteResponse(_BaseSchema):
+    """Returned after successful passkey registration."""
+    credential_id: str = Field(description="base64url-encoded credential ID.")
+    device_name: str
+
+
+class WebAuthnAuthBeginRequest(_BaseRequestSchema):
+    """Body for POST /auth/webauthn/authenticate/begin."""
+    email: str = Field(description="Email of the user attempting passkey login.")
+
+
+class WebAuthnAuthBeginResponse(_BaseSchema):
+    """
+    Returned by POST /auth/webauthn/authenticate/begin.
+    The client passes `options` directly to Passkey.authenticate() and sends
+    `challenge_token` back with the complete request.
+    """
+    challenge_token: str = Field(
+        description="Short-lived JWT (5 min) embedding the challenge bytes and user ID."
+    )
+    options: dict = Field(
+        description="PublicKeyCredentialRequestOptions serialized to JSON-compatible dict."
+    )
+
+
+class WebAuthnAuthCompleteRequest(_BaseRequestSchema):
+    """Body for POST /auth/webauthn/authenticate/complete."""
+    challenge_token: str = Field(description="JWT returned by authenticate/begin.")
+    credential: dict = Field(
+        description=(
+            "AuthenticatorAssertionResponse from Passkey.authenticate(). "
+            "Must include id, rawId, response (clientDataJSON, authenticatorData, signature), type."
+        )
+    )
+
+
+class WebAuthnCredentialRead(_BaseSchema):
+    """Public representation of a stored passkey credential."""
+    id: uuid.UUID
+    credential_id: str = Field(description="base64url-encoded credential ID.")
+    device_name: str | None
+    created_at: datetime
+    last_used_at: datetime | None

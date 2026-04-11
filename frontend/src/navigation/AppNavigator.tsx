@@ -16,9 +16,9 @@ import DetailerSelectionScreen from "../screens/DetailerSelectionScreen";
 import DetailerServicesScreen from "../screens/DetailerServicesScreen";
 import EditProfileScreen from "../screens/EditProfileScreen";
 import HomeScreen from "../screens/HomeScreen";
+import LoadingScreen from "../screens/LoadingScreen";
 import LoginScreen from "../screens/LoginScreen";
 import ProfileScreen from "../screens/ProfileScreen";
-import RegisterScreen from "../screens/RegisterScreen";
 import ScheduleScreen from "../screens/ScheduleScreen";
 import SelectVehiclesScreen from "../screens/SelectVehiclesScreen";
 import VehicleDetailScreen from "../screens/VehicleDetailScreen";
@@ -122,15 +122,15 @@ export default function AppNavigator() {
   return (
     <NavigationContainer ref={navigationRef}>
       <Stack.Navigator
-        initialRouteName="Login"
+        initialRouteName="Loading"
         screenOptions={{ headerShown: false }}
       >
+        {/* Splash / loading */}
+        <Stack.Screen name="Loading" component={LoadingScreen} />
+
         {/* Flujo de Autenticación */}
         <Stack.Screen name="Login" component={LoginScreen} />
         <Stack.Screen name="CompleteProfile" component={CompleteProfileScreen} />
-        
-        {/* Register (acepta isDetailer para cliente o detailer) */}
-        <Stack.Screen name="Register" component={RegisterScreen} />
 
         {/* Client tabs */}
         <Stack.Screen name="Main" component={TabNavigator} />

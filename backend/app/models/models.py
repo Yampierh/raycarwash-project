@@ -4,16 +4,18 @@ from __future__ import annotations
 
 import enum
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     Enum,
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     Numeric,
     String,
     Text,
@@ -444,7 +446,7 @@ class User(TimestampMixin, Base):
     # ---- PII: Encrypted at rest ----
     full_name: Mapped[str] = mapped_column(
         EncryptedType(String(120), _get_secret_key),
-        nullable=False,
+        nullable=True,
         comment="Full name, encrypted at rest using SECRET_KEY",
     )
     phone_number: Mapped[str | None] = mapped_column(
@@ -524,6 +526,12 @@ class User(TimestampMixin, Base):
     )
     audit_logs: Mapped[list[AuditLog]] = relationship(
         "AuditLog", back_populates="actor", lazy="selectin"
+    )
+    webauthn_credentials: Mapped[list["WebAuthnCredential"]] = relationship(
+        "WebAuthnCredential",
+        back_populates="user",
+        lazy="selectin",
+        cascade="all, delete-orphan",
     )
 
     def has_permission(self, permission_name: str) -> bool:
@@ -763,6 +771,42 @@ class DetailerProfile(TimestampMixin, Base):
         DateTime(timezone=True), nullable=True,
         comment="UTC timestamp of last location ping.",
     )
+
+    # ---- Identity Verification (Stripe Identity) ----
+    # Lifecycle: not_submitted → pending → approved | rejected
+    verification_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="not_submitted",
+        comment="not_submitted | pending | approved | rejected",
+    )
+    legal_full_name: Mapped[str | None] = mapped_column(
+        String(200), nullable=True,
+        comment="Full legal name as it appears on government-issued ID.",
+    )
+    date_of_birth: Mapped[date | None] = mapped_column(
+        Date, nullable=True,
+        comment="Date of birth for background check cross-reference.",
+    )
+    address_line1: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    city: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    state: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    zip_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    stripe_verification_session_id: Mapped[str | None] = mapped_column(
+        String(100), nullable=True, index=True,
+        comment="Stripe Identity VerificationSession ID (vs_xxx).",
+    )
+    background_check_consent: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False,
+    )
+    background_check_consent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+    verification_submitted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+    verification_reviewed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+    rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     user: Mapped[User] = relationship("User", back_populates="detailer_profile")
     detailer_services: Mapped[list[DetailerService]] = relationship(
@@ -1304,3 +1348,72 @@ class AuditLog(Base):
             f"action={self.action} "
             f"entity={self.entity_type}:{self.entity_id}>"
         )
+
+
+# ------------------------------------------------------------------ #
+#  Model: WebAuthnCredential                                          #
+# ------------------------------------------------------------------ #
+
+class WebAuthnCredential(Base):
+    """
+    Stores a FIDO2/WebAuthn passkey credential for a user.
+
+    Each row represents one passkey registered on a specific device
+    (e.g. "iPhone de Yampi"). A user can have multiple credentials
+    (multiple devices).
+
+    credential_id:  The raw credential ID bytes returned by the authenticator.
+                    Stored as LargeBinary; transmitted as base64url.
+    public_key:     CBOR-encoded COSE public key from the attestation.
+                    Used to verify future assertions.
+    sign_count:     Monotonically increasing counter to detect cloned authenticators.
+                    py_webauthn raises an error when the received count ≤ stored count.
+    transports:     List of transport hints ("internal", "hybrid", "usb", etc.)
+                    Sent back in allowCredentials so the OS knows how to prompt.
+    device_name:    User-facing label set at registration time (e.g. "iPhone 16").
+    """
+
+    __tablename__ = "webauthn_credentials"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    credential_id: Mapped[bytes] = mapped_column(
+        LargeBinary, nullable=False, unique=True, index=True,
+        comment="Raw credential ID bytes (base64url when transmitted).",
+    )
+    public_key: Mapped[bytes] = mapped_column(
+        LargeBinary, nullable=False,
+        comment="CBOR-encoded COSE public key from attestation.",
+    )
+    sign_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0,
+        comment="Monotonic counter — used to detect cloned authenticators.",
+    )
+    transports: Mapped[list | None] = mapped_column(
+        JSONB, nullable=True,
+        comment='Transport hints, e.g. ["internal", "hybrid"].',
+    )
+    device_name: Mapped[str | None] = mapped_column(
+        String(120), nullable=True,
+        comment="User-visible label for this passkey (e.g. 'iPhone 16').",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    last_used_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    user: Mapped[User] = relationship("User", back_populates="webauthn_credentials")
+
+    def __repr__(self) -> str:
+        return f"<WebAuthnCredential id={self.id} user_id={self.user_id} device={self.device_name!r}>"

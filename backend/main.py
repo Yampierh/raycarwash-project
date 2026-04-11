@@ -37,7 +37,9 @@ from app.routers.payment_router     import router as payment_router
 from app.routers.review_router      import router as review_router
 from app.routers.service_router     import router as service_router
 from app.routers.vehicle_router     import router as vehicle_router
+from app.routers.verification_router import router as verification_router  # Stripe Identity
 from app.routers.webhook_router     import router as webhook_router  # Sprint 4
+from app.routers.wellknown_router   import router as wellknown_router  # WebAuthn domain verification
 
 from app.schemas.schemas import ErrorDetail, HealthResponse, UserCreate, UserRead
 from app.services.auth import AuthService
@@ -136,6 +138,7 @@ def create_application() -> FastAPI:
 
     # ---- Router registration order matters for prefix specificity ----
     # Webhook router first — no body parsing interference from other middleware
+    application.include_router(wellknown_router)      # /.well-known/* (WebAuthn domain verification)
     application.include_router(webhook_router)        # /webhooks/*
     application.include_router(auth_router)           # /auth/*
     application.include_router(service_router)        # /api/v1/services/*
@@ -144,6 +147,7 @@ def create_application() -> FastAPI:
     application.include_router(vehicle_router)        # /api/v1/vehicles/*
     application.include_router(appointment_router)    # /api/v1/appointments/*
     application.include_router(detailer_router)       # /api/v1/detailers/*
+    application.include_router(verification_router)   # /api/v1/detailers/verification/*
     application.include_router(payment_router)        # /api/v1/payments/*
     application.include_router(review_router)         # /api/v1/reviews/*
 

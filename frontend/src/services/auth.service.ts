@@ -193,3 +193,75 @@ export const completeProfile = async (
   });
   return response.data;
 };
+
+// ─── WebAuthn / FIDO2 Passkeys ────────────────────────────────────────────────
+
+export interface WebAuthnBeginResponse {
+  challenge_token: string;
+  options: Record<string, unknown>;
+}
+
+export interface WebAuthnRegisterCompleteResponse {
+  credential_id: string;
+  device_name: string;
+}
+
+/**
+ * Step 1: Begin passkey registration (requires Bearer token).
+ * Returns a challenge_token (JWT) and PublicKeyCredentialCreationOptions.
+ */
+export const webAuthnRegisterBegin = async (): Promise<WebAuthnBeginResponse> => {
+  const response = await authClient.post<WebAuthnBeginResponse>(
+    "/webauthn/register/begin",
+  );
+  return response.data;
+};
+
+/**
+ * Step 2: Complete passkey registration.
+ * Sends the attestation from Passkey.register() back to the server.
+ */
+export const webAuthnRegisterComplete = async (
+  challengeToken: string,
+  credential: Record<string, unknown>,
+  deviceName: string,
+): Promise<WebAuthnRegisterCompleteResponse> => {
+  const response = await authClient.post<WebAuthnRegisterCompleteResponse>(
+    "/webauthn/register/complete",
+    { challenge_token: challengeToken, credential, device_name: deviceName },
+  );
+  return response.data;
+};
+
+/**
+ * Step 1: Begin passkey authentication (public endpoint).
+ * Returns a challenge_token and PublicKeyCredentialRequestOptions.
+ */
+export const webAuthnAuthenticateBegin = async (
+  email: string,
+): Promise<WebAuthnBeginResponse> => {
+  const response = await authClient.post<WebAuthnBeginResponse>(
+    "/webauthn/authenticate/begin",
+    { email: email.toLowerCase().trim() },
+  );
+  return response.data;
+};
+
+/**
+ * Step 2: Complete passkey authentication.
+ * Sends the assertion from Passkey.authenticate() back to the server.
+ * Returns access_token + refresh_token on success.
+ */
+export const webAuthnAuthenticateComplete = async (
+  challengeToken: string,
+  credential: Record<string, unknown>,
+): Promise<{ access_token: string; refresh_token: string }> => {
+  const response = await authClient.post<{
+    access_token: string;
+    refresh_token: string;
+  }>("/webauthn/authenticate/complete", {
+    challenge_token: challengeToken,
+    credential,
+  });
+  return response.data;
+};

@@ -85,6 +85,17 @@ class Settings(BaseSettings):
             "Used to verify that webhook payloads originated from Stripe."
         ),
     )
+    STRIPE_IDENTITY_WEBHOOK_SECRET: str = Field(
+        default="whsec_placeholder",
+        description=(
+            "Separate signing secret for the Stripe Identity webhook endpoint. "
+            "From Stripe Dashboard → Webhooks → Identity webhook signing secret."
+        ),
+    )
+    STRIPE_PUBLISHABLE_KEY: str = Field(
+        default="pk_test_placeholder",
+        description="Stripe publishable key. Sent to the frontend.",
+    )
     STRIPE_CURRENCY: str = Field(default="usd")
 
     # ---------------------------------------------------------------- #
@@ -183,6 +194,39 @@ class Settings(BaseSettings):
     )
 
     # ---------------------------------------------------------------- #
+    #  WebAuthn / FIDO2 (Passkeys)                                     #
+    # ---------------------------------------------------------------- #
+    WEBAUTHN_RP_ID: str = Field(
+        default="raycarwash.com",
+        description=(
+            "Relying Party ID — must be a registrable domain suffix of the origin. "
+            "E.g. 'raycarwash.com'. Used in both iOS Associated Domains and Android DAL."
+        ),
+    )
+    WEBAUTHN_RP_NAME: str = Field(
+        default="RayCarwash",
+        description="Human-readable Relying Party name shown in the passkey prompt.",
+    )
+    WEBAUTHN_ORIGIN: str = Field(
+        default="https://raycarwash.com",
+        description=(
+            "Expected origin for WebAuthn assertions. "
+            "For native apps this is the https:// origin tied to Associated Domains."
+        ),
+    )
+    WEBAUTHN_CHALLENGE_EXPIRE_MINUTES: int = Field(
+        default=5,
+        description="TTL for WebAuthn challenge JWT tokens.",
+    )
+    ANDROID_SHA256_CERT: str = Field(
+        default="",
+        description=(
+            "SHA-256 fingerprint of the Android signing certificate (colon-separated hex). "
+            "Used to generate /.well-known/assetlinks.json for Digital Asset Links."
+        ),
+    )
+
+    # ---------------------------------------------------------------- #
     #  CORS                                                             #
     # ---------------------------------------------------------------- #
     ALLOWED_ORIGINS: list[str] = Field(
@@ -206,13 +250,20 @@ class Settings(BaseSettings):
 
     @field_validator("STRIPE_SECRET_KEY", mode="before")
     @classmethod
-    def warn_on_placeholder_stripe_key(cls, value: str) -> str:
-        if value == "sk_test_placeholder":
+    def validate_stripe_secret_key(cls, value: str) -> str:
+        _placeholders = {"sk_test_placeholder", "sk_live_placeholder", ""}
+        if value in _placeholders:
             import warnings
             warnings.warn(
                 "STRIPE_SECRET_KEY is a placeholder. "
                 "Payments will not work until a real key is set.",
                 stacklevel=2,
+            )
+            return value
+        if not value.startswith(("sk_test_", "sk_live_", "rk_")):
+            raise ValueError(
+                "STRIPE_SECRET_KEY must start with 'sk_test_', 'sk_live_', or 'rk_'. "
+                "Check your Stripe Dashboard for the correct key."
             )
         return value
 

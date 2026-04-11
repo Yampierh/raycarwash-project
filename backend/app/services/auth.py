@@ -54,6 +54,12 @@ _TOKEN_TYPE_ACCESS  = "access"
 _TOKEN_TYPE_REFRESH = "refresh"
 _TOKEN_TYPE_RESET   = "password_reset"
 _TOKEN_TYPE_REGISTRATION = "registration"
+_TOKEN_TYPE_WEBAUTHN_REG  = "webauthn_registration"
+_TOKEN_TYPE_WEBAUTHN_AUTH = "webauthn_authentication"
+
+# Expose constants for use in routers without breaking encapsulation
+TOKEN_TYPE_WEBAUTHN_REG  = _TOKEN_TYPE_WEBAUTHN_REG
+TOKEN_TYPE_WEBAUTHN_AUTH = _TOKEN_TYPE_WEBAUTHN_AUTH
 
 
 class AuthService:
@@ -167,6 +173,81 @@ class AuthService:
             token_type=_TOKEN_TYPE_REGISTRATION,
             expires_delta=timedelta(minutes=30),
         )
+
+    @staticmethod
+    def create_webauthn_challenge_token(
+        user_id: uuid.UUID,
+        challenge_b64: str,
+        ctype: str,
+    ) -> str:
+        """
+        Embed a WebAuthn challenge in a short-lived signed JWT (5 min).
+
+        This keeps challenge storage stateless — no extra DB table needed.
+        The challenge bytes are base64url-encoded so they survive JSON serialization.
+
+        Args:
+            user_id:      UUID of the user who initiated the ceremony.
+            challenge_b64: base64url-encoded random challenge bytes (32 bytes → 43 chars).
+            ctype:         "webauthn_registration" or "webauthn_authentication".
+
+        Returns:
+            A signed JWT that the client echoes back in the /complete request.
+        """
+        if ctype not in (_TOKEN_TYPE_WEBAUTHN_REG, _TOKEN_TYPE_WEBAUTHN_AUTH):
+            raise ValueError(f"Invalid webauthn ctype: {ctype!r}")
+
+        now    = datetime.now(timezone.utc)
+        expire = now + timedelta(minutes=settings.WEBAUTHN_CHALLENGE_EXPIRE_MINUTES)
+        payload = {
+            "sub":       str(user_id),
+            "challenge": challenge_b64,
+            "type":      ctype,
+            "iat":       int(now.timestamp()),
+            "exp":       int(expire.timestamp()),
+        }
+        return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+
+    @staticmethod
+    def decode_webauthn_challenge_token(
+        token: str, expected_type: str
+    ) -> tuple[uuid.UUID, bytes]:
+        """
+        Decode a WebAuthn challenge JWT and return (user_id, challenge_bytes).
+
+        Raises:
+            HTTPException 401 if the token is invalid, expired, or wrong type.
+        """
+        from webauthn.helpers import base64url_to_bytes
+
+        try:
+            payload = jwt.decode(
+                token,
+                settings.SECRET_KEY,
+                algorithms=[settings.JWT_ALGORITHM],
+            )
+        except JWTError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired WebAuthn challenge token.",
+            ) from exc
+
+        if payload.get("type") != expected_type:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="WebAuthn challenge token type mismatch.",
+            )
+
+        try:
+            user_id   = uuid.UUID(payload["sub"])
+            challenge = base64url_to_bytes(payload["challenge"])
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Malformed WebAuthn challenge token.",
+            ) from exc
+
+        return user_id, challenge
 
     # ---- Social login helpers -------------------------------------- #
 

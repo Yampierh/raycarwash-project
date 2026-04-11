@@ -30,6 +30,9 @@ from app.repositories.audit_repository import AuditRepository
 logger   = logging.getLogger(__name__)
 settings = get_settings()
 
+# Set Stripe API key once at module load (not per-request).
+stripe.api_key = settings.STRIPE_SECRET_KEY
+
 
 class PaymentService:
 
@@ -62,7 +65,6 @@ class PaymentService:
             await self._db.flush()
             return stub_cus
 
-        stripe.api_key = settings.STRIPE_SECRET_KEY
         customer = await asyncio.to_thread(
             stripe.Customer.create,
             email=actor.email,
@@ -140,7 +142,6 @@ class PaymentService:
                     "status": "requires_payment_method",
                 }
 
-            stripe.api_key = settings.STRIPE_SECRET_KEY
             existing_intent = await asyncio.to_thread(
                 stripe.PaymentIntent.retrieve, existing_pi_id
             )
@@ -167,7 +168,6 @@ class PaymentService:
             client_secret  = stub_secret
             pi_status      = "requires_payment_method"
         else:
-            stripe.api_key  = settings.STRIPE_SECRET_KEY
             payment_intent  = await asyncio.to_thread(
                 stripe.PaymentIntent.create,
                 amount=appointment.estimated_price,
@@ -259,7 +259,6 @@ class PaymentService:
             )
             return stub_refund_id
 
-        stripe.api_key = settings.STRIPE_SECRET_KEY
         refund = await asyncio.to_thread(
             stripe.Refund.create,
             payment_intent=payment_intent_id,

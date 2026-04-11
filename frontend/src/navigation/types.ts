@@ -21,17 +21,17 @@ export interface UserProfile extends BaseUserProfile {
 }
 
 export type RootStackParamList = {
+  // Splash
+  Loading: undefined;
+
   // Auth flow
   Login: undefined;
   CompleteProfile: {
     tempToken: string;
-    role: string;
+    role?: string;
     identifier: string;
     identifierType: string;
   };
-
-  // Register (acepta isDetailer para cliente o detailer)
-  Register: { isDetailer: boolean };
 
   // Flujo Principal de Clientes
   Main: undefined;
