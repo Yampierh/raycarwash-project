@@ -21,16 +21,8 @@ export interface UserProfile extends BaseUserProfile {
 }
 
 export type RootStackParamList = {
+  // Auth flow
   Login: undefined;
-  
-  // Identifier-First Auth
-  Identify: { isDetailer?: boolean };
-  Verify: {
-    identifier: string;
-    identifierType: string;
-    isNewUser: boolean;
-    isDetailer?: boolean;
-  };
   CompleteProfile: {
     tempToken: string;
     role: string;
@@ -38,9 +30,8 @@ export type RootStackParamList = {
     identifierType: string;
   };
 
-  // Register (legacy - pentru usuarios existentes)
-  Register: undefined;
-  RegisterDetailer: undefined;
+  // Register (acepta isDetailer para cliente o detailer)
+  Register: { isDetailer: boolean };
 
   // Flujo Principal de Clientes
   Main: undefined;
