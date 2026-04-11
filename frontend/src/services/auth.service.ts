@@ -48,16 +48,17 @@ export const loginWithBackend = async (email: string, password: string) => {
 };
 
 export const registerUser = async (payload: {
-  full_name: string;
   email: string;
   password: string;
+  full_name?: string;
   phone_number?: string;
-  role_names?: string[];  // e.g., ["client"], ["detailer"], or ["client", "detailer"]
+  role_names?: string[];
 }) => {
   const response = await apiClient.post("/users", {
     ...payload,
     email: payload.email.toLowerCase().trim(),
     role_names: payload.role_names ?? ["client"],
+    full_name: payload.full_name || "User",
   });
   return response.data;
 };

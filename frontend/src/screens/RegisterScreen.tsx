@@ -62,13 +62,12 @@ const STRENGTH_CONFIG: Record<
 export default function RegisterScreen({ navigation, route }: any) {
   const { isDetailer } = route?.params || {};
   const [flowState, setFlowState] = useState<FlowState>("email");
-  const [checkedEmail, setCheckedEmail] = useState("");
+  const [identifierType, setIdentifierType] = useState<"email" | "phone">("email");
+  const [checkedIdentifier, setCheckedIdentifier] = useState("");
   const [authMethod, setAuthMethod] = useState<AuthMethod>("none");
   
   const [form, setForm] = useState({
-    full_name: "",
     email: "",
-    phone_number: "",
     password: "",
     confirm_password: "",
   });
@@ -168,21 +167,32 @@ export default function RegisterScreen({ navigation, route }: any) {
     }
   };
 
-  const handleCheckEmail = async () => {
-    if (!form.email.trim()) {
-      setErrors((e) => ({ ...e, email: "Email is required" }));
+  const handleCheckIdentifier = async () => {
+    const identifier = form.email.trim();
+    
+    if (!identifier) {
+      setErrors((e) => ({ ...e, email: identifierType === "email" ? "Email is required" : "Phone number is required" }));
       return;
     }
-    if (!/\S+@\S+\.\S+/.test(form.email)) {
-      setErrors((e) => ({ ...e, email: "Enter a valid email" }));
-      return;
+
+    // Validate based on type
+    if (identifierType === "email") {
+      if (!/\S+@\S+\.\S+/.test(identifier)) {
+        setErrors((e) => ({ ...e, email: "Enter a valid email" }));
+        return;
+      }
+    } else {
+      const cleanPhone = identifier.replace(/[\s\-\(\)]/g, "");
+      if (!/^\+?\d{10,}$/.test(cleanPhone)) {
+        setErrors((e) => ({ ...e, email: "Enter a valid phone number" }));
+        return;
+      }
     }
 
     setLoading(true);
     try {
-      const email = form.email.trim().toLowerCase();
-      const result = await checkEmail(email);
-      setCheckedEmail(email);
+      const result = await checkEmail(identifier.toLowerCase());
+      setCheckedIdentifier(identifier);
       
       if (result.suggested_action === "login" || result.auth_method === "password" || result.auth_method === "both") {
         setFlowState("password");
@@ -193,7 +203,7 @@ export default function RegisterScreen({ navigation, route }: any) {
         setFlowState("register");
       }
     } catch (error: any) {
-      const msg = error.response?.data?.detail || "Could not verify email. Please try again.";
+      const msg = error.response?.data?.detail || "Could not verify. Please try again.";
       Alert.alert("Error", msg);
     } finally {
       setLoading(false);
@@ -207,7 +217,7 @@ export default function RegisterScreen({ navigation, route }: any) {
     }
     setLoading(true);
     try {
-      const data = await loginWithBackend(checkedEmail, form.password);
+      const data = await loginWithBackend(checkedIdentifier, form.password);
       await saveToken(data.access_token);
       await saveRefreshToken(data.refresh_token);
       await navigateAfterAuth(navigation);
@@ -220,9 +230,6 @@ export default function RegisterScreen({ navigation, route }: any) {
 
   const validate = () => {
     const e: typeof errors = {};
-    if (!form.full_name.trim()) e.full_name = "Full name is required";
-    if (!form.email.trim()) e.email = "Email is required";
-    else if (!/\S+@\S+\.\S+/.test(form.email)) e.email = "Enter a valid email";
     if (!form.password) e.password = "Password is required";
     else if (form.password.length < 8)
       e.password = "Password must be at least 8 characters";
@@ -240,10 +247,8 @@ export default function RegisterScreen({ navigation, route }: any) {
     setLoading(true);
     try {
       await registerUser({
-        full_name: form.full_name.trim(),
-        email: checkedEmail || form.email.trim(),
+        email: checkedIdentifier,
         password: form.password,
-        phone_number: form.phone_number.trim() || undefined,
         role_names: isDetailer ? ["detailer"] : ["client"],
       });
       
@@ -328,9 +333,11 @@ export default function RegisterScreen({ navigation, route }: any) {
     if (isDetailer) {
       switch (flowState) {
         case "email":
-          return "Enter your email to register as a detailer";
+          return identifierType === "email" 
+            ? "Enter your email to register as a detailer" 
+            : "Enter your phone to register as a detailer";
         case "password":
-          return `Sign in to ${checkedEmail}`;
+          return `Sign in to ${checkedIdentifier}`;
         case "social_options":
           return "You previously signed in with a social account";
         case "register":
@@ -339,13 +346,15 @@ export default function RegisterScreen({ navigation, route }: any) {
     }
     switch (flowState) {
       case "email":
-        return "Enter your email to get started";
+        return identifierType === "email" 
+          ? "Enter your email to get started" 
+          : "Enter your phone to get started";
       case "password":
-        return `Sign in to ${checkedEmail}`;
+        return `Sign in to ${checkedIdentifier}`;
       case "social_options":
         return "You previously signed in with a social account";
       case "register":
-        return "Join RayCarWash today";
+        return "Create your account";
     }
   };
 
@@ -377,9 +386,56 @@ export default function RegisterScreen({ navigation, route }: any) {
           >
             <Text style={styles.subtitle}>{getSubtitle()}</Text>
 
-            {/* EMAIL INPUT (always visible, disabled after first step) */}
+            {/* SOCIAL BUTTONS - Shown before email input */}
+            {flowState === "email" && (
+              <>
+                <View style={styles.socialRow}>
+                  <TouchableOpacity
+                    style={[styles.socialBtn, isAnyLoading && styles.btnDisabled]}
+                    onPress={handleGooglePress}
+                    disabled={isAnyLoading}
+                  >
+                    {socialLoading === "google" ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <>
+                        <Text style={styles.googleG}>G</Text>
+                        <Text style={styles.socialBtnText}>Continue with Google</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+
+                  {Platform.OS === "ios" && (
+                    <TouchableOpacity
+                      style={[styles.socialBtn, styles.appleBtn, isAnyLoading && styles.btnDisabled]}
+                      onPress={handleApplePress}
+                      disabled={isAnyLoading}
+                    >
+                      {socialLoading === "apple" ? (
+                        <ActivityIndicator size="small" color="#000" />
+                      ) : (
+                        <>
+                          <Ionicons name="logo-apple" size={18} color="#000" />
+                          <Text style={styles.appleBtnText}>Apple</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                <View style={styles.divider}>
+                  <View style={styles.dividerLine} />
+                  <Text style={styles.dividerText}>or</Text>
+                  <View style={styles.dividerLine} />
+                </View>
+              </>
+            )}
+
+            {/* IDENTIFIER INPUT (email or phone) */}
             <View style={styles.fieldGroup}>
-              <Text style={styles.label}>EMAIL ADDRESS</Text>
+              <Text style={styles.label}>
+                {identifierType === "email" ? "EMAIL ADDRESS" : "PHONE NUMBER"}
+              </Text>
               <View
                 style={[
                   styles.inputWrapper,
@@ -387,18 +443,29 @@ export default function RegisterScreen({ navigation, route }: any) {
                 ]}
               >
                 <Ionicons
-                  name="mail-outline"
+                  name={identifierType === "email" ? "mail-outline" : "call-outline"}
                   size={18}
                   color="#475569"
                   style={styles.inputIcon}
                 />
                 <TextInput
                   style={[styles.input, flowState !== "email" && styles.inputDisabled]}
-                  placeholder="you@example.com"
+                  placeholder={identifierType === "email" ? "you@example.com" : "+1 (555) 000-0000"}
                   placeholderTextColor="#334155"
                   value={form.email}
-                  onChangeText={update("email")}
-                  keyboardType="email-address"
+                  onChangeText={(text) => {
+                    update("email")(text);
+                    // Auto-detect identifier type
+                    const cleanText = text.replace(/[\s\-\(\)]/g, "");
+                    if (/^\+?\d{10,}$/.test(cleanText)) {
+                      setIdentifierType("phone");
+                    } else if (text.includes("@")) {
+                      setIdentifierType("email");
+                    } else {
+                      setIdentifierType("email");
+                    }
+                  }}
+                  keyboardType={identifierType === "email" ? "email-address" : "phone-pad"}
                   autoCapitalize="none"
                   editable={flowState === "email"}
                 />
@@ -529,62 +596,27 @@ export default function RegisterScreen({ navigation, route }: any) {
             {/* REGISTER FORM (only if doesn't exist) */}
             {flowState === "register" && (
               <>
-                <Text style={styles.sectionLabel}>PERSONAL INFORMATION</Text>
-
+                {/* Readonly identifier */}
                 <View style={styles.fieldGroup}>
-                  <View
-                    style={[
-                      styles.inputWrapper,
-                      errors.full_name && styles.inputError,
-                    ]}
-                  >
+                  <Text style={styles.label}>
+                    {identifierType === "email" ? "EMAIL" : "PHONE"}
+                  </Text>
+                  <View style={[styles.inputWrapper, styles.inputDisabled]}>
                     <Ionicons
-                      name="person-outline"
+                      name={identifierType === "email" ? "mail-outline" : "call-outline"}
                       size={18}
                       color="#475569"
                       style={styles.inputIcon}
                     />
                     <TextInput
-                      style={styles.input}
-                      placeholder="Full Name"
-                      placeholderTextColor="#334155"
-                      value={form.full_name}
-                      onChangeText={update("full_name")}
-                      autoCapitalize="words"
-                      returnKeyType="next"
+                      style={[styles.input, styles.inputDisabledText]}
+                      value={checkedIdentifier}
+                      editable={false}
                     />
-                  </View>
-                  {errors.full_name && (
-                    <Text style={styles.errorText}>{errors.full_name}</Text>
-                  )}
-                </View>
-
-                <View style={styles.fieldGroup}>
-                  <View style={styles.inputWrapper}>
-                    <Ionicons
-                      name="call-outline"
-                      size={18}
-                      color="#475569"
-                      style={styles.inputIcon}
-                    />
-                    <TextInput
-                      style={styles.input}
-                      placeholder="Phone Number (optional)"
-                      placeholderTextColor="#334155"
-                      value={form.phone_number}
-                      onChangeText={update("phone_number")}
-                      keyboardType="phone-pad"
-                      returnKeyType="next"
-                    />
-                    <View style={styles.optionalBadge}>
-                      <Text style={styles.optionalText}>Optional</Text>
-                    </View>
                   </View>
                 </View>
 
-                <Text style={[styles.sectionLabel, { marginTop: 16 }]}>
-                  SECURITY
-                </Text>
+                <Text style={styles.sectionLabel}>SECURITY</Text>
 
                 <View style={styles.fieldGroup}>
                   <View
@@ -733,11 +765,11 @@ export default function RegisterScreen({ navigation, route }: any) {
               </>
             )}
 
-            {/* CONTINUE BUTTON (for email step) */}
+            {/* CONTINUE BUTTON (for identifier step) */}
             {flowState === "email" && (
               <TouchableOpacity
                 style={[styles.primaryBtn, isAnyLoading && styles.btnDisabled]}
-                onPress={handleCheckEmail}
+                onPress={handleCheckIdentifier}
                 disabled={isAnyLoading}
               >
                 {loading ? (
@@ -746,55 +778,6 @@ export default function RegisterScreen({ navigation, route }: any) {
                   <Text style={styles.primaryBtnText}>CONTINUE</Text>
                 )}
               </TouchableOpacity>
-            )}
-
-            {/* Divider (only for email step) */}
-            {flowState === "email" && (
-              <>
-                <View style={styles.divider}>
-                  <View style={styles.dividerLine} />
-                  <Text style={styles.dividerText}>or continue with</Text>
-                  <View style={styles.dividerLine} />
-                </View>
-
-                <View style={styles.socialRow}>
-                  <TouchableOpacity
-                    style={[styles.socialBtn, isAnyLoading && styles.btnDisabled]}
-                    onPress={handleGooglePress}
-                    disabled={isAnyLoading}
-                  >
-                    {socialLoading === "google" ? (
-                      <ActivityIndicator size="small" color="#fff" />
-                    ) : (
-                      <>
-                        <Text style={styles.googleG}>G</Text>
-                        <Text style={styles.socialBtnText}>Google</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-
-                  {Platform.OS === "ios" && (
-                    <TouchableOpacity
-                      style={[
-                        styles.socialBtn,
-                        styles.appleBtn,
-                        isAnyLoading && styles.btnDisabled,
-                      ]}
-                      onPress={handleApplePress}
-                      disabled={isAnyLoading}
-                    >
-                      {socialLoading === "apple" ? (
-                        <ActivityIndicator size="small" color="#000" />
-                      ) : (
-                        <>
-                          <Ionicons name="logo-apple" size={18} color="#000" />
-                          <Text style={styles.appleBtnText}>Apple</Text>
-                        </>
-                      )}
-                    </TouchableOpacity>
-                  )}
-                </View>
-              </>
             )}
 
             <TouchableOpacity
@@ -860,7 +843,8 @@ const styles = StyleSheet.create({
   inputError: { borderColor: "#EF4444" },
   inputIcon: { marginLeft: 14 },
   input: { flex: 1, color: "#fff", padding: 15, fontSize: 15 },
-  inputDisabled: { color: "#64748B" },
+  inputDisabled: { backgroundColor: "#1E293B" },
+  inputDisabledText: { color: "#64748B" },
   eyeBtn: { padding: 14 },
   errorText: { color: "#EF4444", fontSize: 11, marginTop: 5, marginLeft: 4 },
   optionalBadge: {
