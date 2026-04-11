@@ -12,6 +12,12 @@ import { refreshAccessToken } from "./auth.service";
 
 const SERVER_URL = process.env.EXPO_PUBLIC_API_URL || APP_CONFIG.apiBaseUrl;
 
+/**
+ * WebSocket base URL — replaces http(s):// with ws(s)://.
+ * Usage: `new WebSocket(\`${WS_BASE_URL}/ws/appointments/${id}?token=${token}\`)`
+ */
+export const WS_BASE_URL = SERVER_URL.replace(/^http/, "ws");
+
 // 1. Instancias
 export const authClient = axios.create({
   baseURL: `${SERVER_URL}/auth`,

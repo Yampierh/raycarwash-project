@@ -40,6 +40,8 @@ from app.routers.vehicle_router     import router as vehicle_router
 from app.routers.verification_router import router as verification_router  # Stripe Identity
 from app.routers.webhook_router     import router as webhook_router  # Sprint 4
 from app.routers.wellknown_router   import router as wellknown_router  # WebAuthn domain verification
+from app.ws.connection_manager      import ConnectionManager
+from app.ws.router                  import router as ws_router
 
 from app.schemas.schemas import ErrorDetail, HealthResponse, UserCreate, UserRead
 from app.services.auth import AuthService
@@ -90,6 +92,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     async with AsyncSessionLocal() as seed_session:
         await seed_detailers(seed_session)
         logger.info("✅  Test detailers seeded.")
+
+    # WebSocket connection manager — lives for the duration of the process
+    app.state.ws_manager = ConnectionManager()
+    logger.info("✅  WebSocket ConnectionManager ready.")
 
     yield
 
@@ -148,6 +154,7 @@ def create_application() -> FastAPI:
     application.include_router(appointment_router)    # /api/v1/appointments/*
     application.include_router(detailer_router)       # /api/v1/detailers/*
     application.include_router(verification_router)   # /api/v1/detailers/verification/*
+    application.include_router(ws_router)             # /ws/appointments/{id}
     application.include_router(payment_router)        # /api/v1/payments/*
     application.include_router(review_router)         # /api/v1/reviews/*
 

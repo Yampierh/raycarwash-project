@@ -168,6 +168,32 @@ class AppointmentRepository:
         result = await self._db.execute(stmt)
         return list(result.scalars().all())
 
+    async def get_active_for_detailer(
+        self,
+        detailer_id: uuid.UUID,
+    ) -> Appointment | None:
+        """
+        Return the single appointment currently in ARRIVED or IN_PROGRESS state
+        for this detailer.  Used by the WebSocket layer to find which room to
+        broadcast location updates to.  Returns None if no active job exists.
+        """
+        stmt = (
+            select(Appointment)
+            .where(
+                and_(
+                    Appointment.detailer_id == detailer_id,
+                    Appointment.is_deleted.is_(False),
+                    Appointment.status.in_([
+                        AppointmentStatus.ARRIVED,
+                        AppointmentStatus.IN_PROGRESS,
+                    ]),
+                )
+            )
+            .limit(1)
+        )
+        result = await self._db.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def get_by_client(
         self,
         client_id: uuid.UUID,

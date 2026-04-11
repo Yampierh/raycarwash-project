@@ -421,6 +421,45 @@ async def get_current_user(
 
 
 # ------------------------------------------------------------------ #
+#  WebSocket auth helper                                              #
+# ------------------------------------------------------------------ #
+
+async def ws_get_current_user(
+    token: str,
+    db: AsyncSession,
+) -> User | None:
+    """
+    WebSocket-safe authentication.
+
+    WebSocket connections cannot send HTTP headers after the handshake, so
+    the JWT is passed as a query parameter (?token=<jwt>).
+
+    Returns None instead of raising so the WS endpoint can close cleanly
+    with an appropriate close code rather than an HTTP 401.
+    """
+    try:
+        payload = AuthService.decode_token(token, expected_type=_TOKEN_TYPE_ACCESS)
+        user_id_str: str | None = payload.get("sub")
+        if user_id_str is None:
+            return None
+        user_id = uuid.UUID(user_id_str)
+    except (JWTError, ValueError):
+        return None
+
+    user_repo = UserRepository(db)
+    user = await user_repo.get_by_id(user_id)
+
+    if user is None or not user.is_active or user.is_deleted:
+        return None
+
+    await db.refresh(user, attribute_names=["user_roles"])
+    for ur in user.user_roles:
+        await db.refresh(ur, attribute_names=["role"])
+
+    return user
+
+
+# ------------------------------------------------------------------ #
 #  RBAC dependency factory                                            #
 # ------------------------------------------------------------------ #
 

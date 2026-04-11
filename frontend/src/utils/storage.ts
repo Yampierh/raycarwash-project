@@ -1,12 +1,27 @@
 import * as SecureStore from "expo-secure-store";
+import { useAuthStore } from "../store/authStore";
 
 const TOKEN_KEY = "raycarwash_jwt_token";
 const REFRESH_TOKEN_KEY = "raycarwash_refresh_token";
+
+/** Decode the `role` claim from a JWT payload (no signature check needed on client). */
+function _extractRoles(token: string): string[] {
+  try {
+    const b64 = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    const payload = JSON.parse(atob(b64)) as Record<string, unknown>;
+    const role = payload["role"];
+    if (typeof role === "string") return [role];
+    if (Array.isArray(role)) return role.map(String);
+  } catch { /* ignore */ }
+  return [];
+}
 
 // --- Access token ---
 
 export const saveToken = async (token: string): Promise<void> => {
   await SecureStore.setItemAsync(TOKEN_KEY, token);
+  // Sync Zustand store so WS hook can read token synchronously
+  useAuthStore.getState().setTokens(token, _extractRoles(token));
 };
 
 export const getToken = async (): Promise<string | null> => {
@@ -35,6 +50,7 @@ export const removeRefreshToken = async (): Promise<void> => {
 
 export const clearAuthTokens = async (): Promise<void> => {
   await Promise.all([removeToken(), removeRefreshToken()]);
+  useAuthStore.getState().clear();
 };
 
 // --- Biometric preference ---

@@ -214,9 +214,10 @@ class DetailerRepository:
         object, modifying it, and flushing. For a location-tracking endpoint
         that may be called every 30 seconds per active detailer, this matters.
         """
+        # Fix: current_lat/lng/last_location_update live on DetailerProfile, not User
         await self._db.execute(
-            update(User)
-            .where(User.id == user_id)
+            update(DetailerProfile)
+            .where(DetailerProfile.user_id == user_id)
             .values(
                 current_lat=lat,
                 current_lng=lng,

@@ -293,6 +293,9 @@ class AppointmentService:
             if svc is not None:
                 calc = self.calculate_appointment_data(svc, vehicle_size, work_start)
                 service_duration_minutes = calc.duration_minutes + settings.TRAVEL_BUFFER_MINUTES
+            else:
+                # Service not found — fall back to display-grid granularity
+                service_duration_minutes = SLOT_GRANULARITY_MINUTES
         else:
             service_duration_minutes = SLOT_GRANULARITY_MINUTES
 
@@ -617,13 +620,13 @@ class AppointmentService:
             )
 
         roles_allowed = allowed[new_status]
-        if actor.role not in roles_allowed:
+        if not any(actor.has_role(r) for r in roles_allowed):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=(
-                    f"Role '{actor.role.value}' cannot trigger "
+                    f"Roles {actor.roles!r} cannot trigger "
                     f"'{current.value}' → '{new_status.value}'. "
-                    f"Required: {[r.value for r in roles_allowed]}."
+                    f"Required one of: {sorted(roles_allowed)}."
                 ),
             )
 
@@ -631,6 +634,9 @@ class AppointmentService:
         if new_status == AppointmentStatus.COMPLETED:
             appointment.actual_price = payload.actual_price if payload.actual_price is not None else appointment.estimated_price
             appointment.completed_at = datetime.now(timezone.utc)
+
+        if new_status == AppointmentStatus.ARRIVED:
+            appointment.arrived_at = datetime.now(timezone.utc)
 
         if new_status == AppointmentStatus.IN_PROGRESS:
             appointment.started_at = datetime.now(timezone.utc)

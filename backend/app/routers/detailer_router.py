@@ -17,21 +17,26 @@ import logging
 import uuid
 from datetime import date, datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.db.session import get_db
 from app.models.models import (
+    Appointment,
+    AppointmentStatus,
+    AuditAction,
     DetailerProfile,
     DetailerService,
     Service,
     User,
     VehicleSize,
 )
+from app.repositories.appointment_repository import AppointmentRepository
 from app.repositories.audit_repository import AuditRepository
 from app.repositories.detailer_repository import DetailerRepository
+from app.ws.connection_manager import ConnectionManager
 from app.schemas.schemas import (
     DetailerMeRead,
     DetailerProfileCreate,
@@ -442,6 +447,7 @@ async def get_detailer_availability(
     summary="Update the detailer's current GPS coordinates.",
 )
 async def update_detailer_location(
+    request: Request,
     payload: LocationUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -456,6 +462,22 @@ async def update_detailer_location(
         lat=payload.latitude,
         lng=payload.longitude,
     )
+
+    # Broadcast location to the active appointment's WS room (if any participants connected)
+    active_appt = await AppointmentRepository(db).get_active_for_detailer(current_user.id)
+    if active_appt is not None:
+        manager: ConnectionManager = request.app.state.ws_manager
+        if manager.room_size(active_appt.id) > 0:
+            await manager.broadcast(
+                active_appt.id,
+                {
+                    "type": "location_update",
+                    "lat": payload.latitude,
+                    "lng": payload.longitude,
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+
     return LocationResponse(
         user_id=current_user.id,
         latitude=payload.latitude,

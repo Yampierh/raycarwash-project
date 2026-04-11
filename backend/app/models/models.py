@@ -57,6 +57,7 @@ class VehicleSize(str, enum.Enum):
 class AppointmentStatus(str, enum.Enum):
     PENDING              = "pending"
     CONFIRMED            = "confirmed"
+    ARRIVED              = "arrived"           # Detailer has reached the client location
     IN_PROGRESS          = "in_progress"
     COMPLETED            = "completed"
     CANCELLED_BY_CLIENT  = "cancelled_by_client"
@@ -86,6 +87,16 @@ VALID_TRANSITIONS: dict[
             frozenset({"detailer", "admin"}),
     },
     AppointmentStatus.CONFIRMED: {
+        AppointmentStatus.ARRIVED:
+            frozenset({"detailer", "admin"}),
+        AppointmentStatus.IN_PROGRESS:
+            frozenset({"detailer", "admin"}),
+        AppointmentStatus.CANCELLED_BY_CLIENT:
+            frozenset({"client",   "admin"}),
+        AppointmentStatus.CANCELLED_BY_DETAILER:
+            frozenset({"detailer", "admin"}),
+    },
+    AppointmentStatus.ARRIVED: {
         AppointmentStatus.IN_PROGRESS:
             frozenset({"detailer", "admin"}),
         AppointmentStatus.CANCELLED_BY_CLIENT:
@@ -1013,7 +1024,11 @@ class Appointment(TimestampMixin, Base):
         comment="Hard boundary: estimated_end_time + 30 min.",
     )
 
-    # Lifecycle timestamps (Sprint 3)
+    # Lifecycle timestamps
+    arrived_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None,
+        comment="Set when status transitions to ARRIVED.",
+    )
     started_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, default=None,
         comment="Set when status transitions to IN_PROGRESS.",

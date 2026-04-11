@@ -1,5 +1,6 @@
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
+import * as Location from "expo-location";
 import { LinearGradient } from "expo-linear-gradient";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -15,6 +16,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAppNavigation } from "../hooks/useAppNavigation";
+import { useAppointmentSocket } from "../hooks/useAppointmentSocket";
 import {
   getMyAppointments,
   patchAppointmentStatus,
@@ -49,6 +51,7 @@ interface Appointment {
 const STATUS_LABEL: Record<string, string> = {
   pending: "Pending",
   confirmed: "Confirmed",
+  arrived: "Arrived",
   in_progress: "In Progress",
   completed: "Completed",
   cancelled_by_client: "Cancelled",
@@ -58,6 +61,7 @@ const STATUS_LABEL: Record<string, string> = {
 const STATUS_COLOR: Record<string, string> = {
   pending: "#F59E0B",
   confirmed: "#3B82F6",
+  arrived: "#A78BFA",
   in_progress: "#10B981",
   completed: "#94A3B8",
   cancelled_by_client: "#EF4444",
@@ -98,12 +102,62 @@ export default function DetailerHomeScreen() {
   const [elapsed, setElapsed] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const activeJob = appointments.find((a) => a.status === "in_progress");
+  // Active job = arrived OR in_progress (detailer is on-site or working)
+  const activeJob = appointments.find(
+    (a) => a.status === "arrived" || a.status === "in_progress",
+  );
   const nextJob = appointments.find(
     (a) =>
       (a.status === "confirmed" || a.status === "pending") &&
       new Date(a.scheduled_time) > new Date(),
   );
+
+  // WebSocket — connect to active job's room (or next confirmed job)
+  const wsJobId = activeJob?.id ?? null;
+  const { sendLocationUpdate } = useAppointmentSocket({
+    appointmentId: wsJobId,
+    onStatusChange: useCallback(
+      (newStatus: string) => {
+        // Optimistically update local state on WS broadcast
+        setAppointments((prev) =>
+          prev.map((a) => (a.id === wsJobId ? { ...a, status: newStatus } : a)),
+        );
+      },
+      [wsJobId],
+    ),
+  });
+
+  // Send GPS location every 5 s while an active job is open
+  const locationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => {
+    if (!activeJob) {
+      if (locationIntervalRef.current) {
+        clearInterval(locationIntervalRef.current);
+        locationIntervalRef.current = null;
+      }
+      return;
+    }
+
+    const pushLocation = async () => {
+      try {
+        const pos = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        sendLocationUpdate(pos.coords.latitude, pos.coords.longitude);
+      } catch {
+        // Location unavailable — skip tick
+      }
+    };
+
+    pushLocation(); // immediate first push
+    locationIntervalRef.current = setInterval(pushLocation, 5_000);
+    return () => {
+      if (locationIntervalRef.current) {
+        clearInterval(locationIntervalRef.current);
+        locationIntervalRef.current = null;
+      }
+    };
+  }, [activeJob?.id, sendLocationUpdate]);
   const todayJobs = appointments.filter(
     (a) => isToday(a.scheduled_time) && a.status !== "cancelled_by_client" && a.status !== "cancelled_by_detailer",
   );
@@ -289,12 +343,17 @@ export default function DetailerHomeScreen() {
         {activeJob && (
           <>
             <Text style={styles.sectionTitle}>Active Job</Text>
-            <LinearGradient colors={["#0F2A1F", "#0F172A"]} style={styles.activeCard}>
+            <LinearGradient
+              colors={activeJob.status === "arrived" ? ["#1A0F2E", "#0F172A"] : ["#0F2A1F", "#0F172A"]}
+              style={styles.activeCard}
+            >
               <View style={styles.activeCardTop}>
-                <View style={styles.activePulse}>
-                  <View style={styles.activePulseDot} />
+                <View style={[styles.activePulse, activeJob.status === "arrived" && styles.activePulseArrived]}>
+                  <View style={[styles.activePulseDot, activeJob.status === "arrived" && styles.activePulseDotArrived]} />
                 </View>
-                <Text style={styles.activeTitle}>In Progress</Text>
+                <Text style={[styles.activeTitle, activeJob.status === "arrived" && { color: "#A78BFA" }]}>
+                  {activeJob.status === "arrived" ? "On Site" : "In Progress"}
+                </Text>
                 <Text style={styles.activeTimer}>{formatElapsed(elapsed)}</Text>
               </View>
               <Text style={styles.activeClient}>
@@ -311,13 +370,23 @@ export default function DetailerHomeScreen() {
                   <Ionicons name="call-outline" size={16} color="#60A5FA" />
                   <Text style={[styles.actionBtnText, { color: "#60A5FA" }]}>Call Client</Text>
                 </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.actionBtn}
-                  onPress={() => handleStatusChange(activeJob, "completed")}
-                >
-                  <MaterialCommunityIcons name="check-circle-outline" size={16} color="#FFF" />
-                  <Text style={styles.actionBtnText}>Mark Complete</Text>
-                </TouchableOpacity>
+                {activeJob.status === "arrived" ? (
+                  <TouchableOpacity
+                    style={[styles.actionBtn, { backgroundColor: "#10B981" }]}
+                    onPress={() => handleStatusChange(activeJob, "in_progress")}
+                  >
+                    <MaterialCommunityIcons name="play" size={16} color="#FFF" />
+                    <Text style={styles.actionBtnText}>Start Job</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity
+                    style={styles.actionBtn}
+                    onPress={() => handleStatusChange(activeJob, "completed")}
+                  >
+                    <MaterialCommunityIcons name="check-circle-outline" size={16} color="#FFF" />
+                    <Text style={styles.actionBtnText}>Mark Complete</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             </LinearGradient>
           </>
@@ -376,11 +445,11 @@ export default function DetailerHomeScreen() {
                 )}
                 {nextJob.status === "confirmed" && (
                   <TouchableOpacity
-                    style={[styles.actionBtn, { backgroundColor: "#10B981" }]}
-                    onPress={() => handleStatusChange(nextJob, "in_progress")}
+                    style={[styles.actionBtn, { backgroundColor: "#7C3AED" }]}
+                    onPress={() => handleStatusChange(nextJob, "arrived")}
                   >
-                    <MaterialCommunityIcons name="play" size={16} color="#FFF" />
-                    <Text style={styles.actionBtnText}>Start Job</Text>
+                    <Ionicons name="location" size={16} color="#FFF" />
+                    <Text style={styles.actionBtnText}>I've Arrived</Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -528,7 +597,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  activePulseArrived: { backgroundColor: "rgba(167,139,250,0.2)" },
   activePulseDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#10B981" },
+  activePulseDotArrived: { backgroundColor: "#A78BFA" },
   activeTitle: { flex: 1, fontSize: 15, fontWeight: "700", color: "#10B981" },
   activeTimer: { fontSize: 20, fontWeight: "700", color: "#F1F5F9", fontVariant: ["tabular-nums"] },
   activeClient: { fontSize: 18, fontWeight: "700", color: "#F1F5F9", marginBottom: 4 },

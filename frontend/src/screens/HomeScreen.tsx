@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAppNavigation } from "../hooks/useAppNavigation";
+import { useAppointmentSocket } from "../hooks/useAppointmentSocket";
 import { useLocation } from "../hooks/useLocation";
 import { useWeather } from "../hooks/useWeather";
 import { getMyAppointments } from "../services/appointment.service";
@@ -59,6 +60,7 @@ const QUICK_SERVICES = [
 const STATUS_COLORS: Record<string, string> = {
   pending: "#F59E0B",
   confirmed: "#3B82F6",
+  arrived: "#A78BFA",
   in_progress: "#10B981",
   completed: "#94A3B8",
   cancelled_by_client: "#EF4444",
@@ -157,6 +159,7 @@ export default function HomeScreen() {
   const [appointments, setAppointments] = useState<any[]>([]);
   const [completedWashes, setCompletedWashes] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [detailerLocation, setDetailerLocation] = useState<{ lat: number; lng: number } | null>(null);
 
   const navigation = useAppNavigation();
   const { city, region, lat, lng, loading: locLoading } = useLocation();
@@ -197,11 +200,30 @@ export default function HomeScreen() {
   }
 
   const activeApt = appointments.find((a) =>
-    ["confirmed", "in_progress"].includes(a.status),
+    ["confirmed", "arrived", "in_progress"].includes(a.status),
   );
   const upcomingApts = appointments.filter((a) =>
     ["pending", "confirmed"].includes(a.status),
   );
+
+  // Real-time updates via WebSocket — subscribe to the active appointment's room
+  useAppointmentSocket({
+    appointmentId: activeApt?.id ?? null,
+    onStatusChange: useCallback(
+      (newStatus: string) => {
+        setAppointments((prev) =>
+          prev.map((a) => (a.id === activeApt?.id ? { ...a, status: newStatus } : a)),
+        );
+      },
+      [activeApt?.id],
+    ),
+    onLocationUpdate: useCallback(
+      (payload) => {
+        setDetailerLocation({ lat: payload.lat, lng: payload.lng });
+      },
+      [],
+    ),
+  });
   const nextApt = upcomingApts[0] ?? null;
   const memberStatus = getMemberStatus(completedWashes);
 
@@ -346,7 +368,9 @@ export default function HomeScreen() {
                   >
                     {activeApt.status === "in_progress"
                       ? "IN PROGRESS"
-                      : "CONFIRMED"}
+                      : activeApt.status === "arrived"
+                        ? "DETAILER ARRIVED"
+                        : "CONFIRMED"}
                   </Text>
                 </View>
                 <Text style={styles.activeBannerTime}>
@@ -363,7 +387,9 @@ export default function HomeScreen() {
               <Text style={styles.activeBannerTitle}>
                 {activeApt.status === "in_progress"
                   ? "Your detail is in progress"
-                  : "Your detailer is confirmed"}
+                  : activeApt.status === "arrived"
+                    ? "Your detailer is on site!"
+                    : "Your detailer is confirmed"}
               </Text>
               {activeApt.vehicle && (
                 <Text style={styles.activeBannerSub}>

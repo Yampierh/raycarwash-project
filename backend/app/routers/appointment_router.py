@@ -17,8 +17,9 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
@@ -36,6 +37,11 @@ from app.schemas.schemas import (
 )
 from app.services.appointment_service import AppointmentService
 from app.services.auth import get_current_user
+from app.ws.connection_manager import ConnectionManager
+
+
+def _get_ws_manager(request: Request) -> ConnectionManager:
+    return request.app.state.ws_manager
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +96,7 @@ def _build_appointment_read(appt) -> AppointmentRead:
         service_longitude=float(appt.service_longitude) if appt.service_longitude else None,
         estimated_price=appt.estimated_price,
         actual_price=appt.actual_price,
+        arrived_at=appt.arrived_at,
         started_at=appt.started_at,
         completed_at=appt.completed_at,
         stripe_payment_intent_id=appt.stripe_payment_intent_id,
@@ -152,6 +159,7 @@ async def create_appointment(
     },
 )
 async def update_appointment_status(
+    request: Request,
     appointment_id: uuid.UUID,
     payload: AppointmentStatusUpdate,
     current_user: User = Depends(get_current_user),
@@ -164,13 +172,17 @@ async def update_appointment_status(
     |--------------|-----------------------|----------------------|
     | PENDING      | CONFIRMED             | detailer / admin     |
     | PENDING      | CANCELLED_BY_*        | client / detailer    |
+    | CONFIRMED    | ARRIVED               | detailer / admin     |
     | CONFIRMED    | IN_PROGRESS           | detailer / admin     |
     | CONFIRMED    | CANCELLED_BY_*        | client / detailer    |
+    | ARRIVED      | IN_PROGRESS           | detailer / admin     |
     | IN_PROGRESS  | COMPLETED             | detailer / admin     |
     | IN_PROGRESS  | NO_SHOW               | detailer / admin     |
 
     `actual_price` (USD cents) is required when transitioning to COMPLETED.
-    `started_at` and `completed_at` are stamped automatically by the service.
+    Lifecycle timestamps (arrived_at, started_at, completed_at) are stamped
+    automatically by the service. A WebSocket broadcast is sent to all
+    participants in the appointment room after a successful transition.
     """
     svc = AppointmentService(db)
     updated = await svc.transition_status(
@@ -178,6 +190,20 @@ async def update_appointment_status(
         payload=payload,
         actor=current_user,
     )
+
+    # Broadcast status change to all WS participants in this appointment's room
+    manager: ConnectionManager = _get_ws_manager(request)
+    if manager.room_size(appointment_id) > 0:
+        await manager.broadcast(
+            appointment_id,
+            {
+                "type": "status_change",
+                "status": updated.status.value,
+                "appointment_id": str(appointment_id),
+                "ts": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
     return _build_appointment_read(updated)
 
 

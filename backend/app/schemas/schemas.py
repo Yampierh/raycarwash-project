@@ -469,6 +469,7 @@ class AppointmentRead(_BaseSchema):
     )
 
     # Lifecycle timestamps
+    arrived_at: datetime | None = Field(default=None)
     started_at: datetime | None = Field(default=None)
     completed_at: datetime | None = Field(default=None)
     stripe_payment_intent_id: str | None = Field(default=None)
