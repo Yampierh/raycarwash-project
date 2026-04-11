@@ -43,7 +43,7 @@ export default function LoginScreen() {
   const [socialLoading, setSocialLoading] = useState<"google" | "apple" | null>(
     null,
   );
-  const [errors, setErrors] = useState<{ email?: string; password?: string }>(
+  const [errors, setErrors] = useState<{ email?: string; password?: string; server?: string }>(
     {},
   );
 
@@ -80,10 +80,7 @@ export default function LoginScreen() {
 
       await navigateAfterAuth(navigation);
     } catch (error: any) {
-      Alert.alert(
-        "Social Login Failed",
-        error.message || "Something went wrong.",
-      );
+      setErrors((prev) => ({ ...prev, server: error.message || "Something went wrong." }));
     } finally {
       setSocialLoading(null);
     }
@@ -143,9 +140,8 @@ export default function LoginScreen() {
       await navigateAfterAuth(navigation);
     } catch (error: any) {
       const detail = error.response?.data?.detail;
-      const msg =
-        typeof detail === "string" ? detail : "Invalid email or password.";
-      Alert.alert("Sign In Failed", msg);
+      const msg = typeof detail === "string" ? detail : "Invalid email or password.";
+      setErrors((prev) => ({ ...prev, server: msg }));
     } finally {
       setLoading(false);
     }
@@ -204,13 +200,15 @@ export default function LoginScreen() {
             <View style={styles.form}>
               {/* Email */}
               <View style={styles.fieldGroup}>
-                <Text style={styles.label}>EMAIL ADDRESS</Text>
-                <View
-                  style={[
-                    styles.inputWrapper,
-                    errors.email && styles.inputError,
-                  ]}
-                >
+                <View style={styles.labelRow}>
+                  <Text style={styles.label}>EMAIL ADDRESS</Text>
+                </View>
+                  <View
+                    style={[
+                      styles.inputWrapper,
+                      errors.email && styles.inputError,
+                    ]}
+                  >
                   <Ionicons
                     name="mail-outline"
                     size={18}
@@ -224,7 +222,7 @@ export default function LoginScreen() {
                     value={email}
                     onChangeText={(t) => {
                       setEmail(t);
-                      setErrors((e) => ({ ...e, email: undefined }));
+                      setErrors((e) => ({ ...e, email: undefined, server: undefined }));
                     }}
                     keyboardType="email-address"
                     autoCapitalize="none"
@@ -263,7 +261,7 @@ export default function LoginScreen() {
                     value={password}
                     onChangeText={(t) => {
                       setPassword(t);
-                      setErrors((e) => ({ ...e, password: undefined }));
+                      setErrors((e) => ({ ...e, password: undefined, server: undefined }));
                     }}
                     secureTextEntry={!showPassword}
                     onSubmitEditing={handleLogin}
@@ -281,6 +279,9 @@ export default function LoginScreen() {
                 </View>
                 {errors.password && (
                   <Text style={styles.errorText}>{errors.password}</Text>
+                )}
+                {errors.server && (
+                  <Text style={styles.serverErrorText}>{errors.server}</Text>
                 )}
               </View>
 
@@ -395,7 +396,7 @@ const styles = StyleSheet.create({
     letterSpacing: 3,
   },
   tagline: { color: "#475569", fontSize: 12, marginTop: 5, letterSpacing: 1 },
-  form: { gap: 0 },
+  form: { gap: 4 },
   fieldGroup: { marginBottom: 18 },
   labelRow: {
     flexDirection: "row",
@@ -423,6 +424,15 @@ const styles = StyleSheet.create({
   input: { flex: 1, color: "#fff", padding: 15, fontSize: 15 },
   eyeBtn: { padding: 14 },
   errorText: { color: "#EF4444", fontSize: 11, marginTop: 5, marginLeft: 4 },
+  serverErrorText: { 
+    color: "#EF4444", 
+    fontSize: 13, 
+    textAlign: "center", 
+    marginTop: 12, 
+    backgroundColor: "rgba(239,68,68,0.1)", 
+    padding: 12, 
+    borderRadius: 8,
+  },
   primaryBtn: {
     backgroundColor: Colors.primary,
     padding: 17,
