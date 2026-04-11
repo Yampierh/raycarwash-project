@@ -109,12 +109,7 @@ export default function RegisterScreen({ navigation, route }: any) {
     } catch (err: any) {
       const detail = err.response?.data?.detail;
       if (detail?.includes("not registered")) {
-        navigation.navigate("Verify", {
-          identifier: accessToken,
-          identifierType: "google",
-          isNewUser: true,
-          isDetailer,
-        });
+        setFlowState("register");
       } else {
         Alert.alert(
           "Google Sign-In",
@@ -195,12 +190,7 @@ export default function RegisterScreen({ navigation, route }: any) {
         setAuthMethod(result.auth_method);
         setFlowState("social_options");
       } else {
-        navigation.navigate("Verify", {
-          identifier: email,
-          identifierType: "email",
-          isNewUser: true,
-          isDetailer,
-        });
+        setFlowState("register");
       }
     } catch (error: any) {
       const msg = error.response?.data?.detail || "Could not verify email. Please try again.";
