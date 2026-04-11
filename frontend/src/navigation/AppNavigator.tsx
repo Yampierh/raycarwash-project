@@ -15,7 +15,6 @@ import HomeScreen from "../screens/HomeScreen";
 import IdentifyScreen from "../screens/IdentifyScreen";
 import LoginScreen from "../screens/LoginScreen";
 import ProfileScreen from "../screens/ProfileScreen";
-import RegisterDetailerScreen from "../screens/RegisterDetailerScreen";
 import RegisterScreen from "../screens/RegisterScreen";
 import ScheduleScreen from "../screens/ScheduleScreen";
 import SelectVehiclesScreen from "../screens/SelectVehiclesScreen";
@@ -137,9 +136,8 @@ export default function AppNavigator() {
         <Stack.Screen name="Verify" component={VerifyScreen} />
         <Stack.Screen name="CompleteProfile" component={CompleteProfileScreen} />
         
-        {/* Legacy Register */}
+        {/* Register (acepta isDetailer para cliente o detailer) */}
         <Stack.Screen name="Register" component={RegisterScreen} />
-        <Stack.Screen name="RegisterDetailer" component={RegisterDetailerScreen} />
 
         {/* Client tabs */}
         <Stack.Screen name="Main" component={TabNavigator} />

@@ -60,6 +60,7 @@ const STRENGTH_CONFIG: Record<
 };
 
 export default function RegisterScreen({ navigation, route }: any) {
+  const { isDetailer } = route?.params || {};
   const [flowState, setFlowState] = useState<FlowState>("email");
   const [checkedEmail, setCheckedEmail] = useState("");
   const [authMethod, setAuthMethod] = useState<AuthMethod>("none");
@@ -105,11 +106,21 @@ export default function RegisterScreen({ navigation, route }: any) {
       await saveToken(data.access_token);
       await saveRefreshToken(data.refresh_token);
       await navigateAfterAuth(navigation);
-    } catch {
-      Alert.alert(
-        "Google Sign-In",
-        "Could not sign in with Google. Please try again.",
-      );
+    } catch (err: any) {
+      const detail = err.response?.data?.detail;
+      if (detail?.includes("not registered")) {
+        navigation.navigate("Verify", {
+          identifier: accessToken,
+          identifierType: "google",
+          isNewUser: true,
+          isDetailer,
+        });
+      } else {
+        Alert.alert(
+          "Google Sign-In",
+          "Could not sign in with Google. Please try again.",
+        );
+      }
     } finally {
       setSocialLoading(null);
     }
@@ -184,7 +195,12 @@ export default function RegisterScreen({ navigation, route }: any) {
         setAuthMethod(result.auth_method);
         setFlowState("social_options");
       } else {
-        setFlowState("register");
+        navigation.navigate("Verify", {
+          identifier: email,
+          identifierType: "email",
+          isNewUser: true,
+          isDetailer,
+        });
       }
     } catch (error: any) {
       const msg = error.response?.data?.detail || "Could not verify email. Please try again.";
@@ -238,7 +254,7 @@ export default function RegisterScreen({ navigation, route }: any) {
         email: checkedEmail || form.email.trim(),
         password: form.password,
         phone_number: form.phone_number.trim() || undefined,
-        role_names: ["client"],
+        role_names: isDetailer ? ["detailer"] : ["client"],
       });
       Alert.alert(
         "Account Created!",
@@ -286,6 +302,18 @@ export default function RegisterScreen({ navigation, route }: any) {
   };
 
   const getTitle = () => {
+    if (isDetailer) {
+      switch (flowState) {
+        case "email":
+          return "Join as Pro";
+        case "password":
+          return "Welcome Back";
+        case "social_options":
+          return "Continue";
+        case "register":
+          return "Create Pro Account";
+      }
+    }
     switch (flowState) {
       case "email":
         return "Continue";
@@ -299,6 +327,18 @@ export default function RegisterScreen({ navigation, route }: any) {
   };
 
   const getSubtitle = () => {
+    if (isDetailer) {
+      switch (flowState) {
+        case "email":
+          return "Enter your email to register as a detailer";
+        case "password":
+          return `Sign in to ${checkedEmail}`;
+        case "social_options":
+          return "You previously signed in with a social account";
+        case "register":
+          return "Join RayCarWash as a professional detailer";
+      }
+    }
     switch (flowState) {
       case "email":
         return "Enter your email to get started";

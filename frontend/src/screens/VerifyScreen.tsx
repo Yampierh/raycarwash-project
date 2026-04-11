@@ -161,11 +161,7 @@ export default function VerifyScreen({ navigation, route }: any) {
   };
 
   const handleCreateAccount = () => {
-    if (isDetailer) {
-      navigation.navigate("RegisterDetailer");
-    } else {
-      navigation.navigate("Register");
-    }
+    navigation.navigate("Register", { isDetailer });
   };
 
   const isAnyLoading = loading || socialLoading !== null;
