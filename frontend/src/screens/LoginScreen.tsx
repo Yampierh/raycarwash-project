@@ -344,33 +344,26 @@ export default function LoginScreen() {
               </View>
 
               {/* Footer */}
-              <TouchableOpacity
-                style={styles.registerLink}
-                onPress={() => navigation.navigate("Identify", { isDetailer: false })}
-              >
-                <Text style={styles.registerText}>
-                  Don't have an account?{" "}
-                  <Text style={styles.registerTextBold}>Create one</Text>
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.registerLink}
-                onPress={() => navigation.navigate("Identify", { isDetailer: true })}
-              >
-                <Text style={styles.registerText}>
-                  Don't have an account?{" "}
-                  <Text style={styles.registerTextBold}>Create one</Text>
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.registerLink}
-                onPress={() => navigation.navigate("Identify", { isDetailer: true })}
-              >
-                <Text style={styles.registerText}>
-                  Are you a detailer?{" "}
-                  <Text style={styles.registerTextBold}>Register as Pro</Text>
-                </Text>
-              </TouchableOpacity>
+              <View style={styles.footerLinks}>
+                <TouchableOpacity
+                  style={styles.registerLink}
+                  onPress={() => navigation.navigate("Identify", { isDetailer: false })}
+                >
+                  <Text style={styles.registerText}>
+                    Don't have an account?{" "}
+                    <Text style={styles.registerTextBold}>Create one</Text>
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.registerLink}
+                  onPress={() => navigation.navigate("Identify", { isDetailer: true })}
+                >
+                  <Text style={styles.registerText}>
+                    Are you a detailer?{" "}
+                    <Text style={styles.registerTextBold}>Register as Pro</Text>
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -479,7 +472,8 @@ const styles = StyleSheet.create({
   socialBtnText: { color: "#fff", fontWeight: "600", fontSize: 14 },
   appleBtn: { backgroundColor: "#fff" },
   appleBtnText: { color: "#000", fontWeight: "600", fontSize: 14 },
-  registerLink: { marginTop: 24, alignItems: "center" },
+  registerLink: { marginTop: 16, alignItems: "center" },
+  footerLinks: { gap: 8, alignItems: "center" },
   registerText: { color: "#475569", fontSize: 14 },
   registerTextBold: { color: Colors.primary, fontWeight: "700" },
 });
