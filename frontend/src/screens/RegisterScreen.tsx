@@ -780,15 +780,18 @@ export default function RegisterScreen({ navigation, route }: any) {
               </TouchableOpacity>
             )}
 
-            <TouchableOpacity
-              style={styles.loginLink}
-              onPress={() => navigation.navigate("Login")}
-            >
-              <Text style={styles.loginLinkText}>
-                Already have an account?{" "}
-                <Text style={styles.loginLinkBold}>Sign In</Text>
-              </Text>
-            </TouchableOpacity>
+            {/* LOGIN LINK - Only show when not in register flow */}
+            {flowState !== "register" && (
+              <TouchableOpacity
+                style={styles.loginLink}
+                onPress={() => navigation.navigate("Login")}
+              >
+                <Text style={styles.loginLinkText}>
+                  Already have an account?{" "}
+                  <Text style={styles.loginLinkBold}>Sign In</Text>
+                </Text>
+              </TouchableOpacity>
+            )}
 
             <View style={{ height: 30 }} />
           </ScrollView>
