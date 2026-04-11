@@ -162,3 +162,36 @@ python -m pytest tests/ -v
 3. **Documentación**: OpenAPI en routers, API_GUIDE.md creado
 4. **Tests**: Infraestructura funcionando, 21 tests de auth pasando
 5. **Corrección de raíz**: Resuelto el problema de relaciones SQLAlchemy
+
+---
+
+## 🔒 Auditoría de Seguridad — Sprint 6 (2026-04-09)
+
+### Bugs Corregidos
+
+| # | Severidad | Archivo | Descripción |
+| --- | --- | --- | --- |
+| 1 | Crítico | `routers/webhook_router.py` | `except Exception` → `except (json.JSONDecodeError, UnicodeDecodeError)` — bare exception interceptaba errores del sistema |
+| 2 | Alto | `services/payment_service.py` | `stripe.api_key` movido al nivel de módulo; antes se asignaba en cada llamada (4 métodos) |
+| 3 | Alto | `routers/auth_router.py` + `schemas/schemas.py` | Social provider detectado por heurística de string en token → campo explícito `provider` en `VerifyRequest` |
+| 4 | Medio | `routers/auth_router.py` | Role assignment via atributo inexistente → ORM correcto con `UserRoleAssociation` |
+| 5 | Medio | `core/config.py` | Validator `STRIPE_SECRET_KEY` rechaza claves con formato inválido (debe empezar con `sk_test_`, `sk_live_` o `rk_`) |
+| 6 | Bajo | `schemas/schemas.py` | Creada `_BaseRequestSchema` — 9 schemas de request repetían el mismo `model_config` |
+| 7 | Bajo | `routers/auth_router.py`, `routers/webhook_router.py` | Comentarios TODO convertidos a comentarios explicativos |
+
+### Hallazgos Positivos (no requerían cambios)
+
+- JWT con `type` claim explícito — previene confusión de tokens
+- Hashing bcrypt correcto con passlib
+- Timing-safe authentication (`dummy_verify()`)
+- Rate limiting en endpoints de auth (10/min identify/verify/token, 5/min refresh)
+- SQL injection protegido vía queries parametrizadas (SQLAlchemy ORM)
+- Verificación de firma Stripe webhook (HMAC-SHA256)
+- Soft deletes preservan audit trail
+- Encriptación PII en reposo (`EncryptedType` con `SECRET_KEY`)
+- Tamaño de request body limitado (5 MB)
+- CORS configurable vía env, no hardcoded
+
+### Cambios de Documentación
+
+- `AGENTS.md`: Sprint 6 marcado como "En Progreso", `provider` field documentado en auth, nota sobre `_BaseRequestSchema`

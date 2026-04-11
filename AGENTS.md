@@ -106,7 +106,7 @@ All REST endpoints are at `http://localhost:8000/api/v1/` (except webhooks and h
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | POST | `/auth/identify` | — | Identifier-First: identify by email or phone |
-| POST | `/auth/verify` | — | Identifier-First: verify credentials (password/social) |
+| POST | `/auth/verify` | — | Identifier-First: verify credentials (password/social) — include `provider:"google"\|"apple"` for social |
 | PUT | `/auth/complete-profile` | — | Complete profile after registration (temp token) |
 | POST | `/auth/check-email` | — | Check if email exists (legacy) |
 | POST | `/auth/token` | — | Email/password login (10 req/min rate limit) |
@@ -306,6 +306,7 @@ Router → Service → Repository → SQLAlchemy ORM → PostgreSQL
 - **Advisory locks**: `SELECT pg_advisory_xact_lock(bigint)` keyed on detailer UUID in appointment creation
 - **Soft deletes**: filter `Model.is_deleted == False` in every query
 - **Fail-fast config**: Pydantic `Settings` raises `ValidationError` at startup if required vars missing
+- **Schema bases**: response schemas extend `_BaseSchema` (with `from_attributes=True`); request schemas extend `_BaseRequestSchema` (JSON-only)
 
 ### Startup Lifespan (main.py)
 1. `create_all()` — create tables if not exist
@@ -393,7 +394,7 @@ pytest -v       # verbose
 | 3 | ✅ Done | Appointments, services, Stripe payments, state machine |
 | 4 | ✅ Done | Detailer discovery, webhooks, refund policy, timezone scheduling, rate limiting, social login |
 | 5 | ✅ Done | Addons, multi-vehicle bookings, smart matching, email service, expanded catalog |
-| 6 | 🔜 Next | Push notifications, admin dashboard, real-time tracking, detailer seed data |
+| 6 | 🔄 In Progress | Security hardening, frontend contract fixes, push notifications, admin dashboard |
 
 ---
 
