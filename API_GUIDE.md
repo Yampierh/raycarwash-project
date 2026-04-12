@@ -7,15 +7,34 @@ Complete API reference for frontend integration.
 
 ---
 
-## Authentication Flow
+## Authentication Flow (Identifier-First)
 
-### 1. Login (Email/Password)
+### 1. Identify
 
 ```
-POST /auth/token
-Content-Type: application/x-www-form-urlencoded
+POST /auth/identify
+Content-Type: application/json
 
-username=email@example.com&password=YourPassword
+{ "identifier": "user@example.com" }   // email or phone
+```
+
+**Response** (200):
+```json
+{
+  "is_new_user": false,
+  "available_methods": ["password", "passkey"]
+}
+```
+
+---
+
+### 2. Verify (Password)
+
+```
+POST /auth/verify
+Content-Type: application/json
+
+{ "identifier": "user@example.com", "password": "YourPassword" }
 ```
 
 **Response** (200):
@@ -23,7 +42,8 @@ username=email@example.com&password=YourPassword
 {
   "access_token": "eyJ...",
   "refresh_token": "eyJ...",
-  "token_type": "bearer"
+  "token_type": "bearer",
+  "needs_profile_completion": false
 }
 ```
 
@@ -34,18 +54,16 @@ Authorization: Bearer <access_token>
 
 ---
 
-### 2. Token Refresh
+### 3. Token Refresh
 
 Tokens expire in 30 minutes. Use refresh token to get new pair.
 
 ```
-POST /auth/refresh
-Content-Type: application/json
-
-{ "refresh_token": "eyJ..." }
+POST /auth/refresh?refresh_token=eyJ...
 ```
 
 **Response** (200):
+
 ```json
 {
   "access_token": "new_access_token",
@@ -56,23 +74,20 @@ Content-Type: application/json
 
 ---
 
-### 3. Social Login
+### 4. Social Login
 
-**Google**:
 ```
-POST /auth/google
-{ "access_token": "google_oauth_access_token" }
+POST /auth/verify
+Content-Type: application/json
+
+{ "identifier": "user@example.com", "provider": "google", "token": "google_access_token" }
 ```
 
-**Apple**:
-```
-POST /auth/apple
-{ "identity_token": "apple_identity_token", "full_name": "John Doe" }
-```
+Provider values: `"google"` | `"apple"`
 
 ---
 
-### 4. Password Reset
+### 5. Password Reset
 
 ```
 POST /auth/password-reset
@@ -306,14 +321,23 @@ radius_miles: float (default 25, optional)
 ```
 
 **Valid Status Transitions**:
+
 | From | To | Who |
 |------|----|----|
 | PENDING | CONFIRMED | Detailer/Admin |
 | PENDING | CANCELLED_BY_CLIENT | Client/Detailer/Admin |
+| CONFIRMED | ARRIVED | Detailer/Admin |
 | CONFIRMED | IN_PROGRESS | Detailer/Admin |
 | CONFIRMED | CANCELLED_BY_CLIENT | Client/Detailer/Admin |
+| ARRIVED | IN_PROGRESS | Detailer/Admin |
 | IN_PROGRESS | COMPLETED | Detailer/Admin (requires actual_price) |
 | IN_PROGRESS | NO_SHOW | Detailer/Admin |
+
+**Lifecycle timestamps** (auto-stamped by service):
+
+- `arrived_at` — set on `ARRIVED`
+- `started_at` — set on `IN_PROGRESS`
+- `completed_at` — set on `COMPLETED`
 
 ---
 
@@ -362,6 +386,57 @@ radius_miles: float (default 25, optional)
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | POST | `/webhooks/stripe` | Stripe-Signature | Receive Stripe events |
+
+---
+
+### WebSocket Endpoint (`/ws`)
+
+```text
+WS /ws/appointments/{appointment_id}?token=<access_token>
+```
+
+JWT passed as a query parameter (WebSocket connections cannot send headers after handshake).
+
+**Access**: must be the client, detailer, or admin of the appointment.
+
+**Close codes**:
+
+| Code | Meaning                          |
+|------|----------------------------------|
+| 4001 | Unauthorized (bad/missing token) |
+| 4003 | Forbidden (not a participant)    |
+| 4004 | Appointment not found            |
+
+**Client → Server messages**:
+
+```json
+{ "type": "ping" }
+{ "type": "location_update", "lat": 41.0793, "lng": -85.1394 }
+```
+
+> `location_update` is only processed when sent by the detailer.
+
+**Server → Client messages**:
+
+```json
+{ "type": "pong" }
+{ "type": "status_change", "status": "arrived", "appointment_id": "uuid", "ts": "2026-04-11T..." }
+{ "type": "location_update", "lat": 41.0793, "lng": -85.1394, "ts": "2026-04-11T..." }
+```
+
+**Frontend usage** (`useAppointmentSocket` hook):
+
+```ts
+const { sendLocationUpdate } = useAppointmentSocket({
+  appointmentId: appt.id,
+  onStatusChange: (status) => setStatus(status),
+  onLocationUpdate: ({ lat, lng }) => setMarker({ lat, lng }),
+});
+```
+
+The hook handles auto-reconnect with exponential backoff (1 s → 30 s max) and sends a heartbeat ping every 30 s.
+
+**`WS_BASE_URL`** is exported from `src/services/api.ts` — it replaces `http(s)://` with `ws(s)://` automatically.
 
 ---
 

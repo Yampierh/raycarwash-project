@@ -195,3 +195,37 @@ python -m pytest tests/ -v
 ### Cambios de Documentación
 
 - `AGENTS.md`: Sprint 6 marcado como "En Progreso", `provider` field documentado en auth, nota sobre `_BaseRequestSchema`
+
+---
+
+## 🔌 Sprint 6 — WebSocket + Estado ARRIVED (2026-04-11)
+
+### Bugs Corregidos — Sprint 6
+
+| # | Severidad | Archivo | Descripción |
+| --- | --- | --- | --- |
+| 1 | Alto | `repositories/detailer_repository.py` | `update_location` hacía UPDATE en tabla `User` — los campos `current_lat/lng/last_location_update` viven en `DetailerProfile`. Fix: apuntar al modelo correcto. |
+| 2 | Alto | `services/appointment_service.py` | RBAC multi-rol: usaba `actor.role ==` (atributo singular inexistente) en lugar de `actor.has_role()`. Los usuarios con múltiples roles obtenían 403 incorrectos. |
+| 3 | Medio | `services/appointment_service.py` | `get_available_slots`: si el servicio no se encontraba, `service_duration_minutes` quedaba sin asignar → `UnboundLocalError`. Fix: fallback a `SLOT_GRANULARITY_MINUTES`. |
+
+### Nuevas Funcionalidades Implementadas
+
+| Componente | Descripción |
+| --- | --- |
+| `AppointmentStatus.ARRIVED` | Nuevo estado entre CONFIRMED e IN_PROGRESS. Timestamp `arrived_at` auto-stamped. Migración Alembic incluida. |
+| `backend/app/ws/connection_manager.py` | `ConnectionManager` in-memory: rooms por `appointment_id`, `asyncio.Lock`, broadcast con purga de sockets muertos. Escala a Redis pub/sub sin cambiar la API pública. |
+| `backend/app/ws/router.py` | Endpoint `WS /ws/appointments/{id}?token=<jwt>`. Acepta `ping`/`location_update` (solo detailer). Persiste ubicación en background task con sesión propia. |
+| `services/auth.py: ws_get_current_user` | Auth WS: retorna `User\|None` en lugar de raise, para cerrar limpiamente con códigos 4001/4003/4004. |
+| Broadcast HTTP→WS | Status change y location update HTTP disparan `ConnectionManager.broadcast()` al room activo. |
+| `frontend/src/store/authStore.ts` | Zustand store: token síncrono para WS. `saveToken`/`clearAuthTokens` sincronizan el store; `app.tsx` hidrata en boot. |
+| `frontend/src/hooks/useAppointmentSocket.ts` | Hook WS completo: auto-connect, backoff exponencial (1s→30s), heartbeat ping 30s, callbacks de estado y ubicación. |
+| `DetailerHomeScreen` | Botón "I've Arrived" (CONFIRMED→ARRIVED, púrpura), "Start Job" (ARRIVED→IN_PROGRESS). GPS push cada 5s con `expo-location` mientras hay job activo. |
+| `HomeScreen` | Banner "DETAILER ARRIVED" / "Your detailer is on site!" con updates en tiempo real via WS. |
+
+### Estado de Tests Post-Sprint 6
+
+| Área | Estado |
+| --- | --- |
+| Auth (21 tests) | ✅ Sin regresiones esperadas |
+| Appointments (status machine) | ✅ ARRIVED integrado en transiciones |
+| WebSocket | ⚠️ Sin tests automatizados aún (requiere `pytest-asyncio` + mock WS) |

@@ -160,6 +160,12 @@ Query params: `service_id`, `vehicle_sizes` (comma-separated), `lat`, `lng`, `da
 | GET | `/appointments/{id}` | Bearer | Get appointment detail |
 | PATCH | `/appointments/{id}/status` | Bearer | State machine status transition |
 
+### WebSocket (`/ws`)
+
+| Protocol | Path                                     | Auth           | Description                                      |
+|----------|------------------------------------------|----------------|--------------------------------------------------|
+| WS       | `/ws/appointments/{id}?token=<jwt>`      | JWT query param| Real-time room: status changes + detailer GPS    |
+
 ### Payments & Reviews
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
@@ -186,7 +192,7 @@ Query params: `service_id`, `vehicle_sizes` (comma-separated), `lat`, `lng`, `da
 
 **Addon** — Optional extras. Flat `price_cents` + `duration_minutes`.
 
-**Appointment** — Core booking. Links client, detailer, service, vehicles, addons. Has `estimated_price` (immutable after creation) and `actual_price` (set on COMPLETED). Timestamps: `started_at`, `completed_at`.
+**Appointment** — Core booking. Links client, detailer, service, vehicles, addons. Has `estimated_price` (immutable after creation) and `actual_price` (set on COMPLETED). Timestamps: `arrived_at`, `started_at`, `completed_at`.
 
 **AppointmentVehicle** / **AppointmentAddon** — Sprint 5 multi-vehicle/addon support. Snapshot prices at booking time.
 
@@ -219,21 +225,27 @@ total_duration = Σ vehicle_duration + Σ addon.duration_minutes
 
 ```text
 PENDING
-  ├→ CONFIRMED            (detailer / admin)
-  ├→ CANCELLED_BY_CLIENT  (client / admin)
+  ├→ CONFIRMED             (detailer / admin)
+  ├→ CANCELLED_BY_CLIENT   (client / admin)
   └→ CANCELLED_BY_DETAILER (detailer / admin)
 
 CONFIRMED
-  ├→ IN_PROGRESS          (detailer / admin)
-  ├→ CANCELLED_BY_CLIENT  (client / admin)
+  ├→ ARRIVED               (detailer / admin)  ← detailer reached client location
+  ├→ IN_PROGRESS           (detailer / admin)
+  ├→ CANCELLED_BY_CLIENT   (client / admin)
   └→ CANCELLED_BY_DETAILER (detailer / admin)
 
+ARRIVED
+  └→ IN_PROGRESS           (detailer / admin)
+
 IN_PROGRESS
-  ├→ COMPLETED            (detailer / admin; requires actual_price)
-  └→ NO_SHOW              (detailer / admin)
+  ├→ COMPLETED             (detailer / admin; requires actual_price)
+  └→ NO_SHOW               (detailer / admin)
 
 Terminal states: COMPLETED, CANCELLED_BY_CLIENT, CANCELLED_BY_DETAILER, NO_SHOW
 ```
+
+Auto-stamped timestamps: `arrived_at` (ARRIVED), `started_at` (IN_PROGRESS), `completed_at` (COMPLETED).
 
 ### Cancellation / Refund Policy
 | Time before appointment | Refund |
@@ -314,7 +326,8 @@ Router → Service → Repository → SQLAlchemy ORM → PostgreSQL
 3. Seed service catalog
 4. Seed addons
 5. Seed test detailers (detailer_seed.py)
-6. On shutdown: `engine.dispose()`
+6. Initialize `app.state.ws_manager = ConnectionManager()` (WebSocket room registry)
+7. On shutdown: `engine.dispose()`
 
 ### Middleware Stack
 1. CORS (`http://localhost:8081` + configured origins)
@@ -330,16 +343,29 @@ Router → Service → Repository → SQLAlchemy ORM → PostgreSQL
 | Category | Screens |
 |----------|---------|
 | Auth | LoginScreen, RegisterScreen |
-| Client home | HomeScreen |
+| Client home | HomeScreen (real-time WS status + detailer location) |
 | Profile | ProfileScreen, EditProfileScreen |
 | Vehicles | VehiclesScreen, AddVehicleScreen, VehicleDetailScreen, SelectVehiclesScreen |
 | Booking flow | BookingScreen, ScheduleScreen, DetailerSelectionScreen, BookingSummaryScreen |
-| Detailer | DetailerOnboardingScreen, DetailerProfileScreen, DetailerServicesScreen, DetailerHomeScreen |
+| Detailer | DetailerOnboardingScreen, DetailerProfileScreen, DetailerServicesScreen, DetailerHomeScreen (WS + GPS push) |
+
+
+### Hooks
+
+| File                      | Responsibility                                         |
+|---------------------------|--------------------------------------------------------|
+| `useAppointmentSocket.ts` | WS hook: reconnect, heartbeat 30s, status/location CBS |
+
+### Store
+
+| File                 | Responsibility                                                          |
+|----------------------|-------------------------------------------------------------------------|
+| `store/authStore.ts` | Synchronous JWT + roles for WS; hydrated at boot and on token save/clear |
 
 ### Services (11 total)
 | File | Responsibility |
 |------|---------------|
-| `api.ts` | Axios instances, JWT injection, 401 auto-refresh logic |
+| `api.ts` | Axios instances, JWT injection, 401 auto-refresh logic, `WS_BASE_URL` export |
 | `auth.service.ts` | Login, register, social auth, token refresh, password reset |
 | `user.service.ts` | User profile management |
 | `vehicle.service.ts` | Vehicle CRUD |

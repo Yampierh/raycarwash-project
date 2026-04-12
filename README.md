@@ -120,14 +120,17 @@ This opens:
 ### Frontend
 - React Native (Expo)
 - React Navigation
-- Axios
-- AsyncStorage
+- Axios + WebSocket (native)
+- Zustand (auth store)
+- expo-secure-store
 
 ### Backend
-- FastAPI
+- FastAPI (REST + WebSocket)
 - SQLAlchemy (async)
 - PostgreSQL (asyncpg)
 - Pydantic
+- Stripe SDK v11 + Stripe Identity
+- webauthn (passkeys)
 
 ## License
 
