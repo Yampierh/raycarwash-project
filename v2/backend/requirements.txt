@@ -1,0 +1,52 @@
+# requirements.txt — RayCarwash v2
+# Uber-style architecture: H3 geospatial, Redis Streams, LedgerStore payments
+# Install: pip install -r requirements.txt
+
+# ---- Core Framework ----
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+
+# ---- Database ----
+sqlalchemy==2.0.36
+sqlalchemy-utils==0.41.0
+asyncpg==0.30.0
+alembic==1.14.0
+greenlet==3.1.1
+aiosqlite==0.20.0
+
+# ---- Validation & Settings ----
+pydantic==2.10.3
+pydantic[email]==2.10.3
+pydantic-settings==2.6.1
+
+# ---- Security ----
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
+python-jose[cryptography]==3.3.0
+python-multipart==0.0.20
+
+# ---- Rate Limiting ----
+slowapi==0.1.9
+
+# ---- Payments ----
+stripe==11.3.0
+
+# ---- HTTP Client ----
+httpx==0.27.2
+
+# ---- WebAuthn / FIDO2 ----
+webauthn==2.2.0
+
+# ---- Redis (v2 additions) ----
+# hiredis: C-extension parser — 10x faster than pure-Python fallback
+redis[hiredis]>=5.0.0
+
+# ---- Geospatial: H3 Hexagonal Indexing (v2) ----
+# Uber's open-source H3 library for hexagonal spatial indexing
+h3>=3.7.6
+
+# ---- Testing ----
+pytest==8.3.4
+pytest-anyio==0.0.0
+anyio[trio]==4.7.0
+pytest-asyncio==0.24.0
