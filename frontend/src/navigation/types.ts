@@ -77,4 +77,8 @@ export type RootStackParamList = {
   // Detailer tabs (nested inside DetailerMain)
   DetailerHome: undefined;
   DetailerProfile: undefined;
+  // v2 ride flow
+  FareEstimate: undefined;
+  ConfirmBooking: { fare_token: string };
+  Searching: { appointment_id: string };
 };

@@ -5,6 +5,7 @@ from __future__ import annotations
 import enum
 import uuid
 from datetime import date, datetime, timezone
+from decimal import Decimal
 
 from sqlalchemy import (
     Boolean,
@@ -63,6 +64,15 @@ class AppointmentStatus(str, enum.Enum):
     CANCELLED_BY_CLIENT  = "cancelled_by_client"
     CANCELLED_BY_DETAILER= "cancelled_by_detailer"
     NO_SHOW              = "no_show"
+    SEARCHING            = "searching"          # v2: looking for a detailer
+    NO_DETAILER_FOUND    = "no_detailer_found"  # v2: all candidates timed out
+
+
+class AssignmentStatus(str, enum.Enum):
+    OFFERED  = "offered"
+    ACCEPTED = "accepted"
+    DECLINED = "declined"
+    TIMEOUT  = "timeout"
 
 
 # Terminal statuses: no longer occupy a detailer's schedule slot.
@@ -70,6 +80,7 @@ TERMINAL_STATUSES: frozenset[AppointmentStatus] = frozenset({
     AppointmentStatus.CANCELLED_BY_CLIENT,
     AppointmentStatus.CANCELLED_BY_DETAILER,
     AppointmentStatus.NO_SHOW,
+    AppointmentStatus.NO_DETAILER_FOUND,
 })
 
 # ---- State machine: allowed forward transitions per role ----
@@ -815,6 +826,21 @@ class DetailerProfile(TimestampMixin, Base):
     )
     rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # ---- H3 Geospatial index (v2) ----
+    h3_index_r7: Mapped[str | None] = mapped_column(
+        String(20), nullable=True,
+        comment="H3 cell at resolution 7 for proximity search.",
+    )
+    h3_index_r9: Mapped[str | None] = mapped_column(
+        String(20), nullable=True,
+        comment="H3 cell at resolution 9 for precise storage.",
+    )
+    response_rate: Mapped[Decimal] = mapped_column(
+        Numeric(5, 4), nullable=False, default=Decimal("0"),
+        server_default="0",
+        comment="Fraction of offers accepted. Updated by assignment engine.",
+    )
+
     user: Mapped[User] = relationship("User", back_populates="detailer_profile")
     detailer_services: Mapped[list[DetailerService]] = relationship(
         "DetailerService", back_populates="detailer", lazy="selectin",
@@ -988,10 +1014,11 @@ class Appointment(TimestampMixin, Base):
         ForeignKey("users.id", ondelete="RESTRICT"),
         nullable=False, index=True,
     )
-    detailer_id: Mapped[uuid.UUID] = mapped_column(
+    detailer_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="RESTRICT"),
-        nullable=False, index=True,
+        nullable=True, index=True,
+        comment="NULL while status=SEARCHING; set when a detailer accepts.",
     )
     vehicle_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
@@ -1012,12 +1039,12 @@ class Appointment(TimestampMixin, Base):
     scheduled_time: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, index=True,
     )
-    estimated_end_time: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False,
+    estimated_end_time: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
     )
-    travel_buffer_end_time: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False,
-        comment="Hard boundary: estimated_end_time + 30 min.",
+    travel_buffer_end_time: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+        comment="Hard boundary: estimated_end_time + 30 min. NULL while SEARCHING.",
     )
 
     # Lifecycle timestamps
@@ -1540,3 +1567,103 @@ class RefreshToken(Base):
 
     def __repr__(self) -> str:
         return f"<RefreshToken family={self.family_id} used={self.used_at is not None}>"
+
+
+# ------------------------------------------------------------------ #
+#  Model: FareEstimate  (v2)                                         #
+# ------------------------------------------------------------------ #
+
+class FareEstimate(Base):
+    """
+    Snapshot of a fare calculation shown to the client before booking.
+
+    fare_token is an HMAC-SHA256 signature over (id, estimated_price_cents,
+    expires_at) so the rides router can verify it without a round-trip if
+    the record is already cached in Redis.
+    """
+
+    __tablename__ = "fare_estimates"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    client_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    service_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("services.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    vehicle_sizes: Mapped[list] = mapped_column(
+        JSONB, nullable=False,
+        comment='e.g. ["small", "medium"]',
+    )
+    client_lat: Mapped[Decimal] = mapped_column(Numeric(9, 6), nullable=False)
+    client_lng: Mapped[Decimal] = mapped_column(Numeric(9, 6), nullable=False)
+    base_price_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    surge_multiplier: Mapped[Decimal] = mapped_column(
+        Numeric(5, 2), nullable=False, default=Decimal("1.0")
+    )
+    estimated_price_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    nearby_detailers_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    fare_token: Mapped[str] = mapped_column(
+        String(64), nullable=False, unique=True,
+        comment="HMAC-SHA256 hex over (id, estimated_price_cents, expires_at).",
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    def __repr__(self) -> str:
+        return f"<FareEstimate id={self.id} price={self.estimated_price_cents}>"
+
+
+# ------------------------------------------------------------------ #
+#  Model: AppointmentAssignment  (v2)                                #
+# ------------------------------------------------------------------ #
+
+class AppointmentAssignment(Base):
+    """
+    One row per offer attempt.  Multiple rows per appointment are expected
+    (first detailer declined/timed out, second accepted, etc.).
+    """
+
+    __tablename__ = "appointment_assignments"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    appointment_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("appointments.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    detailer_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    offered_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    responded_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default=AssignmentStatus.OFFERED.value
+    )
+    offer_expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+    def __repr__(self) -> str:
+        return f"<AppointmentAssignment appt={self.appointment_id} detailer={self.detailer_id} status={self.status}>"

@@ -17,6 +17,9 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAppNavigation } from "../hooks/useAppNavigation";
 import { useAppointmentSocket } from "../hooks/useAppointmentSocket";
+import { acceptRide, declineRide } from "../services/rides.service";
+import { useAuthStore } from "../store/authStore";
+import { WS_BASE_URL } from "../services/api";
 import {
   getMyAppointments,
   patchAppointmentStatus,
@@ -87,10 +90,18 @@ function isToday(iso: string): boolean {
   return new Date(iso).toDateString() === new Date().toDateString();
 }
 
+interface OfferCard {
+  appointmentId: string;
+  assignmentId: string;
+  expiresAt: string;
+}
+
 export default function DetailerHomeScreen() {
   const navigation = useAppNavigation();
+  const token = useAuthStore((s) => s.token);
 
   const [userName, setUserName] = useState<string | undefined>();
+  const [userId, setUserId] = useState<string | null>(null);
   const [accepting, setAccepting] = useState(false);
   const [togglingStatus, setTogglingStatus] = useState(false);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -98,9 +109,50 @@ export default function DetailerHomeScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  // Offer card state
+  const [offer, setOffer] = useState<OfferCard | null>(null);
+  const [offerCountdown, setOfferCountdown] = useState(15);
+  const offerTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   // Active job timer
   const [elapsed, setElapsed] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Personal WS for receiving offers from assignment engine
+  const personalWsRef = useRef<WebSocket | null>(null);
+  useEffect(() => {
+    if (!userId || !token) return;
+    const ws = new WebSocket(`${WS_BASE_URL}/ws/user/${userId}?token=${token}`);
+    personalWsRef.current = ws;
+    ws.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data as string);
+        if (msg.type === "offer") {
+          setOffer({
+            appointmentId: msg.appointment_id,
+            assignmentId: msg.assignment_id,
+            expiresAt: msg.offer_expires_at,
+          });
+          setOfferCountdown(15);
+          if (offerTimerRef.current) clearInterval(offerTimerRef.current);
+          offerTimerRef.current = setInterval(() => {
+            setOfferCountdown((n) => {
+              if (n <= 1) {
+                clearInterval(offerTimerRef.current!);
+                setOffer(null);
+                return 0;
+              }
+              return n - 1;
+            });
+          }, 1000);
+        }
+      } catch { /* ignore */ }
+    };
+    return () => {
+      ws.close();
+      if (offerTimerRef.current) clearInterval(offerTimerRef.current);
+    };
+  }, [userId, token]);
 
   // Active job = arrived OR in_progress (detailer is on-site or working)
   const activeJob = appointments.find(
@@ -180,6 +232,26 @@ export default function DetailerHomeScreen() {
     return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   }
 
+  const handleAcceptOffer = async () => {
+    if (!offer) return;
+    try {
+      await acceptRide(offer.appointmentId);
+      setOffer(null);
+      if (offerTimerRef.current) clearInterval(offerTimerRef.current);
+      loadData();
+    } catch { /* show alert in production */ }
+  };
+
+  const handleDeclineOffer = async () => {
+    if (!offer) return;
+    try {
+      await declineRide(offer.appointmentId);
+    } catch { /* ignore */ } finally {
+      setOffer(null);
+      if (offerTimerRef.current) clearInterval(offerTimerRef.current);
+    }
+  };
+
   async function loadData() {
     try {
       const [user, profile, appts] = await Promise.all([
@@ -188,6 +260,7 @@ export default function DetailerHomeScreen() {
         getMyAppointments(1, 50),
       ]);
       setUserName(user.full_name);
+      setUserId(user.id);
       setAccepting(profile.is_accepting_bookings);
       setStats({
         earnings: profile.total_earnings_cents,
@@ -287,6 +360,35 @@ export default function DetailerHomeScreen() {
             <Ionicons name="notifications-outline" size={22} color="#94A3B8" />
           </TouchableOpacity>
         </View>
+
+        {/* ── OFFER CARD ─────────────────────────────────────────────── */}
+        {offer && (
+          <View style={styles.offerCard}>
+            <View style={styles.offerHeader}>
+              <View style={styles.offerBadge}>
+                <Ionicons name="flash" size={14} color="#0B0F19" />
+                <Text style={styles.offerBadgeText}>NEW OFFER</Text>
+              </View>
+              <View style={styles.countdownPill}>
+                <Text style={[styles.countdownText, offerCountdown <= 5 && { color: "#EF4444" }]}>
+                  {offerCountdown}s
+                </Text>
+              </View>
+            </View>
+            <Text style={styles.offerTitle}>Incoming Job Request</Text>
+            <Text style={styles.offerSub}>ID: {offer.appointmentId.slice(0, 8).toUpperCase()}</Text>
+            <View style={styles.offerBtns}>
+              <TouchableOpacity style={styles.declineBtn} onPress={handleDeclineOffer}>
+                <Ionicons name="close" size={18} color="#EF4444" />
+                <Text style={styles.declineBtnText}>Decline</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.acceptBtn} onPress={handleAcceptOffer}>
+                <Ionicons name="checkmark" size={18} color="#0B0F19" />
+                <Text style={styles.acceptBtnText}>Accept</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
 
         {/* Online Toggle Card */}
         <LinearGradient
@@ -404,7 +506,7 @@ export default function DetailerHomeScreen() {
                 </View>
                 <View style={styles.countdownBadge}>
                   <Ionicons name="time-outline" size={14} color="#F59E0B" />
-                  <Text style={styles.countdownText}>{getCountdown(nextJob.scheduled_time)}</Text>
+                  <Text style={styles.jobCountdownText}>{getCountdown(nextJob.scheduled_time)}</Text>
                 </View>
               </View>
 
@@ -509,6 +611,35 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.background },
   scroll: { paddingHorizontal: 16, paddingTop: 8 },
   loader: { flex: 1, alignItems: "center", justifyContent: "center" },
+
+  // Offer card
+  offerCard: {
+    backgroundColor: "#1E293B", borderRadius: 16, padding: 18,
+    marginBottom: 16, borderWidth: 1, borderColor: "#F59E0B44",
+  },
+  offerHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
+  offerBadge: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    backgroundColor: "#F59E0B", borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4,
+  },
+  offerBadgeText: { color: "#0B0F19", fontWeight: "800", fontSize: 11 },
+  countdownPill: {
+    backgroundColor: "#0F172A", borderRadius: 20, paddingHorizontal: 12, paddingVertical: 4,
+  },
+  countdownText: { color: "#F8FAFC", fontWeight: "700", fontSize: 16 },
+  offerTitle: { color: "#F8FAFC", fontSize: 17, fontWeight: "700", marginBottom: 4 },
+  offerSub: { color: "#64748B", fontSize: 12, marginBottom: 16 },
+  offerBtns: { flexDirection: "row", gap: 12 },
+  declineBtn: {
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: 6, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: "#EF4444",
+  },
+  declineBtnText: { color: "#EF4444", fontWeight: "700" },
+  acceptBtn: {
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: 6, borderRadius: 12, padding: 14, backgroundColor: Colors.primary,
+  },
+  acceptBtnText: { color: "#0B0F19", fontWeight: "700" },
 
   header: {
     flexDirection: "row",
@@ -630,7 +761,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 12,
   },
-  countdownText: { fontSize: 13, fontWeight: "600", color: "#F59E0B" },
+  jobCountdownText: { fontSize: 13, fontWeight: "600", color: "#F59E0B" },
   vehicleRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 },
   vehicleText: { fontSize: 15, color: "#F1F5F9", fontWeight: "500" },
   nextAddress: { fontSize: 13, color: "#64748B", marginBottom: 16 },

@@ -671,6 +671,7 @@ class LocationUpdate(_BaseRequestSchema):
 
     latitude: float = Field(..., ge=-90.0, le=90.0)
     longitude: float = Field(..., ge=-180.0, le=180.0)
+    heading: float | None = Field(default=None, ge=0.0, lt=360.0)
 
 
 class LocationResponse(_BaseSchema):
@@ -1085,3 +1086,23 @@ class WebAuthnCredentialRead(_BaseSchema):
     device_name: str | None
     created_at: datetime
     last_used_at: datetime | None
+
+
+# ================================================================== #
+#  V2: FARE ESTIMATION SCHEMAS                                        #
+# ================================================================== #
+
+class FareEstimateRequest(_BaseRequestSchema):
+    service_id: uuid.UUID
+    vehicle_sizes: list[VehicleSize] = Field(..., min_length=1)
+    client_lat: float = Field(..., ge=-90.0, le=90.0)
+    client_lng: float = Field(..., ge=-180.0, le=180.0)
+
+
+class FareEstimateResponse(_BaseSchema):
+    fare_token: str
+    base_price_cents: int
+    surge_multiplier: Decimal
+    estimated_price_cents: int
+    nearby_detailers_count: int
+    expires_at: datetime

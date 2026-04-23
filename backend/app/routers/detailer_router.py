@@ -36,7 +36,6 @@ from app.models.models import (
 from app.repositories.appointment_repository import AppointmentRepository
 from app.repositories.audit_repository import AuditRepository
 from app.repositories.detailer_repository import DetailerRepository
-from app.ws.connection_manager import ConnectionManager
 from app.schemas.schemas import (
     DetailerMeRead,
     DetailerProfileCreate,
@@ -457,26 +456,24 @@ async def update_detailer_location(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only detailer accounts can update location.",
         )
-    await DetailerRepository(db).update_location(
-        user_id=current_user.id,
-        lat=payload.latitude,
-        lng=payload.longitude,
-    )
 
-    # Broadcast location to the active appointment's WS room (if any participants connected)
+    # Resolve active appointment so the worker knows which WS room to broadcast to
     active_appt = await AppointmentRepository(db).get_active_for_detailer(current_user.id)
-    if active_appt is not None:
-        manager: ConnectionManager = request.app.state.ws_manager
-        if manager.room_size(active_appt.id) > 0:
-            await manager.broadcast(
-                active_appt.id,
-                {
-                    "type": "location_update",
-                    "lat": payload.latitude,
-                    "lng": payload.longitude,
-                    "ts": datetime.now(timezone.utc).isoformat(),
-                },
-            )
+    appointment_id = str(active_appt.id) if active_appt else ""
+
+    now_ts = datetime.now(timezone.utc).isoformat()
+    stream_payload: dict = {
+        "detailer_id": str(current_user.id),
+        "lat": str(payload.latitude),
+        "lng": str(payload.longitude),
+        "appointment_id": appointment_id,
+        "ts": now_ts,
+    }
+    if payload.heading is not None:
+        stream_payload["heading"] = str(payload.heading)
+
+    redis = request.app.state.redis
+    await redis.xadd("location_updates", stream_payload)
 
     return LocationResponse(
         user_id=current_user.id,

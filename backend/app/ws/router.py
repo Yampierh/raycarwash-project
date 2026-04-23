@@ -93,6 +93,11 @@ async def appointment_ws(
     # ---- Join room --------------------------------------------------- #
     await manager.connect(appointment_id, websocket)
 
+    # Forward Redis Pub/Sub messages to this WebSocket concurrently
+    forward_task = asyncio.create_task(
+        manager.subscribe_and_forward(websocket, appointment_id)
+    )
+
     try:
         while True:
             data = await websocket.receive_json()
@@ -113,7 +118,7 @@ async def appointment_ws(
                     _persist_location(current_user.id, float(lat), float(lng))
                 )
 
-                # Broadcast to the room (exclude sender to avoid echo)
+                # Broadcast to the room via Redis Pub/Sub
                 await manager.broadcast(
                     appointment_id,
                     {
@@ -122,13 +127,63 @@ async def appointment_ws(
                         "lng": lng,
                         "ts": datetime.now(timezone.utc).isoformat(),
                     },
-                    exclude=websocket,
                 )
 
     except WebSocketDisconnect:
         pass
     finally:
+        forward_task.cancel()
+        try:
+            await forward_task
+        except asyncio.CancelledError:
+            pass
         await manager.disconnect(appointment_id, websocket)
+
+
+# ------------------------------------------------------------------ #
+#  Personal WebSocket endpoint (detailer offers / push notifications) #
+# ------------------------------------------------------------------ #
+
+@router.websocket("/ws/user/{user_id}")
+async def user_ws(
+    websocket: WebSocket,
+    user_id: uuid.UUID,
+    token: str = Query(..., description="Valid JWT access token"),
+    manager: ConnectionManager = Depends(get_ws_manager),
+) -> None:
+    """
+    Personal channel for a single user. Used by the DetailerHomeScreen
+    to receive offer notifications from the assignment engine.
+    Room key: user:{user_id}
+    """
+    async with AsyncSessionLocal() as db:
+        current_user = await ws_get_current_user(token, db)
+
+    if current_user is None:
+        await websocket.close(code=4001)
+        return
+    if current_user.id != user_id:
+        await websocket.close(code=4003)
+        return
+
+    room_id = f"user:{user_id}"
+    await manager.connect(room_id, websocket)
+    forward_task = asyncio.create_task(manager.subscribe_and_forward(websocket, room_id))
+
+    try:
+        while True:
+            data = await websocket.receive_json()
+            if data.get("type") == "ping":
+                await websocket.send_json({"type": "pong"})
+    except WebSocketDisconnect:
+        pass
+    finally:
+        forward_task.cancel()
+        try:
+            await forward_task
+        except asyncio.CancelledError:
+            pass
+        await manager.disconnect(room_id, websocket)
 
 
 # ------------------------------------------------------------------ #

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -18,6 +19,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.limiter import limiter
+from app.core.redis import close_redis_pool, init_redis_pool
+from app.workers.location_worker import location_worker
+from app.workers.assignment_worker import assignment_worker
+from app.workers.ledger_seal_worker import ledger_seal_worker
+
+# Register ledger models with SQLAlchemy Base so create_all includes their tables
+import app.models.ledger  # noqa: F401
 from app.db.seed import seed_addons, seed_services
 from app.db.seed_rbac import seed_rbac
 from app.db.detailer_seed import seed_detailers
@@ -29,6 +37,8 @@ from sqlalchemy import select
 
 # ── All routers ──────────────────────────────────────────────────────
 from app.routers.addon_router       import router as addon_router        # Sprint 5
+from app.routers.fare_router        import router as fare_router          # v2
+from app.routers.rides_router       import router as rides_router         # v2
 from app.routers.appointment_router import router as appointment_router
 from app.routers.auth_router        import router as auth_router
 from app.routers.detailer_router    import router as detailer_router
@@ -93,12 +103,35 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await seed_detailers(seed_session)
         logger.info("✅  Test detailers seeded.")
 
-    # WebSocket connection manager — lives for the duration of the process
-    app.state.ws_manager = ConnectionManager()
+    # Redis pool — real Redis if available, else fakeredis in dev
+    app.state.redis = await init_redis_pool(settings.REDIS_URL)
+
+    # WebSocket connection manager backed by Redis Pub/Sub
+    app.state.ws_manager = ConnectionManager(app.state.redis)
     logger.info("✅  WebSocket ConnectionManager ready.")
+
+    # Shared state for assignment engine
+    app.state.assignment_events    = {}   # {"{appt_id}:{detailer_id}": asyncio.Event}
+    app.state.assignment_responses = {}   # {"{appt_id}:{detailer_id}": "accepted"|"declined"}
+
+    # Background workers
+    app.state.location_worker_task    = asyncio.create_task(location_worker(app.state))
+    app.state.assignment_worker_task  = asyncio.create_task(assignment_worker(app.state))
+    app.state.ledger_seal_worker_task = asyncio.create_task(ledger_seal_worker(app.state))
+    logger.info("✅  Location + Assignment + LedgerSeal workers started.")
 
     yield
 
+    for task_attr in ("location_worker_task", "assignment_worker_task", "ledger_seal_worker_task"):
+        task = getattr(app.state, task_attr, None)
+        if task:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+    await close_redis_pool(app.state.redis)
+    logger.info("🛑  Redis pool closed.")
     await engine.dispose()
     logger.info("🛑  Engine disposed. Shutdown complete.")
 
@@ -154,6 +187,8 @@ def create_application() -> FastAPI:
     application.include_router(appointment_router)    # /api/v1/appointments/*
     application.include_router(detailer_router)       # /api/v1/detailers/*
     application.include_router(verification_router)   # /api/v1/detailers/verification/*
+    application.include_router(fare_router)           # /api/v1/fares/*         v2
+    application.include_router(rides_router)          # /api/v1/rides/*         v2
     application.include_router(ws_router)             # /ws/appointments/{id}
     application.include_router(payment_router)        # /api/v1/payments/*
     application.include_router(review_router)         # /api/v1/reviews/*

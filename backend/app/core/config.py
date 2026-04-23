@@ -240,6 +240,41 @@ class Settings(BaseSettings):
     )
 
     # ---------------------------------------------------------------- #
+    #  Redis (v2)                                                       #
+    # ---------------------------------------------------------------- #
+    REDIS_URL: str = Field(
+        default="redis://localhost:6379/0",
+        description="Redis connection URL for Pub/Sub and H3 index.",
+    )
+
+    # ---------------------------------------------------------------- #
+    #  H3 Geospatial (v2)                                              #
+    # ---------------------------------------------------------------- #
+    H3_RESOLUTION_SEARCH: int = Field(default=7)
+    H3_RESOLUTION_STORE: int  = Field(default=9)
+
+    # ---------------------------------------------------------------- #
+    #  Fireball location filter (v2)                                   #
+    # ---------------------------------------------------------------- #
+    FIREBALL_DISTANCE_METERS: float = Field(default=50.0)
+    FIREBALL_HEADING_DEGREES: float = Field(default=10.0)
+
+    # ---------------------------------------------------------------- #
+    #  Detailer active presence TTL (v2)                               #
+    # ---------------------------------------------------------------- #
+    DETAILER_ACTIVE_TTL_SECONDS: int = Field(default=300)
+
+    # ---------------------------------------------------------------- #
+    #  Surge pricing thresholds (v2)                                   #
+    # ---------------------------------------------------------------- #
+    # Each tuple: (max_detailer_count, surge_multiplier).
+    # Sorted ascending; first threshold where active_count <= max is used.
+    # Last entry uses float("inf") as the no-surge fallback.
+    SURGE_THRESHOLDS: list[tuple[float, float]] = Field(
+        default=[(2, 2.0), (4, 1.5), (8, 1.2), (float("inf"), 1.0)],
+    )
+
+    # ---------------------------------------------------------------- #
     #  CORS                                                             #
     # ---------------------------------------------------------------- #
     ALLOWED_ORIGINS: list[str] = Field(

@@ -28,6 +28,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { WS_BASE_URL } from "../services/api";
 import { useAuthStore } from "../store/authStore";
+import { KalmanFilter } from "../utils/kalman";
 
 // ------------------------------------------------------------------ //
 
@@ -75,6 +76,10 @@ export function useAppointmentSocket({
   const retryTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const heartbeatRef   = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef     = useRef(true);
+
+  // One Kalman filter instance per axis — persist across re-renders
+  const latFilterRef = useRef(new KalmanFilter());
+  const lngFilterRef = useRef(new KalmanFilter());
 
   // Keep callbacks in refs so reconnect closure always sees the latest version
   const onStatusChangeRef  = useRef(onStatusChange);
@@ -139,7 +144,10 @@ export function useAppointmentSocket({
             typeof lng === "number" &&
             typeof ts  === "string"
           ) {
-            onLocationUpdateRef.current?.({ lat, lng, ts });
+            // Pass raw GPS through Kalman filter before forwarding
+            const filteredLat = latFilterRef.current.update(lat);
+            const filteredLng = lngFilterRef.current.update(lng);
+            onLocationUpdateRef.current?.({ lat: filteredLat, lng: filteredLng, ts });
           }
         }
         // "pong" messages are silently ignored

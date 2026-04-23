@@ -16,6 +16,9 @@ import DetailerSelectionScreen from "../screens/DetailerSelectionScreen";
 import DetailerServicesScreen from "../screens/DetailerServicesScreen";
 import EditProfileScreen from "../screens/EditProfileScreen";
 import HomeScreen from "../screens/HomeScreen";
+import FareEstimateScreen from "../screens/FareEstimateScreen";
+import ConfirmBookingScreen from "../screens/ConfirmBookingScreen";
+import SearchingScreen from "../screens/SearchingScreen";
 import LoadingScreen from "../screens/LoadingScreen";
 import LoginScreen from "../screens/LoginScreen";
 import ProfileScreen from "../screens/ProfileScreen";
@@ -149,6 +152,10 @@ export default function AppNavigator() {
         />
         <Stack.Screen name="BookingSummary" component={BookingSummaryScreen} />
         <Stack.Screen name="Booking" component={BookingScreen} />
+        {/* v2 ride flow */}
+        <Stack.Screen name="FareEstimate" component={FareEstimateScreen} />
+        <Stack.Screen name="ConfirmBooking" component={ConfirmBookingScreen} />
+        <Stack.Screen name="Searching" component={SearchingScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAppNavigation } from "../hooks/useAppNavigation";
 import { useAppointmentSocket } from "../hooks/useAppointmentSocket";
+import { useDeadReckoning, KnownPosition } from "../hooks/useDeadReckoning";
 import { useLocation } from "../hooks/useLocation";
 import { useWeather } from "../hooks/useWeather";
 import { getMyAppointments } from "../services/appointment.service";
@@ -160,6 +161,8 @@ export default function HomeScreen() {
   const [completedWashes, setCompletedWashes] = useState(0);
   const [loading, setLoading] = useState(true);
   const [detailerLocation, setDetailerLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [lastKnownPosition, setLastKnownPosition] = useState<KnownPosition | null>(null);
+  const estimatedPosition = useDeadReckoning(lastKnownPosition);
 
   const navigation = useAppNavigation();
   const { city, region, lat, lng, loading: locLoading } = useLocation();
@@ -218,8 +221,15 @@ export default function HomeScreen() {
       [activeApt?.id],
     ),
     onLocationUpdate: useCallback(
-      (payload) => {
+      (payload: { lat: number; lng: number; ts: string }) => {
         setDetailerLocation({ lat: payload.lat, lng: payload.lng });
+        // Update Dead Reckoning anchor with every new real GPS fix
+        setLastKnownPosition({
+          lat: payload.lat,
+          lng: payload.lng,
+          heading: 0, // heading not provided by current WS protocol
+          timestamp: Date.now(),
+        });
       },
       [],
     ),
@@ -403,6 +413,20 @@ export default function HomeScreen() {
             </View>
             <Ionicons name="chevron-forward" size={18} color="#334155" />
           </TouchableOpacity>
+        )}
+
+        {/* ── DETAILER TRACKING (Dead Reckoning) ──────────────────────── */}
+        {activeApt && estimatedPosition && (
+          <View style={styles.trackingCard}>
+            <View style={styles.trackingRow}>
+              <View style={styles.trackingDot} />
+              <Text style={styles.trackingLabel}>Detailer Location (Live)</Text>
+            </View>
+            <Text style={styles.trackingCoords}>
+              {estimatedPosition.lat.toFixed(5)}°N, {Math.abs(estimatedPosition.lng).toFixed(5)}°W
+            </Text>
+            <Text style={styles.trackingNote}>Interpolated at 60 fps — no teleportation</Text>
+          </View>
         )}
 
         {/* ── HERO CTA ────────────────────────────────────────────────── */}
@@ -857,6 +881,18 @@ const styles = StyleSheet.create({
   },
   weatherBadgeText: { fontSize: 11, fontWeight: "800" },
   weatherSub: { color: "#334155", fontSize: 10, textAlign: "right" },
+
+  // Detailer tracking card (Dead Reckoning)
+  trackingCard: {
+    marginHorizontal: 20, marginBottom: 14,
+    backgroundColor: "#0F2234", borderRadius: 14, padding: 14,
+    borderWidth: 1, borderColor: "#1E3A5F",
+  },
+  trackingRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 },
+  trackingDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#22C55E" },
+  trackingLabel: { color: "#22C55E", fontWeight: "600", fontSize: 12 },
+  trackingCoords: { color: "#F8FAFC", fontFamily: "monospace", fontSize: 13, marginBottom: 4 },
+  trackingNote: { color: "#475569", fontSize: 11 },
 
   // Active banner
   activeBanner: {
