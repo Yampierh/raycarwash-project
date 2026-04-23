@@ -437,8 +437,8 @@ class User(TimestampMixin, Base):
     Sprint 3 additions:
     - stripe_customer_id: Stripe's customer object ID, set on first payment.
     
-    Sprint 5 additions:
-    - google_id, apple_id: Social login integration
+    Sprint 7 additions:
+    - auth_providers relationship: replaces google_id / apple_id columns
     """
 
     __tablename__ = "users"
@@ -477,16 +477,6 @@ class User(TimestampMixin, Base):
     stripe_customer_id: Mapped[str | None] = mapped_column(
         String(64), nullable=True, index=True,
         comment="Stripe cus_xxx. Set on first payment intent creation.",
-    )
-
-    # ---- Social auth (Sprint 5) ----
-    google_id: Mapped[str | None] = mapped_column(
-        String(128), nullable=True, unique=True, index=True,
-        comment="Google user ID ('sub' from tokeninfo). NULL for non-Google users.",
-    )
-    apple_id: Mapped[str | None] = mapped_column(
-        String(128), nullable=True, unique=True, index=True,
-        comment="Apple 'sub' claim from identity_token. NULL for non-Apple users.",
     )
 
     # NOTE: roles relationship removed due to FK ambiguity in user_roles table
@@ -540,6 +530,12 @@ class User(TimestampMixin, Base):
     )
     webauthn_credentials: Mapped[list["WebAuthnCredential"]] = relationship(
         "WebAuthnCredential",
+        back_populates="user",
+        lazy="selectin",
+        cascade="all, delete-orphan",
+    )
+    auth_providers: Mapped[list["AuthProvider"]] = relationship(
+        "AuthProvider",
         back_populates="user",
         lazy="selectin",
         cascade="all, delete-orphan",
@@ -1432,3 +1428,115 @@ class WebAuthnCredential(Base):
 
     def __repr__(self) -> str:
         return f"<WebAuthnCredential id={self.id} user_id={self.user_id} device={self.device_name!r}>"
+
+
+# ------------------------------------------------------------------ #
+#  Model: AuthProvider  (social login)                               #
+# ------------------------------------------------------------------ #
+
+class AuthProvider(Base):
+    """
+    One row per social identity linked to a user account.
+
+    provider     : "google" | "apple"
+    provider_uid : the stable sub/user_id from the provider
+    provider_email: email as reported by the provider at link time
+                   (Apple only sends this on the first login, so store it here)
+
+    Using a separate table instead of google_id / apple_id columns on User means
+    adding a new provider in the future is an INSERT, not an ALTER TABLE.
+    """
+
+    __tablename__ = "auth_providers"
+    __table_args__ = (
+        UniqueConstraint("provider", "provider_uid", name="uq_auth_providers_provider_uid"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    provider: Mapped[str] = mapped_column(
+        String(20), nullable=False,
+        comment="Social provider name: 'google' | 'apple'",
+    )
+    provider_uid: Mapped[str] = mapped_column(
+        String(255), nullable=False,
+        comment="Stable user identifier from the provider (sub / user_id).",
+    )
+    provider_email: Mapped[str | None] = mapped_column(
+        String(254), nullable=True,
+        comment="Email as reported by the provider at link time.",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    user: Mapped[User] = relationship("User", back_populates="auth_providers")
+
+    def __repr__(self) -> str:
+        return f"<AuthProvider {self.provider}:{self.provider_uid} user_id={self.user_id}>"
+
+
+# ------------------------------------------------------------------ #
+#  Model: RefreshToken  (stateful rotation)                          #
+# ------------------------------------------------------------------ #
+
+class RefreshToken(Base):
+    """
+    One row per issued refresh token.  Enables:
+      - Single-use rotation: mark used_at on consumption, issue a new token.
+      - Theft detection: if a used token is presented again, revoke the entire
+        family_id group and force re-login.
+      - Explicit revocation: set revoked=True without waiting for expiry.
+
+    token_hash : SHA-256(raw_token) — only the hash is stored; the raw value
+                 is sent to the client once and never persisted.
+    family_id  : shared UUID across all rotations of a single session.
+    """
+
+    __tablename__ = "refresh_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    token_hash: Mapped[str] = mapped_column(
+        String(64), nullable=False, unique=True,
+        comment="SHA-256 hex digest of the raw refresh token.",
+    )
+    family_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), nullable=False, index=True,
+        comment="Rotation family: all tokens in one session share this ID.",
+    )
+    used_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+        comment="Set when this token is consumed. NULL = still valid.",
+    )
+    revoked: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False,
+        comment="Explicit revocation flag (e.g. logout, theft detection).",
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    def __repr__(self) -> str:
+        return f"<RefreshToken family={self.family_id} used={self.used_at is not None}>"

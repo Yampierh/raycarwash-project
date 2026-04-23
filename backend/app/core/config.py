@@ -185,6 +185,19 @@ class Settings(BaseSettings):
             "Leave empty to skip audience verification (dev/test only)."
         ),
     )
+    GOOGLE_ALLOWED_REDIRECT_URIS: list[str] = Field(
+        default=[
+            "exp://localhost:8081",           # Expo Go — development
+            "raycarwash://",                  # Standalone app — production
+            # TODO: add https://auth.expo.io/@YOUR_EXPO_USERNAME/raycarwash-app
+            #       once you know your Expo account username
+        ],
+        description=(
+            "Whitelist of redirect_uri values accepted by POST /auth/google. "
+            "Any value not on this list is rejected with HTTP 400 before the "
+            "Google token exchange happens."
+        ),
+    )
     APPLE_BUNDLE_ID: str = Field(
         default="com.raycarwash.app",
         description=(

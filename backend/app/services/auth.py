@@ -25,6 +25,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import secrets
 import uuid
@@ -41,6 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.db.session import get_db
 from app.models.models import User
+from app.repositories.refresh_token_repository import RefreshTokenRepository
 from app.repositories.user_repository import UserRepository
 
 logger = logging.getLogger(__name__)
@@ -50,10 +52,11 @@ _pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 _oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
 
 # Token type discriminators — prevent cross-type token reuse.
-_TOKEN_TYPE_ACCESS  = "access"
-_TOKEN_TYPE_REFRESH = "refresh"
-_TOKEN_TYPE_RESET   = "password_reset"
+_TOKEN_TYPE_ACCESS       = "access"
+_TOKEN_TYPE_REFRESH      = "refresh"
+_TOKEN_TYPE_RESET        = "password_reset"
 _TOKEN_TYPE_REGISTRATION = "registration"
+_TOKEN_TYPE_ONBOARDING   = "onboarding"   # scope-limited: only /onboarding/* endpoints
 _TOKEN_TYPE_WEBAUTHN_REG  = "webauthn_registration"
 _TOKEN_TYPE_WEBAUTHN_AUTH = "webauthn_authentication"
 
@@ -110,22 +113,29 @@ class AuthService:
         )
 
     @staticmethod
-    def create_refresh_token(
+    async def create_refresh_token(
         subject: uuid.UUID,
         role_name: str,
+        db: AsyncSession,
+        family_id: uuid.UUID | None = None,
     ) -> str:
         """
-        Long-lived token (7 days default). Used ONLY at POST /auth/refresh.
+        Issue a new refresh token and persist it in refresh_tokens.
 
-        NEVER attach this to regular API requests — it must be stored
-        separately in expo-secure-store and sent only to /auth/refresh.
+        The raw token is returned once and never stored — only SHA-256(token)
+        lives in the DB.  Pass an existing family_id during rotation to keep
+        the same session group; omit it to start a new family.
         """
-        return AuthService._build_token(
-            subject=subject,
-            role_name=role_name,
-            token_type=_TOKEN_TYPE_REFRESH,
-            expires_delta=timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+        raw = secrets.token_urlsafe(32)
+        fid = family_id or uuid.uuid4()
+        expires_at = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+        await RefreshTokenRepository(db).create(
+            user_id=subject,
+            raw_token=raw,
+            family_id=fid,
+            expires_at=expires_at,
         )
+        return raw
 
     @staticmethod
     def decode_token(token: str, expected_type: str = _TOKEN_TYPE_ACCESS) -> dict:
@@ -261,37 +271,164 @@ class AuthService:
         return _pwd_context.hash(secrets.token_hex(32))
 
     @staticmethod
-    async def verify_google_token(access_token: str) -> dict:
+    def create_onboarding_token(user_id: uuid.UUID) -> str:
         """
-        Verify a Google OAuth2 access token via the tokeninfo endpoint.
+        Scope-limited token (30 min) issued to users who authenticated via a
+        social provider but have no roles assigned yet.
 
-        Returns the tokeninfo dict which includes:
-          - user_id  : Google's stable user ID (use as google_id)
-          - email    : verified email address
-          - expires_in: seconds remaining
+        The 'scope' claim is checked in get_current_user() — any endpoint
+        that does NOT opt-in via allow_onboarding_scope=True will return 403.
+        """
+        now    = datetime.now(timezone.utc)
+        expire = now + timedelta(minutes=30)
+        payload = {
+            "sub":   str(user_id),
+            "type":  _TOKEN_TYPE_ACCESS,
+            "scope": _TOKEN_TYPE_ONBOARDING,
+            "iat":   int(now.timestamp()),
+            "exp":   int(expire.timestamp()),
+        }
+        return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+
+    @staticmethod
+    async def rotate_refresh_token(
+        raw_token: str,
+        db: AsyncSession,
+    ) -> tuple[str, str]:
+        """
+        Single-use refresh token rotation with theft detection.
+
+        Returns (new_access_token, new_refresh_token) on success.
+        Raises HTTPException 401 on any failure.
+        Raises HTTPException 401 + revokes entire family if reuse is detected.
+        """
+        repo = RefreshTokenRepository(db)
+        token_row = await repo.get_by_raw(raw_token)
+
+        credentials_exception = HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token is invalid or has expired.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+        if token_row is None:
+            raise credentials_exception
+
+        # Theft detection: token already consumed or explicitly revoked
+        if token_row.used_at is not None or token_row.revoked:
+            await repo.revoke_family(token_row.family_id)
+            logger.warning(
+                "Refresh token reuse detected — family revoked | user_id=%s family=%s",
+                token_row.user_id,
+                token_row.family_id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session invalidated. Please log in again.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        if token_row.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
+            raise credentials_exception
+
+        # Consume this token and issue a new pair
+        await repo.mark_used(token_row.id)
+
+        user_repo = UserRepository(db)
+        user = await user_repo.get_by_id(token_row.user_id)
+        if user is None or not user.is_active or user.is_deleted:
+            raise credentials_exception
+
+        new_access  = AuthService.create_access_token(user.id, user.primary_role or "client")
+        new_refresh = await AuthService.create_refresh_token(
+            user.id,
+            user.primary_role or "client",
+            db,
+            family_id=token_row.family_id,
+        )
+        return new_access, new_refresh
+
+    @staticmethod
+    async def exchange_google_code(
+        code: str,
+        code_verifier: str,
+        redirect_uri: str,
+    ) -> dict:
+        """
+        Exchange a PKCE authorization code for Google tokens and extract
+        the user's identity from the returned id_token.
+
+        No client_secret is required — PKCE replaces it for public clients
+        (mobile apps where the secret cannot be kept confidential).
+
+        Returns:
+            {"uid": str, "email": str, "name": str | None}
 
         Raises ValueError on any verification failure.
         """
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(
-                "https://www.googleapis.com/oauth2/v1/tokeninfo",
-                params={"access_token": access_token},
+            resp = await client.post(
+                "https://oauth2.googleapis.com/token",
+                data={
+                    "code":          code,
+                    "client_id":     settings.GOOGLE_CLIENT_ID,
+                    "code_verifier": code_verifier,
+                    "redirect_uri":  redirect_uri,
+                    "grant_type":    "authorization_code",
+                },
             )
 
         if resp.status_code != 200:
-            raise ValueError("Google token is invalid or has expired.")
+            raise ValueError(f"Google token exchange failed: {resp.text}")
 
-        data = resp.json()
-        if "error" in data:
-            desc = data.get("error_description", data["error"])
-            raise ValueError(f"Google token error: {desc}")
+        token_data = resp.json()
+        if "error" in token_data:
+            raise ValueError(f"Google error: {token_data.get('error_description', token_data['error'])}")
 
-        if not data.get("email"):
-            raise ValueError("Google token does not include an email claim.")
-        if not data.get("verified_email", False):
+        id_token_str = token_data.get("id_token")
+        if not id_token_str:
+            raise ValueError("Google response did not include an id_token.")
+
+        # Verify id_token signature with Google's public keys
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            certs_resp = await client.get("https://www.googleapis.com/oauth2/v3/certs")
+        certs_resp.raise_for_status()
+        jwks = certs_resp.json()
+
+        try:
+            header = jwt.get_unverified_header(id_token_str)
+        except JWTError as exc:
+            raise ValueError(f"Cannot parse Google id_token header: {exc}") from exc
+
+        kid = header.get("kid")
+        key = next((k for k in jwks.get("keys", []) if k.get("kid") == kid), None)
+        if key is None:
+            raise ValueError("No Google public key matches the token's 'kid'.")
+
+        try:
+            options = {"verify_aud": bool(settings.GOOGLE_CLIENT_ID)}
+            payload = jwt.decode(
+                id_token_str,
+                key,
+                algorithms=["RS256"],
+                audience=settings.GOOGLE_CLIENT_ID or None,
+                options=options,
+            )
+        except JWTError as exc:
+            raise ValueError(f"Google id_token verification failed: {exc}") from exc
+
+        if not payload.get("email_verified", False):
             raise ValueError("Google account email is not verified.")
 
-        return data
+        uid = payload.get("sub")
+        if not uid:
+            raise ValueError("Google id_token is missing the 'sub' claim.")
+
+        return {
+            "uid":   uid,
+            "email": payload.get("email", "").lower(),
+            "name":  payload.get("name"),
+        }
 
     @staticmethod
     async def verify_apple_token(identity_token: str, bundle_id: str) -> dict:
@@ -382,6 +519,7 @@ class AuthService:
 async def get_current_user(
     token: Annotated[str, Depends(_oauth2_scheme)],
     db:    Annotated[AsyncSession, Depends(get_db)],
+    allow_onboarding_scope: bool = False,
 ) -> User:
     """
     Decode the Bearer access token and return the authenticated User.
@@ -390,6 +528,10 @@ async def get_current_user(
       1. Signature + expiry (jose)
       2. Token type = "access" (prevents refresh token reuse)
       3. User still exists and is active (DB lookup)
+      4. If scope == "onboarding" and allow_onboarding_scope is False → 403
+
+    Endpoints that are part of the onboarding flow must inject this dependency
+    with allow_onboarding_scope=True via a custom Depends wrapper.
     """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -405,6 +547,13 @@ async def get_current_user(
     except (JWTError, ValueError):
         raise credentials_exception
 
+    # Scope check: onboarding tokens cannot access regular endpoints
+    if payload.get("scope") == _TOKEN_TYPE_ONBOARDING and not allow_onboarding_scope:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Onboarding required. Complete role selection before accessing this endpoint.",
+        )
+
     user_repo = UserRepository(db)
     user = await user_repo.get_by_id(user_id)
 
@@ -418,6 +567,17 @@ async def get_current_user(
         await db.refresh(ur, attribute_names=['role'])
 
     return user
+
+
+async def get_current_user_for_onboarding(
+    token: Annotated[str, Depends(_oauth2_scheme)],
+    db:    Annotated[AsyncSession, Depends(get_db)],
+) -> User:
+    """
+    Variant of get_current_user that accepts onboarding-scoped tokens.
+    Use as Depends() on /onboarding/* and /auth/complete-profile endpoints.
+    """
+    return await get_current_user(token=token, db=db, allow_onboarding_scope=True)
 
 
 # ------------------------------------------------------------------ #

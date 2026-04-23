@@ -75,32 +75,48 @@ export const refreshAccessToken = async (
   return response.data;
 };
 
-// ─── Social auth (requires backend endpoints /auth/google and /auth/apple) ───
+// ─── Social auth response ─────────────────────────────────────────────────────
+
+export interface SocialAuthResponse {
+  is_new_user: boolean;
+  onboarding_required: boolean;
+  /** Present when onboarding_required=true. Store as access_token for /auth/complete-profile. */
+  onboarding_token?: string;
+  access_token?: string;
+  refresh_token?: string;
+  token_type: string;
+  active_role?: string;
+}
+
+// ─── Social auth ─────────────────────────────────────────────────────────────
 
 /**
- * Exchange a Google OAuth access token for a backend JWT pair.
- * Backend endpoint: POST /auth/google  { access_token: string }
- * NOTE: Uses authClient (base: /auth) not apiClient (base: /api/v1)
+ * Exchange a Google PKCE authorization code for a backend token pair.
+ * Backend endpoint: POST /auth/google  { code, code_verifier, redirect_uri }
+ *
+ * Get code + codeVerifier from expo-auth-session's useAuthRequest response:
+ *   response.params.code  →  code
+ *   request.codeVerifier  →  code_verifier
+ *   makeRedirectUri()     →  redirect_uri
  */
-export const loginWithGoogle = async (
-  accessToken: string,
-): Promise<{ access_token: string; refresh_token: string }> => {
-  const response = await authClient.post("/google", {
-    access_token: accessToken,
-  });
+export const loginWithGoogle = async (params: {
+  code: string;
+  code_verifier: string;
+  redirect_uri: string;
+}): Promise<SocialAuthResponse> => {
+  const response = await authClient.post<SocialAuthResponse>("/google", params);
   return response.data;
 };
 
 /**
- * Exchange an Apple identity token for a backend JWT pair.
- * Backend endpoint: POST /auth/apple  { identity_token: string, full_name?: string }
- * NOTE: Uses authClient (base: /auth) not apiClient (base: /api/v1)
+ * Exchange an Apple identity token for a backend token pair.
+ * Backend endpoint: POST /auth/apple  { identity_token, full_name? }
  */
 export const loginWithApple = async (
   identityToken: string,
   fullName?: string,
-): Promise<{ access_token: string; refresh_token: string }> => {
-  const response = await authClient.post("/apple", {
+): Promise<SocialAuthResponse> => {
+  const response = await authClient.post<SocialAuthResponse>("/apple", {
     identity_token: identityToken,
     full_name: fullName,
   });
@@ -179,18 +195,17 @@ export const verify = async (
 /**
  * Complete user profile after registration.
  * Backend endpoint: PUT /auth/complete-profile
+ *
+ * Requires a valid Bearer token with scope='onboarding'.
+ * Before calling, store the onboarding_token as the current access_token
+ * so the apiClient interceptor injects it as Bearer automatically.
  */
-export const completeProfile = async (
-  tempToken: string,
-  payload: {
-    full_name: string;
-    phone_number?: string;
-    role: string;
-  },
-): Promise<VerifyResponse> => {
-  const response = await authClient.put<VerifyResponse>("/complete-profile", payload, {
-    headers: { "X-Temp-Token": tempToken },
-  });
+export const completeProfile = async (payload: {
+  full_name: string;
+  phone_number?: string;
+  role: string;
+}): Promise<VerifyResponse> => {
+  const response = await authClient.put<VerifyResponse>("/complete-profile", payload);
   return response.data;
 };
 

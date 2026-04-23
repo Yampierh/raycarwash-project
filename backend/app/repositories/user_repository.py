@@ -102,22 +102,6 @@ class UserRepository:
         await self._db.refresh(user)
         return user
 
-    async def get_by_google_id(self, google_id: str) -> User | None:
-        stmt = select(User).where(
-            User.google_id == google_id,
-            User.is_deleted.is_(False),
-        )
-        result = await self._db.execute(stmt)
-        return result.scalar_one_or_none()
-
-    async def get_by_apple_id(self, apple_id: str) -> User | None:
-        stmt = select(User).where(
-            User.apple_id == apple_id,
-            User.is_deleted.is_(False),
-        )
-        result = await self._db.execute(stmt)
-        return result.scalar_one_or_none()
-
     async def update(self, user: User, fields: dict) -> User:
         """Apply a dict of field updates to the user and flush."""
         from datetime import datetime, timezone

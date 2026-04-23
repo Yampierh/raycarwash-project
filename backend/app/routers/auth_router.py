@@ -20,6 +20,7 @@ from app.core.limiter import limiter
 from app.db.session import get_db
 from app.models.models import AuditAction, User, Role, UserRoleAssociation
 from app.repositories.audit_repository import AuditRepository
+from app.repositories.auth_provider_repository import AuthProviderRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.schemas import (
     AppleLoginRequest,
@@ -31,6 +32,7 @@ from app.schemas.schemas import (
     IdentifierResponse,
     PasswordResetRequest,
     PasswordResetResponse,
+    SocialAuthResponse,
     Token,
     UserRead,
     UserUpdate,
@@ -47,8 +49,8 @@ from app.services.auth import (
     AuthService,
     TOKEN_TYPE_WEBAUTHN_REG,
     TOKEN_TYPE_WEBAUTHN_AUTH,
-    _TOKEN_TYPE_REFRESH,
     get_current_user,
+    get_current_user_for_onboarding,
 )
 from app.services.email_service import EmailService
 from app.services.webauthn_service import WebAuthnService
@@ -100,14 +102,15 @@ async def check_email_exists(
             suggested_action="register",
         )
     
-    has_password = user.password_hash and user.password_hash not in ("", "$!unusable$!")
-    has_google = bool(user.google_id)
-    has_apple = bool(user.apple_id)
-    
+    providers = await AuthProviderRepository(db).get_providers_for_user(user.id)
+    provider_names = {p.provider for p in providers}
+
+    has_password = bool(user.password_hash and user.password_hash not in ("", "$!unusable$!"))
+    has_google = "google" in provider_names
+    has_apple  = "apple"  in provider_names
+
     if has_password:
-        auth_method = "password"
-        if has_google or has_apple:
-            auth_method = "both"
+        auth_method = "both" if (has_google or has_apple) else "password"
         suggested = "login"
     elif has_google:
         auth_method = "google"
@@ -116,9 +119,9 @@ async def check_email_exists(
         auth_method = "apple"
         suggested = "social_login"
     else:
-        auth_method = "password"  # fallback
+        auth_method = "password"
         suggested = "login"
-    
+
     return CheckEmailResponse(
         email=body.email.lower().strip(),
         exists=True,
@@ -177,28 +180,25 @@ async def identify_user(
             suggested_action="register",
         )
     
-    has_password = user.password_hash and user.password_hash not in ("", "$!unusable$!")
-    has_google = bool(user.google_id)
-    has_apple = bool(user.apple_id)
-    
-    auth_methods = []
+    providers = await AuthProviderRepository(db).get_providers_for_user(user.id)
+    provider_names = {p.provider for p in providers}
+
+    has_password = bool(user.password_hash and user.password_hash not in ("", "$!unusable$!"))
+    has_google = "google" in provider_names
+    has_apple  = "apple"  in provider_names
+
+    auth_methods: list[str] = []
     if has_password:
         auth_methods.append("password")
     if has_google:
         auth_methods.append("google")
     if has_apple:
         auth_methods.append("apple")
-    
     if not auth_methods:
         auth_methods.append("password")
-    
-    if has_password:
-        suggested = "login_password"
-    elif has_google or has_apple:
-        suggested = "login_social"
-    else:
-        suggested = "login_password"
-    
+
+    suggested = "login_password" if has_password else "login_social"
+
     return IdentifierResponse(
         identifier=normalized,
         identifier_type=id_type,
@@ -293,21 +293,15 @@ async def verify_credentials(
             is_new_user = True
 
     elif body.access_token:
-        try:
-            if body.provider == "google":
-                google_data = await AuthService.verify_google_token(body.access_token)
-                user = await user_repo.get_by_google_id(google_data["user_id"])
-            else:
-                apple_payload = await AuthService.verify_apple_token(
-                    body.access_token,
-                    settings.APPLE_BUNDLE_ID,
-                )
-                user = await user_repo.get_by_apple_id(apple_payload["sub"])
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=str(exc),
-            )
+        # Social auth via /auth/verify is deprecated.
+        # Use POST /auth/google (PKCE) or POST /auth/apple instead.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Social authentication is no longer supported in this endpoint. "
+                "Use POST /auth/google or POST /auth/apple."
+            ),
+        )
 
     if user is None:
         raise HTTPException(
@@ -322,8 +316,8 @@ async def verify_credentials(
             detail="This account is deactivated.",
         )
     
-    access_token = AuthService.create_access_token(user.id, user.primary_role)
-    refresh_token = AuthService.create_refresh_token(user.id, user.primary_role)
+    refresh_token = await AuthService.create_refresh_token(user.id, user.primary_role, db)
+    access_token  = AuthService.create_access_token(user.id, user.primary_role)
 
     # New accounts always need profile completion (no full_name yet)
     needs_completion = is_new_user or not user.full_name or (
@@ -334,9 +328,9 @@ async def verify_credentials(
     next_step = "app"
 
     if needs_completion:
-        temp_token = AuthService.create_registration_token(user.id, user.primary_role)
+        temp_token = AuthService.create_onboarding_token(user.id)
         next_step = "complete_profile"
-    
+
     if user.primary_role == "detailer" and not needs_completion:
         next_step = "detailer_onboarding"
     
@@ -370,34 +364,18 @@ async def verify_credentials(
     summary="Complete user profile after registration.",
 )
 async def complete_user_profile(
-    request: Request,
     body: CompleteProfileRequest,
+    current_user: User = Depends(get_current_user_for_onboarding),
     db: AsyncSession = Depends(get_db),
 ) -> VerifyResponse:
     """
     Completa el perfil del usuario después del registro.
-    
-    Este endpoint requiere un temporary registration token (temp_token)
-    que se obtiene de /auth/verify cuando es un nuevo usuario.
+
+    Requiere un Bearer token con scope='onboarding' (emitido por /auth/verify
+    para usuarios nuevos por email/password, o por /auth/google / /auth/apple
+    para usuarios sociales sin rol asignado).
     """
-    temp_token = request.headers.get("X-Temp-Token")
-    if not temp_token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing registration token.",
-        )
-    
-    try:
-        payload = AuthService.decode_token(temp_token, expected_type="registration")
-        user_id = uuid.UUID(payload["sub"])
-    except (JWTError, KeyError, ValueError):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired registration token.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
-    user = await UserRepository(db).get_by_id(user_id)
+    user = current_user
     if not user or not user.is_active or user.is_deleted:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -425,8 +403,8 @@ async def complete_user_profile(
     # user_roles list and won't reflect the role we just added until a DB refresh.
     effective_role = body.role if role else (user.primary_role or "client")
 
-    access_token = AuthService.create_access_token(user.id, effective_role)
-    refresh_token = AuthService.create_refresh_token(user.id, effective_role)
+    access_token  = AuthService.create_access_token(user.id, effective_role)
+    refresh_token = await AuthService.create_refresh_token(user.id, effective_role, db)
 
     next_step = "detailer_onboarding" if effective_role == "detailer" else "app"
 
@@ -492,7 +470,7 @@ async def login_for_access_token(
         )
 
     access_token  = AuthService.create_access_token(user.id, user.primary_role)
-    refresh_token = AuthService.create_refresh_token(user.id, user.primary_role)
+    refresh_token = await AuthService.create_refresh_token(user.id, user.primary_role, db)
 
     await AuditRepository(db).log(
         action=AuditAction.USER_LOGIN,
@@ -518,48 +496,24 @@ async def login_for_access_token(
     response_model=Token,
     summary="Exchange a refresh token for a new access + refresh token pair.",
     responses={
-        401: {"description": "Refresh token invalid or expired."},
+        401: {"description": "Refresh token invalid, expired, or reuse detected."},
         429: {"description": "Rate limit exceeded."},
     },
 )
 @limiter.limit("5/minute")
 async def refresh_access_token(
-    request: Request,                       # MUST be first param for slowapi
+    request: Request,
     refresh_token: str,
     db: AsyncSession = Depends(get_db),
 ) -> Token:
     """
-    Token rotation: each refresh token is single-use.
-    The client must save both new tokens from the response.
+    Stateful single-use rotation.  Each call invalidates the presented token
+    and issues a new pair.  Presenting an already-used token revokes the
+    entire session family (theft detection — RFC 6749 §10.4).
     """
-    # All imports are at module level — no inline imports needed.
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Refresh token is invalid or has expired.",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-
-    try:
-        payload = AuthService.decode_token(refresh_token, expected_type=_TOKEN_TYPE_REFRESH)
-        user_id = uuid.UUID(payload["sub"])
-    except (JWTError, KeyError, ValueError):
-        raise credentials_exception
-
-    user = await UserRepository(db).get_by_id(user_id)
-
-    if user is None or not user.is_active or user.is_deleted:
-        raise credentials_exception
-
-    new_access  = AuthService.create_access_token(user.id, user.primary_role)
-    new_refresh = AuthService.create_refresh_token(user.id, user.primary_role)
-
-    logger.info("Token refreshed | user_id=%s", user.id)
-
-    return Token(
-        access_token=new_access,
-        refresh_token=new_refresh,
-        token_type="bearer",
-    )
+    new_access, new_refresh = await AuthService.rotate_refresh_token(refresh_token, db)
+    logger.info("Token rotated")
+    return Token(access_token=new_access, refresh_token=new_refresh, token_type="bearer")
 
 
 # ── GET /auth/me  (profile) ──────────────────────────────────────── #
@@ -609,11 +563,12 @@ async def update_user_profile(
 
 @router.post(
     "/google",
-    response_model=Token,
-    summary="Login or register with a Google OAuth2 access token.",
+    response_model=SocialAuthResponse,
+    summary="Login or register via Google OAuth2 PKCE authorization code.",
     responses={
-        400: {"description": "Token inválido o expirado."},
+        400: {"description": "redirect_uri no permitida o código inválido."},
         401: {"description": "No se pudo verificar con Google."},
+        403: {"description": "Email de Google no verificado."},
     },
 )
 @limiter.limit(f"{settings.RATE_LIMIT_AUTH_PER_MINUTE}/minute")
@@ -621,62 +576,71 @@ async def google_login(
     request: Request,
     body: GoogleLoginRequest,
     db: AsyncSession = Depends(get_db),
-) -> Token:
+) -> SocialAuthResponse:
     """
-    Flujo:
-      1. Verifica el access_token con la API de Google (tokeninfo).
-      2. Extrae email + google_id (user_id en la respuesta de Google).
-      3. Busca usuario por google_id → si existe, login normal.
-      4. Si no, busca por email → si existe, vincula el google_id.
-      5. Si tampoco, crea una cuenta nueva con role=client e is_verified=True.
-      6. Devuelve access_token + refresh_token (idéntico a /auth/token).
+    Flujo PKCE:
+      1. Validar redirect_uri contra whitelist.
+      2. Intercambiar authorization_code por id_token con Google (sin client_secret).
+      3. Verificar email_verified en el id_token.
+      4. Buscar en auth_providers por (google, sub).
+         a. Si existe → usuario conocido, emitir tokens normales.
+         b. Si no existe:
+            - Buscar por email → account linking (preservar roles existentes).
+            - Si tampoco existe → crear usuario sin roles.
+      5. Si usuario tiene roles → JWT normal.
+         Si no → onboarding_token (30 min, scope=onboarding).
     """
-    # 1. Verificar con Google
-    try:
-        google_data = await AuthService.verify_google_token(body.access_token)
-    except ValueError as exc:
+    # 1. Whitelist check
+    if body.redirect_uri not in settings.GOOGLE_ALLOWED_REDIRECT_URIS:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=str(exc),
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="redirect_uri not allowed.",
         )
 
-    google_id: str = google_data["user_id"]
-    email: str     = google_data["email"].lower()
+    # 2–3. PKCE exchange + email_verified check
+    try:
+        google_data = await AuthService.exchange_google_code(
+            body.code, body.code_verifier, body.redirect_uri
+        )
+    except ValueError as exc:
+        status_code = status.HTTP_403_FORBIDDEN if "not verified" in str(exc) else status.HTTP_401_UNAUTHORIZED
+        raise HTTPException(status_code=status_code, detail=str(exc))
 
-    user_repo  = UserRepository(db)
-    audit_repo = AuditRepository(db)
+    uid:   str = google_data["uid"]
+    email: str = google_data["email"]
 
-    # 2. Buscar por google_id
-    user = await user_repo.get_by_google_id(google_id)
+    user_repo     = UserRepository(db)
+    provider_repo = AuthProviderRepository(db)
+    audit_repo    = AuditRepository(db)
+    is_new_user   = False
 
-    if user is None:
-        # 3. Buscar por email (puede que ya tenga cuenta con password)
+    # 4. Look up by auth_provider row
+    provider_row = await provider_repo.get_by_provider("google", uid)
+
+    if provider_row is not None:
+        user = await user_repo.get_by_id(provider_row.user_id)
+        if user is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found.")
+    else:
+        # Account linking or new user
         user = await user_repo.get_by_email(email)
-
         if user is not None:
-            # 4. Vincular google_id a cuenta existente
-            user.google_id  = google_id
+            # Linking: preserve existing roles
+            await provider_repo.create(user.id, "google", uid, email)
             user.is_verified = True
             await db.flush()
             logger.info("Google account linked | user_id=%s email=%s", user.id, email)
         else:
-            # 5. Crear cuenta nueva con rol 'client'
-            full_name: str = google_data.get("name") or email.split("@")[0]
+            # Brand new user — no role yet
+            full_name = google_data.get("name") or email.split("@")[0]
             user = User(
                 email=email,
                 full_name=full_name,
                 password_hash=AuthService.generate_unusable_password(),
-                google_id=google_id,
                 is_verified=True,
             )
-            # Get 'client' role and assign
-            role_result = await db.execute(
-                select(Role).where(Role.name == "client")
-            )
-            client_role = role_result.scalar_one()
-            user.primary_roles = [client_role]
-            
             user = await user_repo.create(user)
+            await provider_repo.create(user.id, "google", uid, email)
             await audit_repo.log(
                 action=AuditAction.USER_REGISTERED,
                 entity_type="user",
@@ -684,16 +648,11 @@ async def google_login(
                 actor_id=user.id,
                 metadata={"provider": "google"},
             )
+            is_new_user = True
             logger.info("New user via Google | user_id=%s email=%s", user.id, email)
 
     if not user.is_active or user.is_deleted:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="This account is deactivated.",
-        )
-
-    access_token  = AuthService.create_access_token(user.id, user.primary_role)
-    refresh_token = AuthService.create_refresh_token(user.id, user.primary_role)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Account deactivated.")
 
     await audit_repo.log(
         action=AuditAction.USER_SOCIAL_LOGIN,
@@ -702,20 +661,40 @@ async def google_login(
         actor_id=user.id,
         metadata={"provider": "google", "ip": request.client.host if request.client else None},
     )
-    logger.info("Google login | user_id=%s", user.id)
 
-    return Token(access_token=access_token, refresh_token=refresh_token, token_type="bearer")
+    # 5. Issue tokens based on role status
+    await db.refresh(user, attribute_names=["user_roles"])
+    for ur in user.user_roles:
+        await db.refresh(ur, attribute_names=["role"])
+
+    if not user.user_roles:
+        logger.info("Google login — onboarding required | user_id=%s", user.id)
+        return SocialAuthResponse(
+            is_new_user=True,
+            onboarding_required=True,
+            onboarding_token=AuthService.create_onboarding_token(user.id),
+        )
+
+    access_token  = AuthService.create_access_token(user.id, user.primary_role)
+    refresh_token = await AuthService.create_refresh_token(user.id, user.primary_role, db)
+    logger.info("Google login | user_id=%s role=%s", user.id, user.primary_role)
+    return SocialAuthResponse(
+        is_new_user=is_new_user,
+        access_token=access_token,
+        refresh_token=refresh_token,
+        active_role=user.primary_role,
+    )
 
 
 # ── POST /auth/apple  (Apple Sign In) ────────────────────────────── #
 
 @router.post(
     "/apple",
-    response_model=Token,
-    summary="Login or register with an Apple Sign In identity token.",
+    response_model=SocialAuthResponse,
+    summary="Login or register via Apple Sign In identity token.",
     responses={
-        400: {"description": "identity_token inválido o malformado."},
-        401: {"description": "No se pudo verificar con Apple."},
+        400: {"description": "Apple no proporcionó email (re-authenticate required)."},
+        401: {"description": "No se pudo verificar el identity_token."},
     },
 )
 @limiter.limit(f"{settings.RATE_LIMIT_AUTH_PER_MINUTE}/minute")
@@ -723,83 +702,69 @@ async def apple_login(
     request: Request,
     body: AppleLoginRequest,
     db: AsyncSession = Depends(get_db),
-) -> Token:
+) -> SocialAuthResponse:
     """
     Flujo:
-      1. Verifica identity_token con las claves públicas de Apple (JWKS).
-      2. Extrae apple_id (sub) y email del payload.
-         ⚠️  Apple solo incluye email en el PRIMER login. En los siguientes
-         el frontend debe enviar full_name y el backend busca por apple_id.
-      3. Busca por apple_id → si existe, login.
-      4. Si no, busca por email → vincula apple_id.
-      5. Si tampoco, crea cuenta nueva.
-         El full_name del body se usa solo en el primer registro.
+      1. Verificar identity_token con JWKS de Apple.
+      2. Buscar en auth_providers por (apple, sub).
+         a. Si existe → usuario conocido. Apple no envía email en logins posteriores
+            — no importa, el email ya está guardado en auth_providers.provider_email.
+         b. Si no existe:
+            - email es obligatorio (solo está en el primer login de Apple).
+            - Buscar por email → account linking (preservar roles).
+            - Si tampoco → crear usuario sin roles.
+      3. Si usuario tiene roles → JWT normal.
+         Si no → onboarding_token.
     """
-    # 1. Verificar con Apple
     try:
         apple_payload = await AuthService.verify_apple_token(
             body.identity_token,
             settings.APPLE_BUNDLE_ID,
         )
     except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=str(exc),
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc))
 
-    apple_id: str       = apple_payload["sub"]
-    email: str | None   = apple_payload.get("email", "").lower() or None
+    uid:   str       = apple_payload["sub"]
+    email: str | None = (apple_payload.get("email") or "").lower() or None
 
-    user_repo  = UserRepository(db)
-    audit_repo = AuditRepository(db)
+    user_repo     = UserRepository(db)
+    provider_repo = AuthProviderRepository(db)
+    audit_repo    = AuditRepository(db)
+    is_new_user   = False
 
-    # 2. Buscar por apple_id
-    user = await user_repo.get_by_apple_id(apple_id)
+    provider_row = await provider_repo.get_by_provider("apple", uid)
 
-    if user is None:
-        if email:
-            # 3. Buscar por email
-            user = await user_repo.get_by_email(email)
-
+    if provider_row is not None:
+        user = await user_repo.get_by_id(provider_row.user_id)
+        if user is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found.")
+    else:
+        if email is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Apple did not include an email in this token. "
+                    "This happens on repeat sign-ins for unregistered accounts. "
+                    "Please sign out of Apple ID and try again."
+                ),
+            )
+        user = await user_repo.get_by_email(email)
         if user is not None:
-            # 4. Vincular apple_id
-            user.apple_id   = apple_id
+            # Linking: preserve existing roles
+            await provider_repo.create(user.id, "apple", uid, email)
             user.is_verified = True
             await db.flush()
             logger.info("Apple account linked | user_id=%s", user.id)
         else:
-            # 5. Crear cuenta nueva
-            if not email:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=(
-                        "Apple did not provide an email in this token. "
-                        "This happens on repeat sign-ins when the user has "
-                        "already registered. Please try again."
-                    ),
-                )
             full_name = body.full_name or email.split("@")[0]
             user = User(
                 email=email,
                 full_name=full_name,
                 password_hash=AuthService.generate_unusable_password(),
-                apple_id=apple_id,
                 is_verified=True,
             )
-            # Get 'client' role and assign via UserRoleAssociation
-            role_result = await db.execute(
-                select(Role).where(Role.name == "client")
-            )
-            client_role = role_result.scalar_one()
             user = await user_repo.create(user)
-            
-            # Assign role via UserRoleAssociation
-            user_role = UserRoleAssociation(
-                user_id=user.id,
-                role_id=client_role.id,
-            )
-            db.add(user_role)
-            await db.commit()
+            await provider_repo.create(user.id, "apple", uid, email)
             await audit_repo.log(
                 action=AuditAction.USER_REGISTERED,
                 entity_type="user",
@@ -807,16 +772,11 @@ async def apple_login(
                 actor_id=user.id,
                 metadata={"provider": "apple"},
             )
+            is_new_user = True
             logger.info("New user via Apple | user_id=%s", user.id)
 
     if not user.is_active or user.is_deleted:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="This account is deactivated.",
-        )
-
-    access_token  = AuthService.create_access_token(user.id, user.primary_role)
-    refresh_token = AuthService.create_refresh_token(user.id, user.primary_role)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Account deactivated.")
 
     await audit_repo.log(
         action=AuditAction.USER_SOCIAL_LOGIN,
@@ -825,9 +785,28 @@ async def apple_login(
         actor_id=user.id,
         metadata={"provider": "apple", "ip": request.client.host if request.client else None},
     )
-    logger.info("Apple login | user_id=%s", user.id)
 
-    return Token(access_token=access_token, refresh_token=refresh_token, token_type="bearer")
+    await db.refresh(user, attribute_names=["user_roles"])
+    for ur in user.user_roles:
+        await db.refresh(ur, attribute_names=["role"])
+
+    if not user.user_roles:
+        logger.info("Apple login — onboarding required | user_id=%s", user.id)
+        return SocialAuthResponse(
+            is_new_user=True,
+            onboarding_required=True,
+            onboarding_token=AuthService.create_onboarding_token(user.id),
+        )
+
+    access_token  = AuthService.create_access_token(user.id, user.primary_role)
+    refresh_token = await AuthService.create_refresh_token(user.id, user.primary_role, db)
+    logger.info("Apple login | user_id=%s role=%s", user.id, user.primary_role)
+    return SocialAuthResponse(
+        is_new_user=is_new_user,
+        access_token=access_token,
+        refresh_token=refresh_token,
+        active_role=user.primary_role,
+    )
 
 
 # ── POST /auth/password-reset ─────────────────────────────────────── #
