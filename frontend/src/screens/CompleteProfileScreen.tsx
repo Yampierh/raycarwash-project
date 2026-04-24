@@ -53,7 +53,7 @@ export default function CompleteProfileScreen({ navigation, route }: any) {
 
     setLoading(true);
     try {
-      const result: VerifyResponse = await completeProfile(tempToken, {
+      const result: VerifyResponse = await completeProfile({
         full_name: form.full_name.trim(),
         phone_number: form.phone_number.trim() || undefined,
         role: selectedRole!,

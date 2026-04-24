@@ -4,7 +4,7 @@ import * as Google from "expo-auth-session/providers/google";
 import * as LocalAuthentication from "expo-local-authentication";
 import { LinearGradient } from "expo-linear-gradient";
 import * as WebBrowser from "expo-web-browser";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -23,6 +23,7 @@ import { GOOGLE_CLIENT_IDS } from "../config/oauth";
 import { useAppNavigation } from "../hooks/useAppNavigation";
 import {
   IdentifyResponse,
+  SocialAuthResponse,
   identify,
   loginWithApple,
   loginWithGoogle,
@@ -123,7 +124,7 @@ export default function LoginScreen() {
 
   // Slide animation
   const slideAnim = useRef(new Animated.Value(0)).current;
-  const slideToNext = () => {
+  const slideToNext = useCallback(() => {
     slideAnim.setValue(320);
     Animated.spring(slideAnim, {
       toValue: 0,
@@ -131,7 +132,7 @@ export default function LoginScreen() {
       tension: 65,
       friction: 11,
     }).start();
-  };
+  }, []);
 
   useEffect(() => {
     checkBiometricAvailability();
@@ -159,7 +160,7 @@ export default function LoginScreen() {
   };
 
   // ── Google OAuth ──────────────────────────────────────────────────────────────
-  const [, googleResponse, googlePromptAsync] = Google.useAuthRequest({
+  const [googleRequest, googleResponse, googlePromptAsync] = Google.useAuthRequest({
     androidClientId: GOOGLE_CLIENT_IDS.android,
     iosClientId: GOOGLE_CLIENT_IDS.ios,
     webClientId: GOOGLE_CLIENT_IDS.web,
@@ -167,24 +168,42 @@ export default function LoginScreen() {
 
   useEffect(() => {
     if (googleResponse?.type === "success") {
-      const token = googleResponse.authentication?.accessToken;
-      if (token) handleSocialLogin("google", token);
+      const code = googleResponse.params?.code;
+      const codeVerifier = googleRequest?.codeVerifier;
+      const redirectUri = googleRequest?.redirectUri;
+      if (code && codeVerifier && redirectUri) {
+        handleSocialLogin("google", code, codeVerifier, redirectUri);
+      }
     }
   }, [googleResponse]);
 
   const handleSocialLogin = async (
     provider: "google" | "apple",
-    token: string,
-    fullName?: string,
+    codeOrToken: string,
+    codeVerifier?: string,
+    redirectUri?: string,
   ) => {
     setSocialLoading(provider);
+    const verifier: string = codeVerifier ?? "";
+    const redirect: string = redirectUri ?? "";
+    let data: SocialAuthResponse;
+    
+    if (provider === "google") {
+      data = await loginWithGoogle({
+        code: codeOrToken,
+        code_verifier: verifier,
+        redirect_uri: redirect,
+      });
+    } else {
+      data = await loginWithApple(codeOrToken, "");
+    }
     try {
-      const data =
-        provider === "google"
-          ? await loginWithGoogle(token)
-          : await loginWithApple(token, fullName);
-      await saveToken(data.access_token);
-      if (data.refresh_token) await saveRefreshToken(data.refresh_token);
+      if (data.access_token) {
+        await saveToken(data.access_token);
+      }
+      if (data.refresh_token) {
+        await saveRefreshToken(data.refresh_token);
+      }
       await offerPasskeySetup();
       await offerBiometricSetup();
       await navigateAfterAuth(navigation);
@@ -257,7 +276,7 @@ export default function LoginScreen() {
     setPasskeyLoading(true);
     try {
       const { challenge_token, options } = await webAuthnAuthenticateBegin(id);
-      const assertion = await Passkey.authenticate(options as any);
+      const assertion = await Passkey.get(options as any);
       const { access_token, refresh_token } = await webAuthnAuthenticateComplete(
         challenge_token,
         assertion as any,
@@ -289,7 +308,7 @@ export default function LoginScreen() {
                 const deviceName =
                   Platform.OS === "ios" ? "iPhone" : "Android Device";
                 const { challenge_token, options } = await webAuthnRegisterBegin();
-                const attestation = await Passkey.register(options as any);
+                const attestation = await Passkey.create(options as any);
                 await webAuthnRegisterComplete(
                   challenge_token,
                   attestation as any,
@@ -485,7 +504,7 @@ export default function LoginScreen() {
 
   const isAnyLoading = loading || biometricLoading || passkeyLoading || socialLoading !== null;
   const currentStep: 1 | 2 = step === "identifier" ? 1 : 2;
-  const pwStrength = getPasswordStrength(password);
+  const pwStrength = useMemo(() => getPasswordStrength(password), [password]);
   const showBiometric = biometricAvailable && biometricEnabled && step === "identifier";
   const showPasskey = passkeyAvailable && passkeyEnabled && step === "identifier";
 
@@ -615,10 +634,7 @@ export default function LoginScreen() {
                         <ActivityIndicator size="small" color="#1a1a1a" />
                       ) : (
                         <>
-                          {/* Colorful Google G */}
-                          <View style={styles.googleIconBox}>
-                            <Text style={styles.googleGBlue}>G</Text>
-                          </View>
+                          <Ionicons name="logo-google" size={20} color="#000000" style={styles.socialIcon} />
                           <Text style={styles.googleBtnText}>Continue with Google</Text>
                         </>
                       )}
@@ -887,7 +903,7 @@ export default function LoginScreen() {
                           <ActivityIndicator size="small" color="#fff" />
                         ) : (
                           <>
-                            <Text style={styles.googleG}>G</Text>
+                            <Ionicons name="logo-google" size={18} color="#fff" />
                             <Text style={styles.socialBtnText}>
                               Continue with Google
                             </Text>
@@ -1061,18 +1077,6 @@ const styles = StyleSheet.create({
     padding: 15,
     gap: 10,
   },
-  googleIconBox: {
-    width: 22,
-    height: 22,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  googleGBlue: {
-    color: "#4285F4",
-    fontWeight: "900",
-    fontSize: 17,
-    fontStyle: "italic",
-  },
   googleBtnText: { color: "#1a1a1a", fontWeight: "600", fontSize: 15 },
   appleFullBtn: {
     flexDirection: "row",
@@ -1116,7 +1120,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#262F3F",
   },
-  googleG: { color: "#fff", fontWeight: "900", fontSize: 16, fontStyle: "italic" },
   socialBtnText: { color: "#fff", fontWeight: "600", fontSize: 13 },
   appleBtn: { backgroundColor: "#fff" },
   appleBtnText: { color: "#000", fontWeight: "600", fontSize: 13 },

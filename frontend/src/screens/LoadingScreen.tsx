@@ -88,7 +88,7 @@ export default function LoadingScreen() {
       if (passkeyEnabled && lastEmail && Passkey?.isSupported()) {
         try {
           const { challenge_token, options } = await webAuthnAuthenticateBegin(lastEmail);
-          const assertion = await Passkey.authenticate(options as any);
+          const assertion = await Passkey.get(options as any);
           const { access_token, refresh_token } = await webAuthnAuthenticateComplete(
             challenge_token,
             assertion as any,
