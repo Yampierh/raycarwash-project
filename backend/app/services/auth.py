@@ -561,10 +561,17 @@ async def get_current_user(
         logger.warning("Auth failed — user inactive or missing: %s", user_id)
         raise credentials_exception
 
-    # Eager load user_roles relationship for RBAC methods (is_client, is_detailer, etc.)
-    await db.refresh(user, attribute_names=['user_roles'])
-    for ur in user.user_roles:
-        await db.refresh(ur, attribute_names=['role'])
+    # Eager load user_roles for RBAC (selectin on UserRoleAssociation.role handles the join)
+    await db.refresh(user, attribute_names=["user_roles"])
+
+    # Onboarding-scoped tokens are allowed to have no roles — they're in the middle of setup.
+    # All other tokens require at least one assigned role.
+    if not user.user_roles and not payload.get("scope") == _TOKEN_TYPE_ONBOARDING:
+        logger.warning("Auth rejected — user has no roles: %s", user_id)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account setup incomplete. Please complete onboarding.",
+        )
 
     return user
 
@@ -613,8 +620,6 @@ async def ws_get_current_user(
         return None
 
     await db.refresh(user, attribute_names=["user_roles"])
-    for ur in user.user_roles:
-        await db.refresh(ur, attribute_names=["role"])
 
     return user
 

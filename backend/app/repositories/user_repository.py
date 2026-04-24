@@ -129,23 +129,22 @@ class UserRepository:
 
     async def get_by_phone(self, phone: str) -> User | None:
         """
-        Fetch an active user by phone number.
+        NOT FUNCTIONAL — phone lookup via EncryptedType (AesEngine) is broken.
 
-        Used by Identifier-First auth flow.
-        Phone numbers are stored encrypted, so we search using the exact match.
+        AesEngine uses non-deterministic AES-CBC (random IV per encryption).
+        A WHERE clause on an encrypted column re-encrypts the search value with a
+        NEW random IV, producing a different ciphertext from the stored one →
+        the query always returns zero rows even when a matching user exists.
+
+        Fix requires: add phone_number_hash (SHA-256) column + migration,
+        then filter on the hash column instead.
         """
-        stmt = (
-            select(User)
-            .where(
-                User.phone_number == phone,
-                User.is_deleted.is_(False),
-            )
-            .options(
-                selectinload(User.user_roles).selectinload(UserRoleAssociation.role)
-            )
+        import logging
+        logging.getLogger(__name__).warning(
+            "get_by_phone called but phone-based lookup is non-functional "
+            "due to non-deterministic AES encryption. Returning None."
         )
-        result = await self._db.execute(stmt)
-        return result.scalar_one_or_none()
+        return None
 
     async def get_by_identifier(self, identifier: str, identifier_type: str) -> User | None:
         """

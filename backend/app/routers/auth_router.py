@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.limiter import limiter
 from app.db.session import get_db
-from app.models.models import AuditAction, User, Role, UserRoleAssociation
+from app.models.models import AuditAction, ClientProfile, DetailerProfile, User, Role, UserRoleAssociation
 from app.repositories.audit_repository import AuditRepository
 from app.repositories.auth_provider_repository import AuthProviderRepository
 from app.repositories.user_repository import UserRepository
@@ -167,9 +167,18 @@ async def identify_user(
         id_type = body.identifier_type or "email"
         normalized = identifier.lower()
     
+    if id_type == "phone":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Phone-based login is not yet supported. "
+                "Please use your email address to sign in."
+            ),
+        )
+
     user_repo = UserRepository(db)
     user = await user_repo.get_by_identifier(normalized, id_type)
-    
+
     if user is None or user.is_deleted or not user.is_active:
         return IdentifierResponse(
             identifier=normalized,
@@ -275,13 +284,18 @@ async def verify_credentials(
             )
             user = await user_repo.create(new_user)
 
-            # Assign default role
+            # Assign default role and create the corresponding profile
             role_name = "client"
             role_result = await db.execute(select(Role).where(Role.name == role_name))
             role = role_result.scalar_one_or_none()
             if role:
                 db.add(UserRoleAssociation(user_id=user.id, role_id=role.id))
+                db.add(ClientProfile(user_id=user.id))
                 await db.flush()
+                # Sync the in-memory collection so primary_role reads the real DB state
+                await db.refresh(user, attribute_names=["user_roles"])
+                for ur in user.user_roles:
+                    await db.refresh(ur, attribute_names=["role"])
 
             await AuditRepository(db).log(
                 action=AuditAction.USER_REGISTERED,
@@ -316,8 +330,9 @@ async def verify_credentials(
             detail="This account is deactivated.",
         )
     
-    refresh_token = await AuthService.create_refresh_token(user.id, user.primary_role, db)
-    access_token  = AuthService.create_access_token(user.id, user.primary_role)
+    _role         = user.primary_role or "client"
+    refresh_token = await AuthService.create_refresh_token(user.id, _role, db)
+    access_token  = AuthService.create_access_token(user.id, _role)
 
     # New accounts always need profile completion (no full_name yet)
     needs_completion = is_new_user or not user.full_name or (
@@ -397,6 +412,12 @@ async def complete_user_profile(
             await db.delete(existing)
         db.add(UserRoleAssociation(user_id=user.id, role_id=role.id))
 
+        # Create the profile that matches the chosen role (idempotent: only if absent)
+        if body.role == "client" and not user.client_profile:
+            db.add(ClientProfile(user_id=user.id))
+        elif body.role == "detailer" and not user.detailer_profile:
+            db.add(DetailerProfile(user_id=user.id))
+
     await db.flush()
 
     # Use body.role directly — user.primary_role reads from the stale in-memory
@@ -469,8 +490,9 @@ async def login_for_access_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    access_token  = AuthService.create_access_token(user.id, user.primary_role)
-    refresh_token = await AuthService.create_refresh_token(user.id, user.primary_role, db)
+    role_name     = user.primary_role or "client"
+    access_token  = AuthService.create_access_token(user.id, role_name)
+    refresh_token = await AuthService.create_refresh_token(user.id, role_name, db)
 
     await AuditRepository(db).log(
         action=AuditAction.USER_LOGIN,
@@ -480,7 +502,7 @@ async def login_for_access_token(
         metadata={"ip": request.client.host if request.client else None},
     )
 
-    logger.info("Login success | user_id=%s role=%s", user.id, user.primary_role)
+    logger.info("Login success | user_id=%s role=%s", user.id, role_name)
 
     return Token(
         access_token=access_token,
@@ -664,8 +686,6 @@ async def google_login(
 
     # 5. Issue tokens based on role status
     await db.refresh(user, attribute_names=["user_roles"])
-    for ur in user.user_roles:
-        await db.refresh(ur, attribute_names=["role"])
 
     if not user.user_roles:
         logger.info("Google login — onboarding required | user_id=%s", user.id)
@@ -787,8 +807,6 @@ async def apple_login(
     )
 
     await db.refresh(user, attribute_names=["user_roles"])
-    for ur in user.user_roles:
-        await db.refresh(ur, attribute_names=["role"])
 
     if not user.user_roles:
         logger.info("Apple login — onboarding required | user_id=%s", user.id)
@@ -1085,10 +1103,14 @@ async def webauthn_authenticate_complete(
             detail="Account is inactive.",
         )
 
+    _role         = user.primary_role or "client"
+    access_token  = AuthService.create_access_token(user.id, _role)
+    refresh_token = await AuthService.create_refresh_token(user.id, _role, db)
+
     await db.commit()
 
     return Token(
-        access_token=AuthService.create_access_token(user.id, user.primary_role),
-        refresh_token=AuthService.create_refresh_token(user.id, user.primary_role),
+        access_token=access_token,
+        refresh_token=refresh_token,
         token_type="bearer",
     )

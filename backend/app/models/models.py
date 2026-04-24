@@ -42,12 +42,6 @@ def _get_secret_key() -> str:
 #  Enumerations                                                       #
 # ------------------------------------------------------------------ #
 
-class UserRole(str, enum.Enum):
-    CLIENT   = "client"
-    DETAILER = "detailer"
-    ADMIN    = "admin"
-
-
 class VehicleSize(str, enum.Enum):
     SMALL  = "small"
     MEDIUM = "medium"
@@ -363,10 +357,10 @@ class UserRoleAssociation(Base):
     )
 
     user: Mapped[User] = relationship(
-        "User", 
+        "User",
         foreign_keys="UserRoleAssociation.user_id",
     )
-    role: Mapped[Role] = relationship("Role")
+    role: Mapped[Role] = relationship("Role", lazy="selectin")
 
 
 # ------------------------------------------------------------------ #
@@ -609,84 +603,10 @@ class User(TimestampMixin, Base):
 
     @property
     def primary_role(self) -> str | None:
-        """
-        Get the user's primary role for JWT token payload.
-        
-        Returns the first role name, defaulting to 'client' if no roles assigned.
-        """
+        """Returns the first assigned role name, or None if no roles are set."""
         if self.user_roles:
             return self.user_roles[0].role.name
-        return "client"
-
-    @classmethod
-    async def create_with_profiles(
-        cls,
-        email: str,
-        password_hash: str,
-        full_name: str,
-        role_names: list[str],
-        *,
-        phone_number: str | None = None,
-        session: "AsyncSession | None" = None,
-    ) -> "User":
-        """
-        Factory method to create a user with the appropriate profile(s).
-        
-        This method handles the creation of both the User instance and any
-        associated profile (ClientProfile or DetailerProfile) based on the
-        assigned roles.
-        
-        Args:
-            email: User's email address (must be unique)
-            password_hash: Pre-hashed bcrypt password
-            full_name: User's full name (will be encrypted)
-            role_names: List of role names to assign (e.g., ['client'], ['detailer'])
-            phone_number: Optional phone number (will be encrypted)
-            session: Optional async SQLAlchemy session for database operations
-            
-        Returns:
-            A new User instance with associated profile(s) created
-            
-        Note:
-            If using with a session, you must call session.add() and commit()
-            after this method returns. The method does not commit by default
-            to allow for transactional control.
-        """
-        from sqlalchemy import select
-        from sqlalchemy.ext.asyncio import AsyncSession as AsyncSession
-
-        user = cls(
-            email=email,
-            password_hash=password_hash,
-            full_name=full_name,
-            phone_number=phone_number,
-        )
-
-        if session is not None:
-            session.add(user)
-            await session.flush()
-
-            role_stmt = select(Role).where(Role.name.in_(role_names))
-            result = await session.execute(role_stmt)
-            roles = result.scalars().all()
-            for role in roles:
-                user_role = UserRoleAssociation(
-                    user_id=user.id,
-                    role_id=role.id,
-                )
-                session.add(user_role)
-
-            if "detailer" in role_names:
-                detailer_profile = DetailerProfile(user_id=user.id)
-                session.add(detailer_profile)
-
-            if "client" in role_names:
-                client_profile = ClientProfile(user_id=user.id)
-                session.add(client_profile)
-        else:
-            user._pending_role_names = role_names
-
-        return user
+        return None
 
     def __repr__(self) -> str:
         return f"<User id={self.id} email={self.email!r}>"
