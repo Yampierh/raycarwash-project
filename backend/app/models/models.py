@@ -426,24 +426,15 @@ class ClientProfile(TimestampMixin, Base):
 
 class User(TimestampMixin, Base):
     """
-    Unified user table (CLIENT / DETAILER / ADMIN).
-    
-    This is the central identity table containing authentication credentials
-    and OAuth integration fields. Business logic is decoupled into:
-        - ClientProfile: client-specific configuration (address, preferences)
-        - DetailerProfile: detailer-specific configuration (bio, working hours)
-    
-    RBAC is implemented via many-to-many relationship with Role through
-    the user_roles association table.
-    
-    PII fields (full_name, phone_number) are encrypted at rest using
-    the application's SECRET_KEY.
+    Central identity table. One row per person regardless of role.
 
-    Sprint 3 additions:
-    - stripe_customer_id: Stripe's customer object ID, set on first payment.
-    
-    Sprint 7 additions:
-    - auth_providers relationship: replaces google_id / apple_id columns
+    Identity: email, full_name (encrypted), phone_number (encrypted), password_hash.
+    Roles: many-to-many via user_roles. A user can hold multiple roles (client + detailer).
+    Profiles: ClientProfile and DetailerProfile extend the user for role-specific data.
+    onboarding_completed: single source of truth for whether the user finished registration.
+                          Set to True by PUT /auth/complete-profile.
+    PII (full_name, phone_number) is encrypted at rest via SECRET_KEY.
+    Social login identities live in AuthProvider rows linked to this user.
     """
 
     __tablename__ = "users"
@@ -477,6 +468,7 @@ class User(TimestampMixin, Base):
     )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     is_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    onboarding_completed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     # ---- Stripe (Sprint 3) ----
     stripe_customer_id: Mapped[str | None] = mapped_column(

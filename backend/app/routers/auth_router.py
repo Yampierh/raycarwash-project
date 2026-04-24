@@ -1,10 +1,24 @@
-# app/routers/auth_router.py  —  Sprint 4
+# app/routers/auth_router.py
 #
-# CHANGES vs Sprint 3:
-#   - Rate limiting applied to POST /auth/token via slowapi.
-#     10 requests/minute per IP prevents brute-force credential stuffing.
-#   - Rate limiting applied to POST /auth/refresh (5/minute — less critical
-#     but still protects against token-rotation abuse).
+# Auth endpoints. All rate limits are per IP via slowapi.
+#
+# Registration & login flow:
+#   POST /auth/register        → create account → onboarding_token
+#   POST /auth/login           → authenticate  → tokens or onboarding_token
+#   PUT  /auth/complete-profile → set name/role → access + refresh tokens
+#   POST /auth/logout          → revoke current refresh token (this device only)
+#
+# Legacy / compatibility:
+#   POST /auth/verify          → login-only alias (Identifier-First flow)
+#   POST /auth/token           → OAuth2 Password Flow (Swagger UI compat)
+#
+# Social auth:
+#   POST /auth/google          → Google PKCE code exchange
+#   POST /auth/apple           → Apple identity token verification
+#
+# Passkeys (WebAuthn/FIDO2):
+#   POST /auth/webauthn/register/begin|complete
+#   POST /auth/webauthn/authenticate/begin|complete
 
 import logging
 import uuid
@@ -22,6 +36,7 @@ from app.models.models import AuditAction, ClientProfile, DetailerProfile, User,
 from app.repositories.audit_repository import AuditRepository
 from app.repositories.auth_provider_repository import AuthProviderRepository
 from app.repositories.user_repository import UserRepository
+from app.repositories.refresh_token_repository import RefreshTokenRepository
 from app.schemas.schemas import (
     AppleLoginRequest,
     CheckEmailRequest,
@@ -30,8 +45,12 @@ from app.schemas.schemas import (
     GoogleLoginRequest,
     IdentifierRequest,
     IdentifierResponse,
+    LoginRequest,
+    LoginResponse,
+    LogoutRequest,
     PasswordResetRequest,
     PasswordResetResponse,
+    RegisterRequest,
     SocialAuthResponse,
     Token,
     UserRead,
@@ -62,6 +81,160 @@ settings = get_settings()
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
+# ── POST /auth/register  (create new account) ──────────────────────────────── #
+
+@router.post(
+    "/register",
+    response_model=LoginResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a new account. Returns an onboarding token to complete profile.",
+    responses={
+        409: {"description": "Email already registered."},
+        422: {"description": "Validation error (password too short, invalid email)."},
+    },
+)
+@limiter.limit("5/minute")
+async def register(
+    request: Request,
+    body: RegisterRequest,
+    db: AsyncSession = Depends(get_db),
+) -> LoginResponse:
+    """
+    Creates a bare user account with no role and no profile.
+    Returns an onboarding_token (scope='onboarding') to be used at
+    PUT /auth/complete-profile to select role and set full_name.
+    """
+    existing = await UserRepository(db).get_by_email(body.email)
+    if existing is not None and not existing.is_deleted:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An account with this email already exists.",
+        )
+
+    new_user = User(
+        email=body.email,
+        password_hash=AuthService.hash_password(body.password),
+        onboarding_completed=False,
+    )
+    user = await UserRepository(db).create(new_user)
+
+    await AuditRepository(db).log(
+        action=AuditAction.USER_REGISTERED,
+        entity_type="user",
+        entity_id=str(user.id),
+        actor_id=user.id,
+        metadata={"ip": request.client.host if request.client else None, "flow": "register"},
+    )
+    await db.commit()
+
+    onboarding_token = AuthService.create_onboarding_token(user.id)
+    return LoginResponse(
+        onboarding_token=onboarding_token,
+        roles=[],
+        onboarding_completed=False,
+        next_step="complete_profile",
+    )
+
+
+# ── POST /auth/login  (authenticate existing account) ──────────────────────── #
+
+@router.post(
+    "/login",
+    response_model=LoginResponse,
+    summary="Authenticate with email + password. Returns tokens or onboarding token.",
+    responses={
+        401: {"description": "Invalid credentials or account deactivated."},
+        429: {"description": "Rate limit exceeded."},
+    },
+)
+@limiter.limit(f"{settings.RATE_LIMIT_AUTH_PER_MINUTE}/minute")
+async def login(
+    request: Request,
+    body: LoginRequest,
+    db: AsyncSession = Depends(get_db),
+) -> LoginResponse:
+    """
+    Authenticates an existing user. Never creates a new account.
+
+    - If credentials are wrong → 401 (same message regardless of whether email exists).
+    - If onboarding_completed == False → returns onboarding_token so the user
+      can finish their profile without re-entering their password.
+    - If onboarding_completed == True → returns access_token + refresh_token.
+    """
+    user = await AuthService.authenticate_user(email=body.email, password=body.password, db=db)
+
+    if user is None:
+        logger.warning(
+            "Failed login | email=%s ip=%s",
+            body.email[:80],
+            request.client.host if request.client else "unknown",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    await AuditRepository(db).log(
+        action=AuditAction.USER_LOGIN,
+        entity_type="user",
+        entity_id=str(user.id),
+        actor_id=user.id,
+        metadata={"ip": request.client.host if request.client else None, "flow": "login"},
+    )
+
+    if not user.onboarding_completed:
+        await db.commit()
+        onboarding_token = AuthService.create_onboarding_token(user.id)
+        return LoginResponse(
+            onboarding_token=onboarding_token,
+            roles=user.roles,
+            onboarding_completed=False,
+            next_step="complete_profile",
+        )
+
+    role_name = user.primary_role or "client"
+    access_token = AuthService.create_access_token(user.id, role_name)
+    refresh_token = await AuthService.create_refresh_token(user.id, role_name, db)
+
+    await db.commit()
+
+    return LoginResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        roles=user.roles,
+        onboarding_completed=True,
+        next_step="app",
+    )
+
+
+# ── POST /auth/logout  (revoke current session) ─────────────────────────────── #
+
+@router.post(
+    "/logout",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Revoke the current refresh token (this device only).",
+)
+async def logout(
+    body: LogoutRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """
+    Revokes only the provided refresh token, leaving other sessions (other devices)
+    active. To invalidate all sessions, the user must log out from each device.
+    """
+    repo = RefreshTokenRepository(db)
+    token_record = await repo.get_by_raw(body.refresh_token)
+
+    if token_record is None or token_record.user_id != current_user.id:
+        # Silently succeed — either already revoked or not found; don't leak info
+        return
+
+    await repo.revoke_by_raw(body.refresh_token)
+    await db.commit()
+
+
 # ── POST /auth/check-email  (verify email exists) ──────────────────────────── #
 
 @router.post(
@@ -79,18 +252,9 @@ async def check_email_exists(
     db: AsyncSession = Depends(get_db),
 ) -> CheckEmailResponse:
     """
-    Verifica si un email existe en la base de datos.
-    
-    Retorna el método de autenticación para permitir el flujo de login/register:
-    - "password": existe con contraseña
-    - "google": solo registrado con Google
-    - "apple": solo registrado con Apple
-    - "both": registrado con password + social
-    
-    suggested_action:
-    - "login": mostrar campo contraseña
-    - "social_login": mostrar opción de red social
-    - "register": ir a registro
+    Returns the auth method(s) registered for an email without confirming existence.
+    auth_method: "password" | "google" | "apple" | "both" | "none"
+    suggested_action: "login" | "social_login" | "register"
     """
     user = await UserRepository(db).get_by_email(body.email.lower().strip())
     
@@ -147,13 +311,10 @@ async def identify_user(
     db: AsyncSession = Depends(get_db),
 ) -> IdentifierResponse:
     """
-    Identifica al usuario por email o teléfono para el flujo Identifier-First.
-    
-    Flujo:
-    1. Normaliza el identificador (email -> lowercase, phone -> E.164)
-    2. Detecta el tipo si no se provee
-    3. Busca en la base de datos
-    4. Retorna los métodos de autenticación disponibles
+    Pre-step for the Identifier-First login flow.
+    Returns available auth methods (password, google, apple) so the UI
+    can show the right credential form without exposing whether the email exists.
+    Phone login is not yet supported.
     """
     identifier = body.identifier.strip()
     
@@ -236,75 +397,21 @@ async def verify_credentials(
     db: AsyncSession = Depends(get_db),
 ) -> VerifyResponse:
     """
-    Verifica credenciales en el flujo Identifier-First.
-    
-    Puede verificar por:
-    - password: Contraseña del usuario
-    - access_token: Token de Google/Apple
-    - otp_code: Código OTP (futuro)
-    
-    Si es nuevo usuario, genera un token temporal para completar perfil.
+    Login-only endpoint for the Identifier-First flow (backward compatibility).
+    For new accounts use POST /auth/register instead.
+
+    If onboarding is incomplete returns an onboarding_token (needs_profile_completion=True).
+    Social auth via access_token is no longer accepted here — use /auth/google or /auth/apple.
     """
-    user_repo = UserRepository(db)
-    auth_methods: list[str] = []
     user = None
-    is_new_user = False
 
     if body.password:
-        auth_methods.append("password")
         user = await AuthService.authenticate_user(
             email=body.identifier,
             password=body.password,
             db=db,
         )
-
-        # ── New-user registration path ──────────────────────────────────────
-        # If authenticate_user returned None, the user may not exist yet.
-        # Check explicitly: if the email is truly new, create the account
-        # with the supplied password and flag it for profile completion.
-        if user is None:
-            existing = await user_repo.get_by_email(body.identifier.lower().strip())
-            if existing is not None:
-                # User exists but password is wrong → real "Invalid credentials"
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Invalid credentials.",
-                    headers={"WWW-Authenticate": "Bearer"},
-                )
-            # Validate password length before creating the account
-            if len(body.password) < 8:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail="Password must be at least 8 characters.",
-                )
-            # Create skeleton account — profile completion required
-            new_user = User(
-                email=body.identifier.lower().strip(),
-                password_hash=AuthService.hash_password(body.password),
-            )
-            user = await user_repo.create(new_user)
-
-            # Assign default role and create the corresponding profile
-            role_name = "client"
-            role_result = await db.execute(select(Role).where(Role.name == role_name))
-            role = role_result.scalar_one_or_none()
-            if role:
-                db.add(UserRoleAssociation(user_id=user.id, role_id=role.id))
-                db.add(ClientProfile(user_id=user.id))
-                await db.flush()
-                # Sync the in-memory collection so primary_role reads the real DB state
-                await db.refresh(user, attribute_names=["user_roles"])
-                for ur in user.user_roles:
-                    await db.refresh(ur, attribute_names=["role"])
-
-            await AuditRepository(db).log(
-                action=AuditAction.USER_REGISTERED,
-                entity_type="user",
-                entity_id=str(user.id),
-                actor_id=user.id,
-                metadata={"ip": request.client.host if request.client else None, "flow": "identifier_first"},
-            )
-            is_new_user = True
+        # /auth/verify is now login-only. For new accounts use POST /auth/register.
 
     elif body.access_token:
         # Social auth via /auth/verify is deprecated.
@@ -330,14 +437,7 @@ async def verify_credentials(
             detail="This account is deactivated.",
         )
     
-    _role         = user.primary_role or "client"
-    refresh_token = await AuthService.create_refresh_token(user.id, _role, db)
-    access_token  = AuthService.create_access_token(user.id, _role)
-
-    # New accounts always need profile completion (no full_name yet)
-    needs_completion = is_new_user or not user.full_name or (
-        not user.phone_number and body.identifier_type == "email"
-    )
+    needs_completion = not user.onboarding_completed
 
     temp_token = None
     next_step = "app"
@@ -345,27 +445,39 @@ async def verify_credentials(
     if needs_completion:
         temp_token = AuthService.create_onboarding_token(user.id)
         next_step = "complete_profile"
-
-    if user.primary_role == "detailer" and not needs_completion:
-        next_step = "detailer_onboarding"
-    
-    if not is_new_user:
-        await AuditRepository(db).log(
-            action=AuditAction.USER_LOGIN,
-            entity_type="user",
-            entity_id=str(user.id),
-            actor_id=user.id,
-            metadata={"ip": request.client.host if request.client else None},
+        await db.commit()
+        return VerifyResponse(
+            access_token=None,
+            refresh_token=None,
+            is_new_user=False,
+            temp_token=temp_token,
+            needs_profile_completion=True,
+            next_step=next_step,
+            assigned_role=user.primary_role,
         )
 
+    _role         = user.primary_role or "client"
+    refresh_token = await AuthService.create_refresh_token(user.id, _role, db)
+    access_token  = AuthService.create_access_token(user.id, _role)
+
+    if user.primary_role == "detailer":
+        next_step = "detailer_onboarding"
+
+    await AuditRepository(db).log(
+        action=AuditAction.USER_LOGIN,
+        entity_type="user",
+        entity_id=str(user.id),
+        actor_id=user.id,
+        metadata={"ip": request.client.host if request.client else None},
+    )
     await db.commit()
 
     return VerifyResponse(
         access_token=access_token,
         refresh_token=refresh_token,
-        is_new_user=needs_completion,
-        temp_token=temp_token,
-        needs_profile_completion=needs_completion,
+        is_new_user=False,
+        temp_token=None,
+        needs_profile_completion=False,
         next_step=next_step,
         assigned_role=user.primary_role,
     )
@@ -384,11 +496,10 @@ async def complete_user_profile(
     db: AsyncSession = Depends(get_db),
 ) -> VerifyResponse:
     """
-    Completa el perfil del usuario después del registro.
-
-    Requiere un Bearer token con scope='onboarding' (emitido por /auth/verify
-    para usuarios nuevos por email/password, o por /auth/google / /auth/apple
-    para usuarios sociales sin rol asignado).
+    Sets full_name, phone_number, and role after account creation.
+    Accepts both onboarding_token (new users) and regular access_token (role additions).
+    Roles accumulate — switching from client to detailer preserves the client role.
+    Sets onboarding_completed=True, then returns a full access + refresh token pair.
     """
     user = current_user
     if not user or not user.is_active or user.is_deleted:
@@ -396,38 +507,45 @@ async def complete_user_profile(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found.",
         )
-    
+
+    # Explicitly refresh profiles to avoid stale identity-map state from the
+    # same SQLAlchemy session (common in tests and after prior refreshes).
+    await db.refresh(user, attribute_names=["client_profile", "detailer_profile", "user_roles"])
+
     if body.full_name:
         user.full_name = body.full_name
     if body.phone_number:
         user.phone_number = body.phone_number
-    
+
     role_result = await db.execute(
         select(Role).where(Role.name == body.role)
     )
     role = role_result.scalar_one_or_none()
-    if role:
-        # Clear existing role assignments and set the new one via ORM association
-        for existing in list(user.user_roles):
-            await db.delete(existing)
-        db.add(UserRoleAssociation(user_id=user.id, role_id=role.id))
+    effective_role = body.role if role else (user.primary_role or "client")
 
-        # Create the profile that matches the chosen role (idempotent: only if absent)
+    if role:
+        # Accumulate roles: only add if user doesn't already have it
+        already_has_role = any(ur.role_id == role.id for ur in user.user_roles)
+        if not already_has_role:
+            db.add(UserRoleAssociation(user_id=user.id, role_id=role.id))
+
+        # Create the profile for the chosen role if it doesn't exist yet
         if body.role == "client" and not user.client_profile:
             db.add(ClientProfile(user_id=user.id))
         elif body.role == "detailer" and not user.detailer_profile:
             db.add(DetailerProfile(user_id=user.id))
 
-    await db.flush()
+    # Mark onboarding as complete — this is the single source of truth
+    user.onboarding_completed = True
 
-    # Use body.role directly — user.primary_role reads from the stale in-memory
-    # user_roles list and won't reflect the role we just added until a DB refresh.
-    effective_role = body.role if role else (user.primary_role or "client")
+    await db.flush()
 
     access_token  = AuthService.create_access_token(user.id, effective_role)
     refresh_token = await AuthService.create_refresh_token(user.id, effective_role, db)
 
     next_step = "detailer_onboarding" if effective_role == "detailer" else "app"
+
+    await db.commit()
 
     return VerifyResponse(
         access_token=access_token,
@@ -687,7 +805,7 @@ async def google_login(
     # 5. Issue tokens based on role status
     await db.refresh(user, attribute_names=["user_roles"])
 
-    if not user.user_roles:
+    if not user.onboarding_completed:
         logger.info("Google login — onboarding required | user_id=%s", user.id)
         return SocialAuthResponse(
             is_new_user=True,
@@ -808,7 +926,7 @@ async def apple_login(
 
     await db.refresh(user, attribute_names=["user_roles"])
 
-    if not user.user_roles:
+    if not user.onboarding_completed:
         logger.info("Apple login — onboarding required | user_id=%s", user.id)
         return SocialAuthResponse(
             is_new_user=True,

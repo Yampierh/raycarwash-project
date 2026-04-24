@@ -63,6 +63,19 @@ class RefreshTokenRepository:
         )
         await self._db.execute(stmt)
 
+    async def revoke_by_raw(self, raw_token: str) -> bool:
+        """Revoke a single refresh token by its raw value. Returns True if found."""
+        token = await self.get_by_raw(raw_token)
+        if token is None:
+            return False
+        stmt = (
+            update(RefreshToken)
+            .where(RefreshToken.id == token.id)
+            .values(revoked=True)
+        )
+        await self._db.execute(stmt)
+        return True
+
     async def revoke_all_for_user(self, user_id: uuid.UUID) -> None:
         """Revoke all refresh tokens for a user — forces full re-login."""
         stmt = (

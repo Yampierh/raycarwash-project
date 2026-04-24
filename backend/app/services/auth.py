@@ -1,27 +1,17 @@
-# app/services/auth.py  —  Sprint 3
+# app/services/auth.py
 #
-# ADDITIONS vs Sprint 2:
-#   - create_refresh_token()  → long-lived opaque refresh token stored
-#     in the DB (RefreshToken model-less for MVP: encoded as a JWT with
-#     a "type": "refresh" claim and longer TTL).
-#   - verify_refresh_token()  → decode + validate a refresh JWT.
+# Authentication service: JWT lifecycle, password hashing, OAuth2, WebAuthn.
 #
-# WHY encode refresh tokens as JWTs (instead of random opaque tokens)?
-#   PRO: stateless — no DB table needed for the MVP.
-#   CON: cannot be individually revoked before expiry.
+# Token architecture:
+#   access_token  — short-lived JWT (30 min). Stateless; verified by signature only.
+#   refresh_token — long-lived opaque random string (7 days). Stateful; stored as
+#                   SHA-256 hash in refresh_tokens table. Single-use with rotation
+#                   and theft detection (family revocation on reuse).
+#   onboarding_token — access token with scope="onboarding". Issued after registration
+#                      before role selection. Only accepted by /auth/complete-profile.
 #
-#   The trade-off is acceptable for Sprint 3 MVP because:
-#     - Access tokens expire in 30 minutes (small blast radius).
-#     - Refresh tokens expire in 7 days (longer, but revocable at
-#       the account level by rotating SECRET_KEY — a nuclear option).
-#
-#   Sprint 4 upgrade path: swap to opaque tokens stored in a
-#   `refresh_tokens` table with a revoked_at column.
-#
-# RBAC Changes (Sprint 6):
-#   - role is now stored as a string (role name) in JWT payload
-#   - User model uses has_role() method to check permissions
-#   - require_role() accepts role names as strings
+# RBAC: roles stored as strings in JWT ("role" claim). get_current_user() loads
+# user_roles from DB on every request for authoritative RBAC checks.
 
 from __future__ import annotations
 
@@ -564,10 +554,10 @@ async def get_current_user(
     # Eager load user_roles for RBAC (selectin on UserRoleAssociation.role handles the join)
     await db.refresh(user, attribute_names=["user_roles"])
 
-    # Onboarding-scoped tokens are allowed to have no roles — they're in the middle of setup.
-    # All other tokens require at least one assigned role.
-    if not user.user_roles and not payload.get("scope") == _TOKEN_TYPE_ONBOARDING:
-        logger.warning("Auth rejected — user has no roles: %s", user_id)
+    # Onboarding-scoped tokens are allowed through regardless of completion state.
+    # All other tokens require onboarding_completed == True.
+    if not user.onboarding_completed and not payload.get("scope") == _TOKEN_TYPE_ONBOARDING:
+        logger.warning("Auth rejected — onboarding incomplete: %s", user_id)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account setup incomplete. Please complete onboarding.",

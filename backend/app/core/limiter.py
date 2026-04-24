@@ -1,20 +1,8 @@
-# app/core/limiter.py  —  Sprint 4
+# app/core/limiter.py
 #
-# Shared slowapi Limiter instance.
-#
-# WHY a separate module?
-# slowapi requires the same Limiter instance to be:
-#   1. Attached to app.state.limiter  (done in main.py)
-#   2. Used as the decorator source in each router
-# A single module import avoids circular imports and ensures both
-# references point to the exact same object.
-#
-# Usage in routers:
-#   from app.core.limiter import limiter
-#
-#   @router.post("/token")
-#   @limiter.limit("10/minute")
-#   async def login(request: Request, ...):   # <-- Request MUST be first arg
+# Shared slowapi Limiter instance attached to app.state in main.py.
+# Import from here in every router that needs rate limiting.
+# Request MUST be the first parameter of any rate-limited handler.
 
 from slowapi import Limiter
 from slowapi.util import get_remote_address

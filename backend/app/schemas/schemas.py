@@ -29,18 +29,7 @@ from app.models.models import (
 # ------------------------------------------------------------------ #
 
 class _BaseSchema(BaseModel):
-    """
-    Base para todos los schemas de RESPUESTA.
-
-    from_attributes=True: permite construir el schema desde un objeto ORM.
-    populate_by_name=True: acepta tanto el nombre del campo como su alias.
-    str_strip_whitespace: elimina espacios al inicio/fin automáticamente.
-
-    NOTA: los schemas de REQUEST (Create/Update) heredan directamente de
-    BaseModel para evitar que from_attributes=True genere confusión
-    semántica — en un schema de entrada, el valor siempre viene de JSON,
-    nunca de un ORM.
-    """
+    """Base for all response schemas. Builds from ORM objects via from_attributes=True."""
     model_config = ConfigDict(
         from_attributes=True,
         populate_by_name=True,
@@ -48,26 +37,12 @@ class _BaseSchema(BaseModel):
     )
 
 
-# ------------------------------------------------------------------ #
-#  Base para schemas de REQUEST                                       #
-# ------------------------------------------------------------------ #
-
 class _BaseRequestSchema(BaseModel):
-    """
-    Base para todos los schemas de REQUEST (entrada de datos).
-
-    str_strip_whitespace: elimina espacios al inicio/fin automáticamente.
-    No incluye from_attributes=True (los datos de entrada vienen de JSON,
-    nunca de un objeto ORM).
-    """
+    """Base for all request schemas. No from_attributes — input always comes from JSON."""
     model_config = ConfigDict(str_strip_whitespace=True)
 
 
-# ------------------------------------------------------------------ #
-#  Tipo anotado reutilizable                                          #
-# ------------------------------------------------------------------ #
-
-PositiveCents = int  # Alias legible; validación real via Field(gt=0)
+PositiveCents = int  # Validated via Field(gt=0) at usage sites
 
 
 # ================================================================== #
@@ -75,69 +50,101 @@ PositiveCents = int  # Alias legible; validación real via Field(gt=0)
 # ================================================================== #
 
 class Token(_BaseSchema):
-    """
-    Respuesta de POST /auth/token y POST /auth/refresh.
-
-    Estrategia de almacenamiento en el cliente React Native:
-      access_token  → memoria de la app (o estado de React). NUNCA AsyncStorage.
-      refresh_token → expo-secure-store (Keychain/Keystore). NUNCA AsyncStorage.
-    """
+    """Response for POST /auth/token and POST /auth/refresh (OAuth2 form flow)."""
     access_token: str
-    refresh_token: str | None = Field(
-        default=None,
-        description="Token de larga duración. Enviar a POST /auth/refresh para rotar.",
-    )
+    refresh_token: str | None = None
     token_type: str = "bearer"
 
 
+class RegisterRequest(BaseModel):
+    """Body para POST /auth/register — crear cuenta nueva."""
+    email: EmailStr
+    password: str = Field(..., min_length=8, max_length=128)
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def lowercase_email(cls, value: str) -> str:
+        return value.lower().strip()
+
+
+class LoginRequest(BaseModel):
+    """Body for POST /auth/login."""
+    email: EmailStr
+    password: str
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def lowercase_email(cls, value: str) -> str:
+        return value.lower().strip()
+
+
+class LoginResponse(_BaseSchema):
+    """
+    Response for POST /auth/login and POST /auth/register.
+
+    Onboarding pending (onboarding_completed=False):
+      access_token=None, refresh_token=None, onboarding_token=<token>, next_step="complete_profile"
+
+    Fully onboarded (onboarding_completed=True):
+      access_token=<token>, refresh_token=<token>, onboarding_token=None, next_step="app"
+    """
+    access_token: str | None = None
+    refresh_token: str | None = None
+    onboarding_token: str | None = None
+    roles: list[str] = Field(default_factory=list)
+    onboarding_completed: bool = False
+    next_step: str  # "complete_profile" | "detailer_onboarding" | "app"
+
+
+class LogoutRequest(BaseModel):
+    """Body for POST /auth/logout. Revokes the given refresh token (this device only)."""
+    refresh_token: str
+
+
 class CheckEmailRequest(BaseModel):
-    """Request para verificar si un email existe."""
+    """Body for POST /auth/check-email."""
     email: EmailStr
 
 
 class CheckEmailResponse(_BaseSchema):
-    """Respuesta de verificación de email para el flujo de login/register."""
+    """Response for POST /auth/check-email."""
     email: str
     exists: bool
-    auth_method: str  # "password", "google", "apple", "both"
-    suggested_action: str  # "login", "register", "social_login"
+    auth_method: str  # "password" | "google" | "apple" | "both" | "none"
+    suggested_action: str  # "login" | "social_login" | "register"
 
 
 class IdentifierRequest(BaseModel):
-    """Request para identificar usuario por email o teléfono."""
-    identifier: str = Field(..., description="Email o número de teléfono")
+    """Body for POST /auth/identify (Identifier-First flow)."""
+    identifier: str = Field(..., description="Email address or phone number.")
     identifier_type: str | None = Field(
         default=None,
-        description="Tipo: 'email' o 'phone'. El backend detecta si no se provee"
+        description="'email' or 'phone'. Auto-detected if omitted."
     )
 
 
 class IdentifierResponse(_BaseSchema):
-    """Respuesta de identificación para el flujo Identifier-First."""
+    """Response for POST /auth/identify."""
     identifier: str
     identifier_type: str  # "email" | "phone"
     exists: bool
-    auth_methods: list[str]  # ["password", "google", "apple", "otp"]
+    auth_methods: list[str]  # ["password", "google", "apple"]
     is_new_user: bool
-    suggested_action: str  # "login_password" | "login_social" | "login_otp" | "register"
+    suggested_action: str  # "login_password" | "login_social" | "register"
 
 
 class VerifyRequest(BaseModel):
-    """Request para verificar credenciales en el flujo Identifier-First."""
+    """Body for POST /auth/verify (Identifier-First login, backward-compatible)."""
     identifier: str
     identifier_type: str
-    provider: str | None = Field(
-        default=None, description="Proveedor social: 'google' o 'apple'"
-    )
-    password: str | None = Field(default=None, description="Contraseña")
-    access_token: str | None = Field(
-        default=None, description="Token social (Google/Apple)"
-    )
-    otp_code: str | None = Field(default=None, description="Código OTP")
+    provider: str | None = None
+    password: str | None = None
+    access_token: str | None = None
+    otp_code: str | None = None
 
 
 class VerifyResponse(_BaseSchema):
-    """Respuesta de verificación para el flujo Identifier-First."""
+    """Response for POST /auth/verify (Identifier-First login)."""
     access_token: str | None = None
     refresh_token: str | None = None
     is_new_user: bool
@@ -148,38 +155,35 @@ class VerifyResponse(_BaseSchema):
 
 
 class CompleteProfileRequest(BaseModel):
-    """Request para completar perfil después del registro."""
+    """Body for PUT /auth/complete-profile."""
     full_name: str
     phone_number: str | None = None
-    role: str = Field(default="client", description="Rol inicial: 'client' o 'detailer'")
+    role: str = Field(default="client", description="'client' or 'detailer'")
 
 
 class TokenData(_BaseSchema):
-    """
-    Representación interna del payload JWT decodificado.
-    Nunca retornado al cliente — usado solo en get_current_user().
-    """
+    """Internal representation of a decoded JWT payload. Never returned to clients."""
     user_id: uuid.UUID
-    role: str  # Role name string (e.g., "client", "detailer", "admin")
+    role: str
 
 
-# ---- Social login request schemas ---- #
+# ---- Social login ---- #
 
 class GoogleLoginRequest(BaseModel):
-    """Body para POST /auth/google — PKCE authorization code flow."""
+    """Body for POST /auth/google — PKCE authorization code flow."""
     code: str = Field(..., description="Authorization code from Google OAuth2.")
     code_verifier: str = Field(..., description="PKCE code verifier generated by the client.")
     redirect_uri: str = Field(..., description="Must match the URI used in the authorization request.")
 
 
 class AppleLoginRequest(BaseModel):
-    """Body para POST /auth/apple."""
-    identity_token: str = Field(..., description="JWT firmado por Apple (RS256).")
+    """Body for POST /auth/apple."""
+    identity_token: str = Field(..., description="RS256-signed JWT from Apple.")
     full_name: str | None = Field(
         default=None,
         max_length=120,
         description=(
-            "Nombre completo del usuario. Apple solo lo envía en el PRIMER login; "
+            "User's full name. Apple only sends this on the first login; "
             "el frontend debe capturarlo y enviarlo en ese primer request."
         ),
     )
@@ -187,16 +191,13 @@ class AppleLoginRequest(BaseModel):
 
 class SocialAuthResponse(BaseModel):
     """
-    Respuesta unificada de POST /auth/google y POST /auth/apple.
+    Response for POST /auth/google and POST /auth/apple.
 
-    Si el usuario ya tiene roles asignados:
-      - is_new_user=False (o True si fue account-linking)
-      - access_token + refresh_token normales
+    Onboarding required (new user or social account with no roles yet):
+      onboarding_required=True, onboarding_token=<token>, access_token=None
 
-    Si el usuario fue creado pero no tiene roles (primer login social):
-      - onboarding_required=True
-      - onboarding_token (30 min, scope='onboarding')
-      - access_token y refresh_token son None
+    Fully onboarded (existing user):
+      onboarding_required=False, access_token=<token>, refresh_token=<token>
     """
     is_new_user: bool
     onboarding_required: bool = False
@@ -208,7 +209,7 @@ class SocialAuthResponse(BaseModel):
 
 
 class PasswordResetRequest(BaseModel):
-    """Body para POST /auth/password-reset."""
+    """Body for POST /auth/password-reset."""
     email: EmailStr
 
 
@@ -237,10 +238,6 @@ class UserCreate(_BaseRequestSchema):
     @field_validator("email", mode="before")
     @classmethod
     def lowercase_email(cls, value: str) -> str:
-        """
-        mode="before" es correcto aquí: el valor llega como str desde JSON
-        y queremos normalizarlo antes de cualquier conversión de tipo.
-        """
         return value.lower()
 
     @field_validator("role_names", mode="before")
@@ -261,9 +258,10 @@ class UserRead(_BaseSchema):
     """
     id: uuid.UUID
     email: str
-    full_name: str
+    full_name: str | None = Field(default=None)
     phone_number: str | None = Field(default=None)
     roles: list[str]  # Role names (e.g., ["client"], ["detailer"])
+    onboarding_completed: bool
     is_active: bool
     is_verified: bool
     created_at: datetime
