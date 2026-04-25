@@ -386,8 +386,8 @@ class ClientProfile(TimestampMixin, Base):
     One-to-one extension of User for CLIENT-specific configuration.
     
     WHY a separate table instead of more columns on User?
-    - Client-specific fields (service_address, marketing_preferences, 
-      payment_methods) are irrelevant for DETAILER/ADMIN users.
+    - Client-specific fields (service_address, marketing_preferences) are
+      irrelevant for DETAILER/ADMIN users.
     - Keeps the User table lean and focused on identity/auth.
     - Supports future expansion of client-specific features without
       schema migrations.
@@ -419,19 +419,10 @@ class ClientProfile(TimestampMixin, Base):
         ),
     )
 
-    # ---- Payment methods ----
-    # TODO: MEDIUM - JSONB creates stale-data risk. Cards expire, update, or are removed
-    #        in Stripe without DB knowing. Local copy drifts from reality.
-    # FIX: Delete this column. Query Stripe directly instead:
-    #        stripe.PaymentMethod.list(customer=user.stripe_customer_id, type="card")
-    #        Cache in Redis with 5-min TTL if needed.
-    payment_methods: Mapped[list | None] = mapped_column(
-        JSONB, nullable=True,
-        comment=(
-            "Stored payment preferences. Structure: "
-            '[{"type": "card", "last4": "4242", "brand": "visa"}]'
-        ),
-    )
+    # Payment methods are queried live from Stripe, never cached locally:
+    #   stripe.PaymentMethod.list(customer=user.stripe_customer_id, type="card")
+    # Storing them here created stale-data risk — cards expire or are removed
+    # in Stripe without the DB knowing. Column removed in migration f6a7b8c9d0e1.
 
     user: Mapped[User] = relationship("User", back_populates="client_profile")
 
