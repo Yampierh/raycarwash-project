@@ -26,10 +26,10 @@ from infrastructure.redis.client import close_redis_pool, init_redis_pool
 from infrastructure.db.session import AsyncSessionLocal, engine, get_db
 import infrastructure.db.registry  # noqa: F401 — registers ALL domain models with SQLAlchemy
 
-from app.workers.location_worker import location_worker
-from app.workers.assignment_worker import assignment_worker
-from app.workers.ledger_seal_worker import ledger_seal_worker
-from app.workers.token_cleanup_worker import token_cleanup_worker
+from workers.location_worker import location_worker
+from workers.assignment_worker import assignment_worker
+from workers.ledger_seal_worker import ledger_seal_worker
+from workers.token_cleanup_worker import token_cleanup_worker
 
 from app.db.seed import seed_addons, seed_services, seed_service_categories, seed_specialties
 from app.db.seed_rbac import seed_rbac
