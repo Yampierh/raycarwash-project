@@ -33,9 +33,18 @@ from app.core.config import get_settings
 # ------------------------------------------------------------------ #
 #  Settings for PII encryption                                       #
 # ------------------------------------------------------------------ #
+# SECURITY FIX (2026-04-24): Changed from _get_secret_key() to _get_encryption_key().
+# Before: Used JWT_SECRET_KEY (single key) for both signing and encryption.
+# After: Uses dedicated ENCRYPTION_KEY for PII via EncryptedType.
+#        JWT_SECRET_KEY is used ONLY for JWT signing in auth.py.
 
-def _get_secret_key() -> str:
-    return get_settings().SECRET_KEY
+def _get_encryption_key() -> bytes:
+    # Returns the dedicated ENCRYPTION_KEY (32-byte key for Fernet)
+    # SEPARATE from JWT_SECRET_KEY to prevent PII exposure on JWT compromise
+    key = get_settings().ENCRYPTION_KEY
+    # Ensure it's valid base64 (32 bytes when decoded)
+    import base64
+    return base64.b64decode(key)
 
 
 # ------------------------------------------------------------------ #
@@ -333,6 +342,11 @@ class UserRoleAssociation(Base):
     """
 
     __tablename__ = "user_roles"
+    __table_args__ = (
+        # Speeds up "all users assigned role Y" — the PK (user_id, role_id) only
+        # helps leading-column (user_id) lookups; role_id-only needs its own index.
+        Index("ix_user_roles_role_id", "role_id"),
+    )
 
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -406,6 +420,11 @@ class ClientProfile(TimestampMixin, Base):
     )
 
     # ---- Payment methods ----
+    # TODO: MEDIUM - JSONB creates stale-data risk. Cards expire, update, or are removed
+    #        in Stripe without DB knowing. Local copy drifts from reality.
+    # FIX: Delete this column. Query Stripe directly instead:
+    #        stripe.PaymentMethod.list(customer=user.stripe_customer_id, type="card")
+    #        Cache in Redis with 5-min TTL if needed.
     payment_methods: Mapped[list | None] = mapped_column(
         JSONB, nullable=True,
         comment=(
@@ -451,24 +470,74 @@ class User(TimestampMixin, Base):
     )
 
     # ---- PII: Encrypted at rest ----
+    # NOTE: Uses ENCRYPTION_KEY (separate from JWT_SECRET_KEY).
+    # If you rotate JWT_SECRET_KEY, PII remains secure.
     full_name: Mapped[str] = mapped_column(
-        EncryptedType(String(120), _get_secret_key),
+        EncryptedType(String(120), _get_encryption_key),
         nullable=True,
-        comment="Full name, encrypted at rest using SECRET_KEY",
+        comment="Full name, encrypted at rest using ENCRYPTION_KEY",
     )
     phone_number: Mapped[str | None] = mapped_column(
-        EncryptedType(String(20), _get_secret_key),
+        EncryptedType(String(20), _get_encryption_key),
         nullable=True,
-        comment="Phone number, encrypted at rest using SECRET_KEY",
+        comment="Phone number, encrypted at rest using ENCRYPTION_KEY",
     )
 
     password_hash: Mapped[str] = mapped_column(
         String(255), nullable=False,
         comment="bcrypt digest. NEVER expose.",
     )
+    # TODO: HIGH - Failed login tracking for brute force protection.
+    # BUG: No counter for failed attempts - can't detect or prevent brute force.
+    # Add to User model after password_hash:
+    # failed_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    # locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # On failed login: increment counter, set locked_until if >= 5
+    # On successful login: reset counter
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # TODO: MEDIUM - Email verification not enforced.
+    # BUG: is_verified exists but not required for login - users can login unverified.
+    # Risk: Spam accounts, fake profiles.
+    # FIX: Require email verification before allowing login or actions.
     is_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     onboarding_completed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    # TODO: LATER - onboarding_completed: bool will break when platform adds more steps.
+    #       Already needs: photo upload, vehicle verification, background check consent.
+    #       FIX: Replace with state machine:
+    #       class OnboardingStatus(str, Enum):
+    #           PENDING_PROFILE = "pending_profile"
+    #           PENDING_ROLE = "pending_role"
+    #           PENDING_VERIFICATION = "pending_verification"
+    #           PENDING_APPROVAL = "pending_approval"
+    #           COMPLETED = "completed"
+    #       onboarding_status: Mapped[OnboardingStatus] = mapped_column(
+    #           Enum(OnboardingStatus), default=OnboardingStatus.PENDING_PROFILE)
+    #       Map onboarding_completed = property returning status == COMPLETED
+
+    # --- Token version for instant revocation ---
+    # FEATURE ADDED (2026-04-24): token_version field for instant session invalidation.
+    # Before: Role changes only take effect after JWT expires (30 min max).
+    # After: Increment token_version to immediately invalidate all sessions.
+    # Usage: UPDATE users SET token_version = token_version + 1 WHERE id = X
+    #        Then validate in JWT or endpoint-level checks.
+    # NOTE: Currently stored in DB but NOT yet included in JWT payload - FIX needed in auth.py!
+    token_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1,
+        comment="Increment to invalidate all active sessions.",
+    )
+
+    # --- Phone hash for efficient lookup ---
+    # FEATURE ADDED (2026-04-24): phone_hash for O(1) phone lookup.
+    # Before: Phone lookup required decrypting every row (O(n) full table scan).
+    # After: HMAC-SHA256 hash enables index-based lookup.
+    #        Hash: HMAC-SHA256(normalize(phone_e164), PHONE_LOOKUP_KEY)
+    #        Separate key prevents rainbow table attacks.
+    # NOTE: Field added but UserRepository.get_by_phone() needs update!
+    phone_hash: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, unique=True,
+        comment="HMAC-SHA256 of phone_number for lookup.",
+    )
 
     # ---- Stripe (Sprint 3) ----
     stripe_customer_id: Mapped[str | None] = mapped_column(
@@ -605,12 +674,52 @@ class User(TimestampMixin, Base):
 
 
 # ------------------------------------------------------------------ #
+#  Model: ServiceCategory                                             #
+# ------------------------------------------------------------------ #
+# FIX (2026-04-24): Renamed from ServiceCategory to ServiceCategoryTable
+# to avoid conflict with ServiceCategory enum used by Service.category.
+# Before: Both enum and table model named ServiceCategory
+# After: Table model renamed to ServiceCategoryTable
+
+class ServiceCategoryTable(TimestampMixin, Base):
+    """
+    Service categories (e.g., car_detailing, mobile_mechanic, cleaning).
+    Allows the platform to support multiple service types with a single
+    provider model.
+
+    FIX: Enables the DetailerProfile → ProviderProfile rename without
+    fragmenting the codebase. Future service types get their own rows here.
+    """
+
+    __tablename__ = "service_categories"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    slug: Mapped[str] = mapped_column(
+        String(50), nullable=False, unique=True,
+        comment="URL-safe identifier: e.g. 'car_detailing'",
+    )
+    name: Mapped[str] = mapped_column(
+        String(100), nullable=False,
+        comment="Display name: e.g. 'Car Detailing'",
+    )
+
+    def __repr__(self) -> str:
+        return f"<ServiceCategory {self.slug}>"
+
+
+# ------------------------------------------------------------------ #
 #  Model: DetailerProfile                                             #
 # ------------------------------------------------------------------ #
 
 class DetailerProfile(TimestampMixin, Base):
     """
     One-to-one extension of User for DETAILER-specific configuration.
+
+    RENAME: This model is being renamed to ProviderProfile in a phased approach.
+    The DetailerProfile name is being phased out in favor of a more
+    generic "Provider" terminology that can accommodate future service types.
 
     WHY a separate table instead of more columns on User?
     - Detailer config (working hours, bio, is_accepting_bookings) is irrelevant
@@ -675,6 +784,17 @@ class DetailerProfile(TimestampMixin, Base):
         ),
     )
 
+    # ---- Service category (Sprint 6 refactor) ----
+    # FIX: Added to support DetailerProfile → ProviderProfile rename.
+    # Allows multiple service types with a single model.
+    service_category_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("service_categories.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="FK to ServiceCategory. Defaults to 'car_detailing'.",
+    )
+
     average_rating: Mapped[float | None] = mapped_column(
         Numeric(3, 2), nullable=True,
         comment="Denormalised average — updated on every new review.",
@@ -683,6 +803,13 @@ class DetailerProfile(TimestampMixin, Base):
         Integer, nullable=False, default=0
     )
     # ---- Specialties (Sprint 6) ----
+    # TODO: MEDIUM - JSONB prevents efficient queries for filtering by specialty.
+    #        Should migrate to junction table:
+    #        CREATE TABLE provider_specialties (
+    #          provider_profile_id UUID REFERENCES provider_profiles(id),
+    #          specialty_id UUID REFERENCES specialties(id),
+    #          PRIMARY KEY (provider_profile_id, specialty_id)
+    #        );
     specialties: Mapped[list | None] = mapped_column(
         JSONB, nullable=True, default=list,
         comment='List of specialty tags, e.g. ["ceramic_coating", "full_detail"].',
@@ -874,6 +1001,10 @@ class Service(TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     category: Mapped[ServiceCategory] = mapped_column(
+        # TODO: BUG - This uses the table model (line 636) not the enum (line 131).
+        #       After fixing ServiceCategory naming, update to FK:
+        #       category_id: Mapped[uuid.UUID] = mapped_column(
+        #           ForeignKey("service_categories.id"))
         Enum(ServiceCategory, name="service_category_enum"), nullable=False
     )
     base_price_cents: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -1254,8 +1385,11 @@ class AuditLog(Base):
 
     __tablename__ = "audit_logs"
     __table_args__ = (
-        # Speeds up "show me all events for appointment X" queries
+        # "show me all events for appointment X"
         Index("ix_audit_logs_entity", "entity_type", "entity_id"),
+        # "all login events for user X" — partial index skips system (NULL actor) rows
+        Index("ix_audit_logs_actor_action", "actor_id", "action",
+              postgresql_where="actor_id IS NOT NULL"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -1268,8 +1402,10 @@ class AuditLog(Base):
         comment="User who triggered the action. NULL for system events.",
     )
     action: Mapped[AuditAction] = mapped_column(
-        Enum(AuditAction, name="audit_action_enum"),
-        nullable=False, index=True,
+        # FIX: Changed from Postgres ENUM to VARCHAR(50).
+        # Adding new audit action types now requires ZERO DB migration.
+        # The Python enum provides type safety; the DB just stores strings.
+        String(50), nullable=False, index=True,
     )
     entity_type: Mapped[str] = mapped_column(
         String(60), nullable=False,
@@ -1442,6 +1578,13 @@ class RefreshToken(Base):
     """
 
     __tablename__ = "refresh_tokens"
+    __table_args__ = (
+        # Required by the cleanup job: DELETE WHERE expires_at < NOW()
+        Index("ix_refresh_tokens_expires_at", "expires_at"),
+    )
+    # TODO: MEDIUM - No automatic cleanup for expired tokens.
+    # Expired tokens accumulate indefinitely without a scheduled cleanup job.
+    # FIX: Add daily cron job: DELETE FROM refresh_tokens WHERE expires_at < NOW() - interval '1 day'
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -1479,6 +1622,73 @@ class RefreshToken(Base):
 
     def __repr__(self) -> str:
         return f"<RefreshToken family={self.family_id} used={self.used_at is not None}>"
+
+
+# ------------------------------------------------------------------ #
+#  Model: PasswordResetToken  (single-use)                            #
+# ------------------------------------------------------------------ #
+# SECURITY FIX (2026-04-24): New table for single-use password reset tokens.
+# Problem: Before, password reset tokens were stateless JWTs that could be reused.
+# Risk: User clicks link twice, or email preview/缓存 intercepts it, same token works.
+# Solution: Store token_hash in DB with used_at. Mark used after first use.
+# Pattern: Mirrors RefreshToken but different lifecycle (one-shot vs rotating).
+# Usage: 
+#   - Create token: generate raw, store SHA-256 hash in DB
+#   - Verify: check token_hash + used_at IS NULL + expires_at > now
+#   - Consume: UPDATE used_at = NOW() WHERE id = X
+#
+# NEW: Added password_reset_token_repository.py with:
+#   - create(user_id, raw_token, expires_at)
+#   - get_by_raw(raw_token) -> token | None
+#   - consume(raw_token) -> token | None (atomic mark used)
+#   - is_valid(raw_token) -> bool
+
+class PasswordResetToken(Base):
+    """
+    Single-use password reset tokens. Mirrors RefreshToken pattern:
+
+    - token_hash: SHA-256(raw_token) — only hash stored, raw sent to user once.
+    - used_at: If set, token has been consumed (prevents reuse).
+    - expires_at: Token lifetime (typically 1 hour).
+
+    Why separate from RefreshToken?
+    - Different lifecycle: refresh tokens rotate continuously; reset tokens are one-shot.
+    - Different revocation: reset tokens can be explicitly invalidated (e.g., security alert).
+    - Audit trail: easier to query "all password resets for user X".
+
+    FIX: Prevents token reuse from intercepted reset links (email preview, double-click).
+    """
+
+    __tablename__ = "password_reset_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    token_hash: Mapped[str] = mapped_column(
+        String(64), nullable=False, unique=True,
+        comment="SHA-256 hex digest of the raw reset token.",
+    )
+    used_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+        comment="Set when token is consumed. NULL = unused.",
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    def __repr__(self) -> str:
+        return f"<PasswordResetToken user={self.user_id} used={self.used_at is not None}>"
 
 
 # ------------------------------------------------------------------ #
