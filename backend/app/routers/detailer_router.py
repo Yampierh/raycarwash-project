@@ -37,7 +37,7 @@ from app.models.models import (
 )
 from app.repositories.appointment_repository import AppointmentRepository
 from app.repositories.audit_repository import AuditRepository
-from app.repositories.provider_repository import ProviderRepository
+from app.repositories.detailer_repository import ProviderRepository
 from app.schemas.schemas import (
     DetailerMeRead,
     ProviderProfileCreate,

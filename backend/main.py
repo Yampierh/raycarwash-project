@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+import uuid
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
@@ -56,14 +57,27 @@ from app.ws.router                  import router as ws_router
 
 from app.schemas.schemas import ErrorDetail, HealthResponse, UserCreate, UserRead
 from app.services.auth import AuthService
+from app.core.logging_context import RequestIdFilter, StaticFieldsFilter, request_id_var
+from pythonjsonlogger import jsonlogger
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
-    datefmt="%Y-%m-%dT%H:%M:%S",
-)
-logger   = logging.getLogger("raycarwash")
+# ── Logging ──────────────────────────────────────────────────────────
+# settings is initialised first so we can derive env from DEBUG flag.
 settings = get_settings()
+
+_log_handler = logging.StreamHandler()
+_log_handler.setFormatter(jsonlogger.JsonFormatter(
+    fmt="%(asctime)s %(levelname)s %(name)s %(message)s %(request_id)s %(service)s %(env)s",
+    datefmt="%Y-%m-%dT%H:%M:%S",
+    rename_fields={"levelname": "level", "asctime": "timestamp"},
+))
+_log_handler.addFilter(RequestIdFilter())
+_log_handler.addFilter(StaticFieldsFilter(
+    service="raycarwash-backend",
+    env="development" if settings.DEBUG else "production",
+))
+logging.basicConfig(level=logging.INFO, handlers=[_log_handler])
+
+logger = logging.getLogger("raycarwash")
 
 
 # ── Lifespan ─────────────────────────────────────────────────────── #
@@ -177,19 +191,30 @@ def create_application() -> FastAPI:
 
     # ---- Correlation ID middleware ----
     # Generates a unique X-Request-ID per request (or echoes the client-supplied
-    # one). Injected into logging context so every log line in a request carries
-    # the same ID. Returned in the response header so clients can quote it in
-    # bug reports.
+    # one). Stored in request_id_var (ContextVar) so every log line emitted
+    # within this request's asyncio Task automatically carries it via
+    # RequestIdFilter. Returned in the response header for client-side tracing.
+    _req_log = logging.getLogger("raycarwash.request")
+
     @application.middleware("http")
     async def correlation_id_middleware(request: Request, call_next):
-        import uuid as _uuid
-        request_id = request.headers.get("X-Request-ID") or str(_uuid.uuid4())
-        import logging as _logging
-        _log = _logging.getLogger("raycarwash.request")
-        _log.debug("→ %s %s  request_id=%s", request.method, request.url.path, request_id)
-        response = await call_next(request)
-        response.headers["X-Request-ID"] = request_id
-        return response
+        request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+        token = request_id_var.set(request_id)
+        try:
+            _req_log.info(
+                "HTTP request",
+                extra={
+                    "method": request.method,
+                    "path": request.url.path,
+                    "client": getattr(request.client, "host", "-"),
+                },
+            )
+            response = await call_next(request)
+            _req_log.info("HTTP response", extra={"status_code": response.status_code})
+            response.headers["X-Request-ID"] = request_id
+            return response
+        finally:
+            request_id_var.reset(token)
 
     # ---- CORS ----
     application.add_middleware(

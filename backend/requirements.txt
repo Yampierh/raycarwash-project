@@ -5,6 +5,7 @@
 # ---- Core Framework ----
 fastapi==0.115.5
 uvicorn[standard]==0.32.1          # ASGI: uvloop + httptools
+python-json-logger==2.0.7          # Structured JSON logging
 
 # ---- Database ----
 sqlalchemy-utils==0.41.0           # For EncryptedType (PII protection)

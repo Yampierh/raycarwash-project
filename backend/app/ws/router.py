@@ -35,7 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import AsyncSessionLocal, get_db
 from app.repositories.appointment_repository import AppointmentRepository
-from app.repositories.provider_repository import ProviderRepository
+from app.repositories.detailer_repository import ProviderRepository
 from app.services.auth import ws_get_current_user
 from app.ws.connection_manager import ConnectionManager
 

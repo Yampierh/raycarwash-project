@@ -43,7 +43,7 @@ from app.models.models import (
 from app.repositories.addon_repository import AddonRepository
 from app.repositories.appointment_repository import AppointmentRepository
 from app.repositories.audit_repository import AuditRepository
-from app.repositories.provider_repository import ProviderRepository
+from app.repositories.detailer_repository import ProviderRepository
 from app.repositories.service_repository import ServiceRepository
 from app.repositories.user_repository import UserRepository
 from app.repositories.vehicle_repository import VehicleRepository

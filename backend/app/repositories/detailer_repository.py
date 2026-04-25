@@ -225,3 +225,6 @@ class ProviderRepository:
             )
         )
         await self._db.flush()
+
+
+DetailerRepository = ProviderRepository
