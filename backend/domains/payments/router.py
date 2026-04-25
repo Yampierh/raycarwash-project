@@ -8,9 +8,9 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.db.session import get_db
-from app.models.models import User
-from app.schemas.schemas import PaymentIntentRequest, PaymentIntentResponse
-from app.services.auth import get_current_user
+from domains.users.models import User
+from domains.payments.schemas import PaymentIntentRequest, PaymentIntentResponse
+from domains.auth.service import get_current_user
 from domains.payments.service import PaymentService
 
 logger = logging.getLogger(__name__)

@@ -34,9 +34,9 @@ from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.db.session import AsyncSessionLocal, get_db
-from app.repositories.appointment_repository import AppointmentRepository
+from domains.appointments.repository import AppointmentRepository
 from domains.providers.repository import ProviderRepository
-from app.services.auth import ws_get_current_user
+from domains.auth.service import ws_get_current_user
 from domains.realtime.connection_manager import ConnectionManager
 
 logger = logging.getLogger(__name__)

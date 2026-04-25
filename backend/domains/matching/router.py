@@ -11,12 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.db.seed import SIZE_MULTIPLIERS
 from infrastructure.db.session import get_db
-from app.models.models import User, VehicleSize
+from domains.users.models import User
+from domains.vehicles.models import VehicleSize
 from domains.services_catalog.repository import AddonRepository, ServiceRepository
 from domains.providers.repository import ProviderRepository
 from domains.matching.schemas import MatchingResult, TimeSlotRead
-from app.services.appointment_service import AppointmentService
-from app.services.auth import get_current_user
+from domains.appointments.service import AppointmentService
+from domains.auth.service import get_current_user
 
 logger   = logging.getLogger(__name__)
 settings = get_settings()

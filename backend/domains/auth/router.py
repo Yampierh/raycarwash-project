@@ -32,14 +32,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.limiter import limiter
 from infrastructure.db.session import get_db
-from app.models.models import AuditAction, ClientProfile, OnboardingStatus, ProviderProfile, User, Role, UserRoleAssociation
-from app.repositories.audit_repository import AuditRepository
-from app.repositories.auth_provider_repository import AuthProviderRepository
-from app.repositories.password_reset_token_repository import PasswordResetTokenRepository
-from app.repositories.user_repository import UserRepository
-from app.repositories.refresh_token_repository import RefreshTokenRepository
-from app.repositories.webauthn_repository import WebAuthnRepository
-from app.schemas.schemas import (
+from domains.audit.models import AuditAction
+from domains.auth.models import Role, UserRoleAssociation
+from domains.providers.models import ProviderProfile
+from domains.users.models import ClientProfile, OnboardingStatus, User
+from domains.audit.repository import AuditRepository
+from domains.auth.auth_provider_repository import AuthProviderRepository
+from domains.auth.password_reset_token_repository import PasswordResetTokenRepository
+from domains.users.repository import UserRepository
+from domains.auth.refresh_token_repository import RefreshTokenRepository
+from domains.auth.webauthn_repository import WebAuthnRepository
+from domains.auth.schemas import (
     AppleLoginRequest,
     CheckEmailRequest,
     CheckEmailResponse,
@@ -60,10 +63,6 @@ from app.schemas.schemas import (
     SessionRevokeResponse,
     SocialAuthResponse,
     Token,
-    UserRead,
-    UserUpdate,
-    VerifyRequest,
-    VerifyResponse,
     WebAuthnRegisterBeginResponse,
     WebAuthnRegisterCompleteRequest,
     WebAuthnRegisterCompleteResponse,
@@ -74,7 +73,10 @@ from app.schemas.schemas import (
     WebAuthnCredentialRead,
     WebAuthnCredentialRenameRequest,
     WebAuthnCredentialDeleteResponse,
+    VerifyRequest,
+    VerifyResponse,
 )
+from domains.users.schemas import UserRead, UserUpdate
 from domains.auth.service import (
     AuthService,
     TOKEN_TYPE_WEBAUTHN_REG,
@@ -82,9 +84,9 @@ from domains.auth.service import (
     get_current_user,
     get_current_user_for_onboarding,
 )
-from app.services.email_service import EmailService
-from app.services.webauthn_service import WebAuthnService
-from app.repositories.webauthn_repository import WebAuthnRepository
+from infrastructure.email.service import EmailService
+from domains.auth.webauthn_service import WebAuthnService
+from domains.auth.webauthn_repository import WebAuthnRepository
 
 logger   = logging.getLogger(__name__)
 settings = get_settings()
@@ -1157,7 +1159,7 @@ async def webauthn_register_complete(
     stores the new credential in the database.
     """
     from webauthn.helpers.exceptions import InvalidRegistrationResponse, InvalidAuthenticationResponse
-    from app.models.models import WebAuthnCredential
+    from domains.auth.models import WebAuthnCredential
 
     # Decode the challenge JWT (also validates it hasn't expired / is the right type)
     user_id, challenge = AuthService.decode_webauthn_challenge_token(

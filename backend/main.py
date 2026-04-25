@@ -38,7 +38,7 @@ from app.db.detailer_seed import seed_detailers
 from infrastructure.db.base import Base
 
 from api.router import api_router
-from app.ws.connection_manager import ConnectionManager
+from domains.realtime.connection_manager import ConnectionManager
 
 from shared.schemas import ErrorDetail, HealthResponse
 from app.core.logging_context import RequestIdFilter, StaticFieldsFilter, request_id_var

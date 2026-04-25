@@ -1,1 +1,1 @@
-from app.ws.connection_manager import ConnectionManager  # noqa: F401
+from domains.realtime.connection_manager import ConnectionManager  # noqa: F401

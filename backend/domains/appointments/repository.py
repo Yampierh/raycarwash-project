@@ -38,7 +38,7 @@ from sqlalchemy import and_, func, not_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import text
 
-from app.models.models import Appointment, AppointmentStatus, TERMINAL_STATUSES
+from domains.appointments.models import Appointment, AppointmentStatus, TERMINAL_STATUSES
 
 
 def _detailer_lock_key(detailer_id: uuid.UUID) -> int:

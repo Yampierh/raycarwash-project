@@ -24,8 +24,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.models.models import Appointment, AppointmentStatus, AuditAction, User
-from app.repositories.audit_repository import AuditRepository
+from domains.appointments.models import Appointment, AppointmentStatus
+from domains.audit.models import AuditAction
+from domains.users.models import User
+from domains.audit.repository import AuditRepository
 
 logger   = logging.getLogger(__name__)
 settings = get_settings()

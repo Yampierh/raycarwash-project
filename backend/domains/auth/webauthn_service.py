@@ -34,7 +34,8 @@ from webauthn.helpers.exceptions import (
 from app.core.config import get_settings
 
 if TYPE_CHECKING:
-    from app.models.models import User, WebAuthnCredential
+    from domains.auth.models import WebAuthnCredential
+    from domains.users.models import User
 
 
 class WebAuthnService:

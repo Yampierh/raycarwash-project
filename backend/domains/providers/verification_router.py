@@ -25,9 +25,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.services.auth import get_current_user
+from domains.auth.service import get_current_user
 from infrastructure.db.session import get_db
-from app.models.models import ProviderProfile, User
+from domains.providers.models import ProviderProfile
+from domains.users.models import User
 
 logger = logging.getLogger(__name__)
 settings = get_settings()

@@ -60,7 +60,7 @@ async def update_h3_index(
     db: AsyncSession,
 ) -> None:
     """Update Redis H3 sets and persist index columns to PostgreSQL."""
-    from app.models.models import ProviderProfile
+    from domains.providers.models import ProviderProfile
 
     settings = get_settings()
     new_cell_r7 = h3.latlng_to_cell(new_lat, new_lng, settings.H3_RESOLUTION_SEARCH)

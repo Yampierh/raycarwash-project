@@ -8,7 +8,9 @@ from typing import Any
 from sqlalchemy import and_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import ProviderProfile, User, Role, UserRoleAssociation
+from domains.auth.models import Role, UserRoleAssociation
+from domains.providers.models import ProviderProfile
+from domains.users.models import User
 
 
 def _haversine_miles(lat1: float, lng1: float, lat2: float, lng2: float) -> float:

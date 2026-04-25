@@ -9,16 +9,11 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.db.session import get_db
-from app.models.models import (
-    Appointment,
-    AppointmentAssignment,
-    AppointmentStatus,
-    AssignmentStatus,
-    FareEstimate,
-)
-from app.services.auth import get_current_user, require_role
+from domains.appointments.models import Appointment, AppointmentAssignment, AppointmentStatus, AssignmentStatus
+from domains.payments.models import FareEstimate
+from domains.auth.service import get_current_user, require_role
 from app.services.fare_service import verify_fare_token
-from app.services.payment_service_v2 import PaymentCoordinator
+from domains.payments.service_v2 import PaymentCoordinator
 
 logger = logging.getLogger(__name__)
 

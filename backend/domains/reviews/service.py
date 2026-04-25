@@ -6,8 +6,10 @@ import uuid
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import AppointmentStatus, AuditAction, Review
-from app.repositories.appointment_repository import AppointmentRepository
+from domains.appointments.models import AppointmentStatus
+from domains.audit.models import AuditAction
+from domains.reviews.models import Review
+from domains.appointments.repository import AppointmentRepository
 from domains.audit.repository import AuditRepository
 from domains.reviews.repository import ReviewRepository
 from domains.reviews.schemas import ReviewCreate

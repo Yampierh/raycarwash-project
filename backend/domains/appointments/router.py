@@ -23,21 +23,21 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.db.session import get_db
-from app.models.models import User
+from domains.users.models import User
 from domains.appointments.repository import AppointmentRepository
-from app.schemas.schemas import (
+from domains.appointments.schemas import (
     AppointmentCreate,
     AppointmentRead,
     AppointmentStatusUpdate,
     AppointmentVehicleRead,
-    PaginatedResponse,
     _ClientSnap,
     _DetailerSnap,
     _VehicleSnap,
 )
-from app.services.appointment_service import AppointmentService
-from app.services.auth import get_current_user
-from app.ws.connection_manager import ConnectionManager
+from shared.schemas import PaginatedResponse
+from domains.appointments.service import AppointmentService
+from domains.auth.service import get_current_user
+from domains.realtime.connection_manager import ConnectionManager
 
 
 def _get_ws_manager(request: Request) -> ConnectionManager:

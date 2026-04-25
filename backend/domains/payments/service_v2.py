@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from domains.payments.models import PaymentLedger
-from app.repositories.ledger_repository import LedgerRepository
+from domains.payments.repository import LedgerRepository
 
 logger = logging.getLogger(__name__)
 

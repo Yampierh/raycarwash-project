@@ -13,7 +13,7 @@ from datetime import datetime
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import WebAuthnCredential
+from domains.auth.models import WebAuthnCredential
 
 
 class WebAuthnRepository:

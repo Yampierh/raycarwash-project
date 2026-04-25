@@ -11,9 +11,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.db.session import get_db
-from app.models.models import FareEstimate, Service, VehicleSize
-from app.schemas.schemas import FareEstimateRequest, FareEstimateResponse
-from app.services.auth import require_role
+from domains.payments.models import FareEstimate
+from domains.services_catalog.models import Service
+from domains.vehicles.models import VehicleSize
+from domains.payments.schemas import FareEstimateRequest, FareEstimateResponse
+from domains.auth.service import require_role
 from app.services.fare_service import calculate_surge, generate_fare_token
 
 logger = logging.getLogger(__name__)

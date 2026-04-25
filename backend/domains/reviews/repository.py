@@ -5,7 +5,8 @@ import uuid
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import ProviderProfile, Review
+from domains.providers.models import ProviderProfile
+from domains.reviews.models import Review
 
 
 class ReviewRepository:

@@ -17,7 +17,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import User, Role, UserRoleAssociation
+from domains.auth.models import Role, UserRoleAssociation
+from domains.users.models import User
 
 
 class UserRepository:

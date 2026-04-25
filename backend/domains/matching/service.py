@@ -52,13 +52,8 @@ async def assign(
     db: AsyncSession,
     app_state,
 ) -> None:
-    from app.models.models import (
-        Appointment,
-        AppointmentAssignment,
-        AppointmentStatus,
-        AssignmentStatus,
-        ProviderProfile,
-    )
+    from domains.appointments.models import Appointment, AppointmentAssignment, AppointmentStatus, AssignmentStatus
+    from domains.providers.models import ProviderProfile
 
     appt_uuid = uuid.UUID(appointment_id)
 
@@ -146,7 +141,7 @@ async def assign(
 
 
 async def _mark_no_detailer(appointment_id: uuid.UUID, db: AsyncSession) -> None:
-    from app.models.models import Appointment, AppointmentStatus
+    from domains.appointments.models import Appointment, AppointmentStatus
     await db.execute(
         update(Appointment)
         .where(Appointment.id == appointment_id)

@@ -8,7 +8,7 @@ from typing import List
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import RefreshToken
+from domains.auth.models import RefreshToken
 
 
 class RefreshTokenRepository:

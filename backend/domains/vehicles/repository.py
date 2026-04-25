@@ -6,7 +6,7 @@ from datetime import datetime
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import Vehicle
+from domains.vehicles.models import Vehicle
 
 
 class VehicleRepository:

@@ -5,7 +5,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import AuthProvider
+from domains.auth.models import AuthProvider
 
 
 class AuthProviderRepository:

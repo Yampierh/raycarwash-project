@@ -7,8 +7,8 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.db.session import get_db
-from app.models.models import User
-from app.services.auth import get_current_user
+from domains.users.models import User
+from domains.auth.service import get_current_user
 from domains.reviews.repository import ReviewRepository
 from domains.reviews.service import ReviewService
 from domains.reviews.schemas import ReviewCreate, ReviewRead

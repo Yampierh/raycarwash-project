@@ -33,8 +33,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from infrastructure.db.session import get_db
-from app.models.models import ProviderProfile, ProcessedWebhook
-from app.services.payment_service import PaymentService
+from domains.payments.models import ProcessedWebhook
+from domains.providers.models import ProviderProfile
+from domains.payments.service import PaymentService
 
 logger   = logging.getLogger(__name__)
 settings = get_settings()

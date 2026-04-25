@@ -9,8 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.db.session import get_db
 from infrastructure.nhtsa.client import lookup_vin_data
-from app.models.models import User, Vehicle
-from app.services.auth import get_current_user
+from domains.users.models import User
+from domains.vehicles.models import Vehicle
+from domains.auth.service import get_current_user
 from domains.vehicles.repository import VehicleRepository
 from domains.vehicles.schemas import VehicleCreate, VehicleRead
 

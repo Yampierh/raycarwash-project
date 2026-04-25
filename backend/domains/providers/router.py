@@ -23,19 +23,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from infrastructure.db.session import get_db
-from app.models.models import (
-    Appointment,
-    AppointmentStatus,
-    AuditAction,
-    ProviderProfile,
-    ProviderSpecialty,
-    Specialty,
-    DetailerService,
-    Service,
-    User,
-    VehicleSize,
-)
-from app.repositories.appointment_repository import AppointmentRepository
+from domains.appointments.models import Appointment, AppointmentStatus
+from domains.audit.models import AuditAction
+from domains.providers.models import ProviderProfile
+from domains.services_catalog.models import ProviderSpecialty, Specialty, DetailerService, Service
+from domains.users.models import User
+from domains.vehicles.models import VehicleSize
+from domains.appointments.repository import AppointmentRepository
 from domains.audit.repository import AuditRepository
 from domains.providers.repository import ProviderRepository
 from domains.providers.schemas import (
@@ -44,8 +38,8 @@ from domains.providers.schemas import (
 )
 from domains.matching.schemas import TimeSlotRead, LocationResponse, LocationUpdate
 from shared.schemas import PaginatedResponse
-from app.services.appointment_service import AppointmentService
-from app.services.auth import get_current_user, require_role
+from domains.appointments.service import AppointmentService
+from domains.auth.service import get_current_user, require_role
 
 logger   = logging.getLogger(__name__)
 settings = get_settings()

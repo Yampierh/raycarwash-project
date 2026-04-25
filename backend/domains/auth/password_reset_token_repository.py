@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import PasswordResetToken
+from domains.auth.models import PasswordResetToken
 
 
 class PasswordResetTokenRepository:

@@ -5,7 +5,7 @@ import uuid
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import AuditAction, AuditLog
+from domains.audit.models import AuditAction, AuditLog
 
 
 class AuditRepository:

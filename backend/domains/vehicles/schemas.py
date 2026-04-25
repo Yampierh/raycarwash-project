@@ -44,5 +44,5 @@ class VehicleRead(_BaseSchema):
     def suggested_size(self) -> str | None:
         if not self.body_class:
             return None
-        from app.services.vehicle_lookup import map_body_to_size
+        from infrastructure.nhtsa.client import map_body_to_size
         return map_body_to_size(self.body_class).value

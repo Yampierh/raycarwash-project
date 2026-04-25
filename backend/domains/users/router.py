@@ -12,8 +12,8 @@ from domains.auth.models import Role, UserRoleAssociation
 from domains.users.models import User
 from domains.users.repository import UserRepository
 from domains.users.schemas import UserCreate, UserRead
-from app.repositories.audit_repository import AuditRepository
-from app.services.auth import AuthService
+from domains.audit.repository import AuditRepository
+from domains.auth.service import AuthService
 from shared.schemas import ErrorDetail
 
 logger = logging.getLogger(__name__)

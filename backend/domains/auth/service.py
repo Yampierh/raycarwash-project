@@ -30,10 +30,10 @@ from passlib.context import CryptContext
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.db.session import get_db
-from app.models.models import User
-from app.repositories.refresh_token_repository import RefreshTokenRepository
-from app.repositories.user_repository import UserRepository
+from infrastructure.db.session import get_db
+from domains.users.models import User
+from domains.auth.refresh_token_repository import RefreshTokenRepository
+from domains.users.repository import UserRepository
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -193,7 +193,7 @@ class AuthService:
         FIX: Now uses database-backed single-use tokens instead of stateless JWT.
         The raw token is returned to the user; only the hash is stored.
         """
-        from app.repositories.password_reset_token_repository import PasswordResetTokenRepository
+        from domains.auth.password_reset_token_repository import PasswordResetTokenRepository
         
         raw = secrets.token_urlsafe(32)
         expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
@@ -219,7 +219,7 @@ class AuthService:
         FIX: Single-use guarantee - token is consumed (marked as used) on verification.
         Returns user_id on success, None if invalid/used/expired.
         """
-        from app.repositories.password_reset_token_repository import PasswordResetTokenRepository
+        from domains.auth.password_reset_token_repository import PasswordResetTokenRepository
         
         repo = PasswordResetTokenRepository(db)
         token = await repo.consume(raw_token)
