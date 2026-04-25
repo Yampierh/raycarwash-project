@@ -11,7 +11,7 @@ import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from app.models.models import User
+    from domains.users.models import User
 
 
 def normalize_phone_e164(phone: str) -> str:

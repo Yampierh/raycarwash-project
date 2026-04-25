@@ -15,7 +15,7 @@ import logging
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import Role
+from domains.auth.models import Role
 
 logger = logging.getLogger(__name__)
 

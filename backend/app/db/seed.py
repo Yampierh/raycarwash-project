@@ -12,7 +12,7 @@ from math import ceil
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import Addon, Service, ServiceCategory, Specialty
+from domains.services_catalog.models import Addon, Service, ServiceCategory, Specialty
 
 logger = logging.getLogger(__name__)
 
@@ -394,7 +394,7 @@ async def seed_service_categories(db: AsyncSession) -> None:
     FIX: Enables multi-service provider model (DetailerProfile → ProviderProfile).
     Each category can have its own services and specialties.
     """
-    from app.models.models import ServiceCategory
+    from domains.services_catalog.models import ServiceCategory
     
     seeded = 0
     for entry in SERVICE_CATEGORIES:

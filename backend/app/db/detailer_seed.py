@@ -20,17 +20,11 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import (
-    ProviderProfile,
-    ProviderSpecialty,
-    Specialty,
-    DetailerService,
-    Role,
-    Service,
-    User,
-    UserRoleAssociation,
-)
-from app.services.auth import AuthService
+from domains.providers.models import ProviderProfile
+from domains.services_catalog.models import ProviderSpecialty, Specialty, DetailerService, Service
+from domains.auth.models import Role, UserRoleAssociation
+from domains.users.models import User
+from domains.auth.service import AuthService
 
 logger = logging.getLogger(__name__)
 
