@@ -376,6 +376,42 @@ async def seed_addons(db: AsyncSession) -> None:
     logger.info("Addon seed complete — %d new addon(s) inserted.", seeded)
 
 
+# ------------------------------------------------------------------ #
+#  Service Categories Seed                                        #
+# ------------------------------------------------------------------ #
+
+SERVICE_CATEGORIES = [
+    {"slug": "car_detailing", "name": "Car Detailing"},
+    {"slug": "mobile_mechanic", "name": "Mobile Mechanic"},
+    {"slug": "cleaning", "name": "Cleaning"},
+]
+
+
+async def seed_service_categories(db: AsyncSession) -> None:
+    """
+    Idempotent upsert of service categories.
+    
+    FIX: Enables multi-service provider model (DetailerProfile → ProviderProfile).
+    Each category can have its own services and specialties.
+    """
+    from app.models.models import ServiceCategory
+    
+    seeded = 0
+    for entry in SERVICE_CATEGORIES:
+        exists = await db.execute(
+            select(ServiceCategory).where(ServiceCategory.slug == entry["slug"])
+        )
+        if exists.scalar_one_or_none():
+            logger.debug("Skip service category (already seeded): %s", entry["slug"])
+            continue
+        db.add(ServiceCategory(**entry))
+        seeded += 1
+        logger.info("Seeded service category: %s (%s)", entry["name"], entry["slug"])
+    
+    await db.commit()
+    logger.info("Service category seed complete — %d new category(ies) inserted.", seeded)
+
+
 async def seed_services(db: AsyncSession) -> None:
     """
     Idempotent upsert of the service catalogue. Safe to call on every startup.

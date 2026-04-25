@@ -26,7 +26,7 @@ from app.workers.ledger_seal_worker import ledger_seal_worker
 
 # Register ledger models with SQLAlchemy Base so create_all includes their tables
 import app.models.ledger  # noqa: F401
-from app.db.seed import seed_addons, seed_services
+from app.db.seed import seed_addons, seed_services, seed_service_categories
 from app.db.seed_rbac import seed_rbac
 from app.db.detailer_seed import seed_detailers
 from app.db.session import AsyncSessionLocal, engine, get_db
@@ -90,6 +90,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     async with AsyncSessionLocal() as seed_session:
         await seed_rbac(seed_session)
         logger.info("✅  RBAC roles seeded.")
+
+    async with AsyncSessionLocal() as seed_session:
+        await seed_service_categories(seed_session)
+        logger.info("✅  Service categories seeded.")
 
     async with AsyncSessionLocal() as seed_session:
         await seed_services(seed_session)

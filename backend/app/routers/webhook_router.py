@@ -41,6 +41,21 @@ settings = get_settings()
 router = APIRouter(prefix="/webhooks", tags=["Webhooks"])
 
 
+# TODO: LATER - Stripe idempotency missing.
+#       Stripe guarantees at-least-once delivery — same event can arrive multiple times.
+#       Without tracking, PAYMENT_CAPTURED could be processed twice (double fulfillment).
+#       FIX: Add processed_webhooks table:
+#       CREATE TABLE processed_webhooks (
+#         stripe_event_id VARCHAR(64) PRIMARY KEY,
+#         processed_at TIMESTAMP NOT NULL DEFAULT NOW()
+#       );
+#       In handler:
+#       try:
+#         INSERT INTO processed_webhooks (stripe_event_id) VALUES (:id);
+#       except UniqueViolation:
+#         return Response(status=200)  # already processed
+
+
 @router.post(
     "/stripe",
     status_code=status.HTTP_200_OK,
