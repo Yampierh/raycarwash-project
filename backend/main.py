@@ -20,42 +20,37 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.limiter import limiter
-from app.core.redis import close_redis_pool, init_redis_pool
+
+# Infrastructure — canonical paths (shims keep app.core.redis etc. working for legacy code)
+from infrastructure.redis.client import close_redis_pool, init_redis_pool
+from infrastructure.db.session import AsyncSessionLocal, engine, get_db
+import infrastructure.db.registry  # noqa: F401 — registers ALL domain models with SQLAlchemy
+
 from app.workers.location_worker import location_worker
 from app.workers.assignment_worker import assignment_worker
 from app.workers.ledger_seal_worker import ledger_seal_worker
 from app.workers.token_cleanup_worker import token_cleanup_worker
 
-# Register ledger models with SQLAlchemy Base so create_all includes their tables
-import app.models.ledger  # noqa: F401
 from app.db.seed import seed_addons, seed_services, seed_service_categories, seed_specialties
 from app.db.seed_rbac import seed_rbac
 from app.db.detailer_seed import seed_detailers
-from app.db.session import AsyncSessionLocal, engine, get_db
-from app.models.models import AuditAction, Base, Role, User, UserRoleAssociation
+
+# Domain models — imported via registry above; direct imports only for inline route below
+from domains.audit.models import AuditAction
+from domains.auth.models import Role, UserRoleAssociation
+from domains.users.models import User
+from infrastructure.db.base import Base
+
 from app.repositories.audit_repository import AuditRepository
 from app.repositories.user_repository import UserRepository
 from sqlalchemy import select
 
-# ── All routers ──────────────────────────────────────────────────────
-from app.routers.addon_router       import router as addon_router        # Sprint 5
-from app.routers.fare_router        import router as fare_router          # v2
-from app.routers.rides_router       import router as rides_router         # v2
-from app.routers.appointment_router import router as appointment_router
-from app.routers.auth_router        import router as auth_router
-from app.routers.detailer_router    import router as detailer_router
-from app.routers.matching_router    import router as matching_router      # Sprint 5
-from app.routers.payment_router     import router as payment_router
-from app.routers.review_router      import router as review_router
-from app.routers.service_router     import router as service_router
-from app.routers.vehicle_router     import router as vehicle_router
-from app.routers.verification_router import router as verification_router  # Stripe Identity
-from app.routers.webhook_router     import router as webhook_router  # Sprint 4
-from app.routers.wellknown_router   import router as wellknown_router  # WebAuthn domain verification
-from app.ws.connection_manager      import ConnectionManager
-from app.ws.router                  import router as ws_router
+# ── API aggregation — single include replaces 15 individual router imports ──
+from api.router import api_router
+from app.ws.connection_manager import ConnectionManager
 
-from app.schemas.schemas import ErrorDetail, HealthResponse, UserCreate, UserRead
+from shared.schemas import ErrorDetail, HealthResponse
+from domains.users.schemas import UserCreate, UserRead
 from app.services.auth import AuthService
 from app.core.logging_context import RequestIdFilter, StaticFieldsFilter, request_id_var
 from pythonjsonlogger import jsonlogger
@@ -226,23 +221,8 @@ def create_application() -> FastAPI:
         expose_headers=["X-Process-Time-Ms", "X-Request-ID"],
     )
 
-    # ---- Router registration order matters for prefix specificity ----
-    # Webhook router first — no body parsing interference from other middleware
-    application.include_router(wellknown_router)      # /.well-known/* (WebAuthn domain verification)
-    application.include_router(webhook_router)        # /webhooks/*
-    application.include_router(auth_router)           # /auth/*
-    application.include_router(service_router)        # /api/v1/services/*
-    application.include_router(addon_router)          # /api/v1/addons/*          Sprint 5
-    application.include_router(matching_router)       # /api/v1/matching          Sprint 5
-    application.include_router(vehicle_router)        # /api/v1/vehicles/*
-    application.include_router(appointment_router)    # /api/v1/appointments/*
-    application.include_router(detailer_router)       # /api/v1/detailers/*
-    application.include_router(verification_router)   # /api/v1/detailers/verification/*
-    application.include_router(fare_router)           # /api/v1/fares/*         v2
-    application.include_router(rides_router)          # /api/v1/rides/*         v2
-    application.include_router(ws_router)             # /ws/appointments/{id}
-    application.include_router(payment_router)        # /api/v1/payments/*
-    application.include_router(review_router)         # /api/v1/reviews/*
+    # ── All domain routers via api/router.py aggregation ──
+    application.include_router(api_router)
 
     return application
 
