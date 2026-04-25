@@ -6,16 +6,15 @@ This file is the single source of truth for which routers are active.
 """
 from fastapi import APIRouter
 
-from app.routers.appointment_router  import router as appointment_router
-from app.routers.auth_router         import router as auth_router
-from app.routers.fare_router         import router as fare_router
-from app.routers.payment_router      import router as payment_router
-from app.routers.rides_router        import router as rides_router
-from app.routers.webhook_router      import router as webhook_router
-from app.routers.wellknown_router    import router as wellknown_router
-from app.ws.router                   import router as ws_router
-
-# Migrated domain routers ↓
+# All routers now imported directly from domains/ ↓
+from domains.auth.router             import router as auth_router
+from domains.auth.wellknown_router   import router as wellknown_router
+from domains.appointments.router     import router as appointment_router
+from domains.payments.router         import router as payment_router
+from domains.payments.webhook_router import router as webhook_router
+from domains.payments.fare_router    import router as fare_router
+from domains.payments.rides_router   import router as rides_router
+from domains.realtime.router         import router as ws_router
 from domains.reviews.router          import router as review_router
 from domains.services_catalog.router import router as service_router, addon_router
 from domains.vehicles.router         import router as vehicle_router
