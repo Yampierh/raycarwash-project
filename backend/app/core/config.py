@@ -57,12 +57,41 @@ class Settings(BaseSettings):
     DB_POOL_RECYCLE: int = Field(default=1800)
 
     # ---------------------------------------------------------------- #
-    #  Security / JWT                                                   #
+#  Security / JWT + Encryption                                            #
     # ---------------------------------------------------------------- #
-    SECRET_KEY: str = Field(
+    # SECURITY FIX (2026-04-24): Split single SECRET_KEY into three separate keys.
+    # Before: Single SECRET_KEY used for BOTH JWT signing AND PII encryption.
+    # Risk: If JWT signing key is compromised, all encrypted PII (full_name, phone_number) is exposed.
+    #       If you rotate JWT key, all PII becomes unreadable until re-encryption.
+    #
+    # After: Three independent keys:
+    #   - JWT_SECRET_KEY: Used ONLY for JWT signing (HS256). Rotate on suspicion of compromise.
+    #   - ENCRYPTION_KEY: Used ONLY for PII encryption via EncryptedType. Rotates independently.
+    #   - PHONE_LOOKUP_KEY: HMAC key for phone hashing. Prevents rainbow table attacks.
+    #
+    # IMPORTANT: This is a breaking change. Update .env with three new keys.
+    # Generate: openssl rand -hex 32 (JWT), openssl rand -base64 32 (ENCRYPTION), openssl rand -hex 32 (PHONE)
+    #
+    JWT_SECRET_KEY: str = Field(
         ...,
         min_length=32,
-        description="256-bit hex. Generate: openssl rand -hex 32",
+        description="256-bit hex. JWT signing key. Generate: openssl rand -hex 32",
+    )
+    ENCRYPTION_KEY: str = Field(
+        ...,
+        min_length=32,
+        description=(
+            "32-byte base64 key for PII encryption (full_name, phone_number via EncryptedType). "
+            "Rotates INDEPENDENTLY from JWT_SECRET_KEY. Uses Fernet (base64-encoded 32-byte key). "
+            "Generate: openssl rand -base64 32"
+        ),
+    )
+    # Separate key for phone lookup HMAC - rotatable independently from encryption key.
+    # This prevents rainbow table attacks on phone hashes.
+    PHONE_LOOKUP_KEY: str = Field(
+        ...,
+        min_length=32,
+        description="HMAC key for phone number hashing. Generate: openssl rand -hex 32",
     )
     JWT_ALGORITHM: str             = Field(default="HS256")
     ACCESS_TOKEN_EXPIRE_MINUTES: int  = Field(default=30,  ge=5)

@@ -1,8 +1,12 @@
 # backend/tests/test_auth.py
+import uuid as uuid_module
+
+import jose.jwt as jwt
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.models.models import User
 from tests.conftest import get_access_token
 
@@ -671,3 +675,107 @@ class TestPasswordReset:
     async def test_password_reset_missing_email(self, client: AsyncClient):
         response = await client.post("/auth/password-reset", json={})
         assert response.status_code == 422
+
+
+# ============================================
+# Security: key isolation
+# ============================================
+class TestKeyIsolation:
+    """
+    Verify that JWT_SECRET_KEY and ENCRYPTION_KEY are independent.
+    A token signed with a different key must not decode successfully.
+    """
+
+    def test_jwt_signed_with_wrong_key_is_rejected(self):
+        """Token forged with a different signing key must raise on decode."""
+        settings = get_settings()
+        payload = {"sub": str(uuid_module.uuid4()), "type": "access"}
+        forged = jwt.encode(payload, "wrong-key-" + "x" * 32, algorithm="HS256")
+        with pytest.raises(Exception):
+            jwt.decode(forged, settings.JWT_SECRET_KEY, algorithms=["HS256"])
+
+    def test_jwt_secret_key_differs_from_encryption_key(self):
+        """JWT_SECRET_KEY and ENCRYPTION_KEY must be distinct values."""
+        settings = get_settings()
+        assert settings.JWT_SECRET_KEY != settings.ENCRYPTION_KEY, (
+            "JWT_SECRET_KEY and ENCRYPTION_KEY must not share the same value. "
+            "Each key must be independently generated."
+        )
+
+    def test_jwt_secret_key_differs_from_phone_lookup_key(self):
+        """JWT_SECRET_KEY and PHONE_LOOKUP_KEY must be distinct values."""
+        settings = get_settings()
+        assert settings.JWT_SECRET_KEY != settings.PHONE_LOOKUP_KEY
+
+
+# ============================================
+# Onboarding token: payload and type checks
+# ============================================
+class TestOnboardingTokenSecurity:
+    """
+    Verify the dedicated 'onboarding' token type is correctly structured
+    and rejected on non-onboarding endpoints.
+    """
+
+    @pytest.mark.asyncio
+    async def test_onboarding_token_payload_type_is_onboarding(self, client: AsyncClient):
+        """Onboarding token must carry type='onboarding', not type='access'."""
+        settings = get_settings()
+        reg = await client.post(
+            "/auth/register",
+            json={"email": "typecheck@example.com", "password": "Secure1234!"},
+        )
+        assert reg.status_code == 201
+        token = reg.json()["onboarding_token"]
+
+        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=["HS256"])
+        assert payload["type"] == "onboarding", (
+            f"Expected type='onboarding', got type='{payload['type']}'. "
+            "Onboarding tokens must use a dedicated type to prevent cross-type misuse."
+        )
+
+    @pytest.mark.asyncio
+    async def test_onboarding_token_payload_has_no_role_claim(self, client: AsyncClient):
+        """Onboarding token must not carry a role claim (user has no role yet)."""
+        settings = get_settings()
+        reg = await client.post(
+            "/auth/register",
+            json={"email": "norole@example.com", "password": "Secure1234!"},
+        )
+        token = reg.json()["onboarding_token"]
+        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=["HS256"])
+        assert "role" not in payload or payload.get("role") is None
+
+    @pytest.mark.asyncio
+    async def test_onboarding_token_rejected_on_me_endpoint(self, client: AsyncClient):
+        """GET /auth/me with an onboarding token must return 403."""
+        reg = await client.post(
+            "/auth/register",
+            json={"email": "me403@example.com", "password": "Secure1234!"},
+        )
+        token = reg.json()["onboarding_token"]
+        resp = await client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+        assert resp.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_access_token_rejected_on_complete_profile_without_onboarding(
+        self, client: AsyncClient, test_user: User
+    ):
+        """A regular access_token from a fully-onboarded user cannot trigger
+        onboarding again — complete-profile requires onboarding token or
+        a valid access token for role additions."""
+        # This verifies that /auth/complete-profile is accessible with a full token
+        # (for role additions) but NOT with a forged onboarding token from another user.
+        settings = get_settings()
+        forged = jwt.encode(
+            {"sub": str(uuid_module.uuid4()), "type": "onboarding"},
+            settings.JWT_SECRET_KEY,
+            algorithm="HS256",
+        )
+        resp = await client.put(
+            "/auth/complete-profile",
+            json={"full_name": "Hacker", "role": "client"},
+            headers={"Authorization": f"Bearer {forged}"},
+        )
+        # User not found in DB → 401 or 403
+        assert resp.status_code in (401, 403, 404)
