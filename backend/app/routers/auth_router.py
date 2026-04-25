@@ -527,6 +527,8 @@ async def complete_user_profile(
         user.full_name = body.full_name
     if body.phone_number:
         user.phone_number = body.phone_number
+        from app.core.security import update_user_phone_hash
+        update_user_phone_hash(user, body.phone_number, settings.PHONE_LOOKUP_KEY)
 
     role_result = await db.execute(
         select(Role).where(Role.name == body.role)
@@ -704,6 +706,8 @@ async def update_user_profile(
         fields["full_name"] = payload.full_name
     if payload.phone_number is not None:
         fields["phone_number"] = payload.phone_number
+        from app.core.security import update_user_phone_hash
+        update_user_phone_hash(current_user, payload.phone_number, settings.PHONE_LOOKUP_KEY)
     # NOTE: service_address removed - it now lives in ClientProfile/ProviderProfile
 
     if fields:

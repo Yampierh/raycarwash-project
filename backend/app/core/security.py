@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import re
 from typing import TYPE_CHECKING
 
@@ -54,13 +55,11 @@ def compute_phone_hash(phone: str, lookup_key: str) -> str:
     This is different from the ENCRYPTION_KEY used for PII at rest.
     """
     normalized = normalize_phone_e164(phone)
-    
-    # HMAC-SHA256 with the lookup key
-    h = hashlib.sha256()
-    h.update(lookup_key.encode())
-    h.update(normalized.encode())
-    
-    return h.hexdigest()
+    return hmac.new(
+        lookup_key.encode(),
+        normalized.encode(),
+        hashlib.sha256,
+    ).hexdigest()
 
 
 def update_user_phone_hash(user: "User", phone: str | None, lookup_key: str) -> None:
