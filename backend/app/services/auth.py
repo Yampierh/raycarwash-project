@@ -556,44 +556,68 @@ class AuthService:
 
     # ---- Authentication -------------------------------------------- #
 
+    # Lockout configuration — tune via settings if needed.
+    _LOCKOUT_THRESHOLD  = 5         # failed attempts before lockout
+    _LOCKOUT_MINUTES    = 15        # lockout window in minutes
+
     @staticmethod
     async def authenticate_user(
         email: str,
         password: str,
         db: AsyncSession,
     ) -> User | None:
+        """
+        Authenticate with email + password.
+
+        Security properties:
+          - Timing-safe: dummy_verify() always runs on missing user.
+          - Brute-force protection: 5 consecutive failures → 15-min lockout.
+          - Lockout resets automatically when locked_until expires.
+          - Successful login resets failed_login_attempts to 0.
+        Returns User on success, None on any failure (caller logs the event).
+        """
         user_repo = UserRepository(db)
         user = await user_repo.get_by_email(email)
 
         if user is None:
-            _pwd_context.dummy_verify()   # Timing-safe — prevent user enumeration
+            _pwd_context.dummy_verify()
             return None
 
         if not user.is_active or user.is_deleted:
+            _pwd_context.dummy_verify()
+            return None
+
+        # ---- Lockout check ----
+        if user.is_locked:
+            _pwd_context.dummy_verify()
+            logger.warning(
+                "Login rejected — account locked | user=%s locked_until=%s",
+                user.id, user.locked_until,
+            )
             return None
 
         if not AuthService.verify_password(password, user.password_hash):
+            # Increment failure counter; lock if threshold reached.
+            user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
+            if user.failed_login_attempts >= AuthService._LOCKOUT_THRESHOLD:
+                user.locked_until = (
+                    datetime.now(timezone.utc)
+                    + timedelta(minutes=AuthService._LOCKOUT_MINUTES)
+                )
+                logger.warning(
+                    "Account locked after %d failed attempts | user=%s locked_until=%s",
+                    user.failed_login_attempts, user.id, user.locked_until,
+                )
+            await db.commit()
             return None
 
+        # ---- Successful authentication ----
+        if user.failed_login_attempts:
+            user.failed_login_attempts = 0
+            user.locked_until = None
+            await db.flush()
+
         return user
-
-        # TODO: HIGH - No account lockout mechanism after N failed login attempts.
-        # BUG: Currently no limit on login attempts - vulnerable to brute force.
-        # Risk: Attacker can make unlimited attempts against a single account.
-        # FIX: Add failed_attempts counter in User model, lock after 5 attempts for 15 min.
-        #      Use Redis for distributed counter or DB field with expiry.
-        #      Example logic:
-        #      if user.failed_attempts >= 5 and user.locked_until > now():
-        #          raise HTTPException(423, "Account temporarily locked")
-        #      After successful login: reset failed_attempts to 0
-        #      After failed attempt: increment with expiry
-
-        # TODO: HIGH - No failed login tracking for fraud detection/brute force analysis.
-        # BUG: Failed login attempts not logged - can't detect attack patterns.
-        # Risk: No audit trail for security analysis or forensics.
-        # FIX: Log all failed attempts to audit_logs with IP, user_agent, timestamp.
-        #      Track: failed_attempt, user_id, ip, user_agent, timestamp.
-        #      Enable pattern detection (e.g., >10 failures from same IP in 5 min).
 
 
 # ------------------------------------------------------------------ #

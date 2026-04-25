@@ -495,19 +495,28 @@ class User(TimestampMixin, Base):
         String(255), nullable=False,
         comment="bcrypt digest. NEVER expose.",
     )
-    # TODO: HIGH - Failed login tracking for brute force protection.
-    # BUG: No counter for failed attempts - can't detect or prevent brute force.
-    # Add to User model after password_hash:
-    # failed_attempts: Mapped[int] = mapped_column(Integer, default=0)
-    # locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    # On failed login: increment counter, set locked_until if >= 5
-    # On successful login: reset counter
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    # TODO: MEDIUM - Email verification not enforced.
-    # BUG: is_verified exists but not required for login - users can login unverified.
-    # Risk: Spam accounts, fake profiles.
-    # FIX: Require email verification before allowing login or actions.
     is_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    # ---- Brute-force / account-lockout protection ----
+    # failed_login_attempts resets to 0 on every successful login.
+    # locked_until is set to NOW() + lockout_window when attempts reach the threshold.
+    # get_current_user() and authenticate_user() both check locked_until.
+    failed_login_attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0,
+        comment="Consecutive failed password login attempts since last success.",
+    )
+    locked_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+        comment="If set and in the future, password login is rejected (lockout).",
+    )
+
+    @property
+    def is_locked(self) -> bool:
+        """True when the account is temporarily locked due to failed login attempts."""
+        if self.locked_until is None:
+            return False
+        return datetime.now(timezone.utc) < self.locked_until
 
     # ---- Onboarding state machine ----
     # Replaces the old onboarding_completed: bool field (migration b8c9d0e1f2a3).

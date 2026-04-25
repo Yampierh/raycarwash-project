@@ -1054,3 +1054,102 @@ class TestTokenVersionRevocation:
         resp = await client.get("/auth/me", headers={"Authorization": f"Bearer {legacy_token}"})
         # Legacy tokens without "v" are allowed through (backward compat)
         assert resp.status_code == 200
+
+
+# ============================================
+# Account lockout — brute-force protection
+# ============================================
+class TestAccountLockout:
+    """
+    Verify that consecutive failed password logins trigger account lockout
+    and that a successful login resets the counter.
+    """
+
+    @pytest.mark.asyncio
+    async def test_failed_login_does_not_lock_before_threshold(
+        self, client: AsyncClient, test_user: User
+    ):
+        """4 failed attempts (threshold=5) must NOT lock the account."""
+        for _ in range(4):
+            resp = await client.post(
+                "/auth/login",
+                json={"email": "testclient@example.com", "password": "WrongPass1!"},
+            )
+            assert resp.status_code == 401
+
+        # Account must still be accessible with correct password
+        resp = await client.post(
+            "/auth/login",
+            json={"email": "testclient@example.com", "password": "Test1234!"},
+        )
+        assert resp.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_account_locked_after_threshold_failures(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ):
+        """5 consecutive failures must lock the account (returns 401)."""
+        for _ in range(5):
+            await client.post(
+                "/auth/login",
+                json={"email": "testclient@example.com", "password": "WrongPass1!"},
+            )
+
+        # 6th attempt — even with wrong password — returns 401 (locked)
+        resp = await client.post(
+            "/auth/login",
+            json={"email": "testclient@example.com", "password": "WrongPass1!"},
+        )
+        assert resp.status_code == 401
+
+        # Correct password also rejected while locked
+        resp = await client.post(
+            "/auth/login",
+            json={"email": "testclient@example.com", "password": "Test1234!"},
+        )
+        assert resp.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_successful_login_resets_counter(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ):
+        """Successful login resets failed_login_attempts to 0."""
+        from app.repositories.user_repository import UserRepository
+
+        # 3 failures (below threshold)
+        for _ in range(3):
+            await client.post(
+                "/auth/login",
+                json={"email": "testclient@example.com", "password": "WrongPass1!"},
+            )
+
+        # Successful login
+        resp = await client.post(
+            "/auth/login",
+            json={"email": "testclient@example.com", "password": "Test1234!"},
+        )
+        assert resp.status_code == 200
+
+        user = await UserRepository(db_session).get_by_id(test_user.id)
+        assert getattr(user, "failed_login_attempts", 0) == 0
+        assert getattr(user, "locked_until", None) is None
+
+    @pytest.mark.asyncio
+    async def test_lockout_self_expires(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ):
+        """Expired locked_until allows login again (counter resets on success)."""
+        from datetime import timezone, timedelta
+        from app.repositories.user_repository import UserRepository
+
+        # Manually set lockout to 1 second in the past (already expired)
+        user = await UserRepository(db_session).get_by_id(test_user.id)
+        user.locked_until = datetime.now(timezone.utc) - timedelta(seconds=1)
+        user.failed_login_attempts = 5
+        await db_session.commit()
+
+        resp = await client.post(
+            "/auth/login",
+            json={"email": "testclient@example.com", "password": "Test1234!"},
+        )
+        assert resp.status_code == 200, "Expired lockout must not block login."
