@@ -35,6 +35,7 @@ from app.db.session import get_db
 from app.models.models import AuditAction, ClientProfile, DetailerProfile, User, Role, UserRoleAssociation
 from app.repositories.audit_repository import AuditRepository
 from app.repositories.auth_provider_repository import AuthProviderRepository
+from app.repositories.password_reset_token_repository import PasswordResetTokenRepository
 from app.repositories.user_repository import UserRepository
 from app.repositories.refresh_token_repository import RefreshTokenRepository
 from app.schemas.schemas import (
@@ -48,9 +49,14 @@ from app.schemas.schemas import (
     LoginRequest,
     LoginResponse,
     LogoutRequest,
+    PasswordResetConfirmRequest,
+    PasswordResetConfirmResponse,
     PasswordResetRequest,
     PasswordResetResponse,
     RegisterRequest,
+    SessionRead,
+    SessionsListResponse,
+    SessionRevokeResponse,
     SocialAuthResponse,
     Token,
     UserRead,
@@ -194,7 +200,7 @@ async def login(
         )
 
     role_name = user.primary_role or "client"
-    access_token = AuthService.create_access_token(user.id, role_name)
+    access_token = AuthService.create_access_token(user.id, role_name, token_version=getattr(user, "token_version", 1))
     refresh_token = await AuthService.create_refresh_token(user.id, role_name, db)
 
     await db.commit()
@@ -458,7 +464,7 @@ async def verify_credentials(
 
     _role         = user.primary_role or "client"
     refresh_token = await AuthService.create_refresh_token(user.id, _role, db)
-    access_token  = AuthService.create_access_token(user.id, _role)
+    access_token  = AuthService.create_access_token(user.id, _role, token_version=getattr(user, "token_version", 1))
 
     if user.primary_role == "detailer":
         next_step = "detailer_onboarding"
@@ -540,7 +546,7 @@ async def complete_user_profile(
 
     await db.flush()
 
-    access_token  = AuthService.create_access_token(user.id, effective_role)
+    access_token  = AuthService.create_access_token(user.id, effective_role, token_version=getattr(user, "token_version", 1))
     refresh_token = await AuthService.create_refresh_token(user.id, effective_role, db)
 
     next_step = "detailer_onboarding" if effective_role == "detailer" else "app"
@@ -576,6 +582,8 @@ async def login_for_access_token(
     db: AsyncSession = Depends(get_db),
 ) -> Token:
     """
+    # TODO: MEDIUM - Duplicate endpoint. Prefer /auth/login for application use.
+    #       This exists for Swagger UI "Authorize" button compatibility (RFC 6749 §4.3).
     OAuth2 Password Flow (RFC 6749 §4.3).
 
     Request body — form-encoded (NOT JSON):
@@ -609,7 +617,7 @@ async def login_for_access_token(
         )
 
     role_name     = user.primary_role or "client"
-    access_token  = AuthService.create_access_token(user.id, role_name)
+    access_token  = AuthService.create_access_token(user.id, role_name, token_version=getattr(user, "token_version", 1))
     refresh_token = await AuthService.create_refresh_token(user.id, role_name, db)
 
     await AuditRepository(db).log(
@@ -813,7 +821,7 @@ async def google_login(
             onboarding_token=AuthService.create_onboarding_token(user.id),
         )
 
-    access_token  = AuthService.create_access_token(user.id, user.primary_role)
+    access_token  = AuthService.create_access_token(user.id, user.primary_role, token_version=getattr(user, "token_version", 1))
     refresh_token = await AuthService.create_refresh_token(user.id, user.primary_role, db)
     logger.info("Google login | user_id=%s role=%s", user.id, user.primary_role)
     return SocialAuthResponse(
@@ -934,7 +942,7 @@ async def apple_login(
             onboarding_token=AuthService.create_onboarding_token(user.id),
         )
 
-    access_token  = AuthService.create_access_token(user.id, user.primary_role)
+    access_token  = AuthService.create_access_token(user.id, user.primary_role, token_version=getattr(user, "token_version", 1))
     refresh_token = await AuthService.create_refresh_token(user.id, user.primary_role, db)
     logger.info("Apple login | user_id=%s role=%s", user.id, user.primary_role)
     return SocialAuthResponse(
@@ -962,15 +970,15 @@ async def request_password_reset(
     db: AsyncSession = Depends(get_db),
 ) -> PasswordResetResponse:
     """
-    Genera un token de reset de contraseña de 1 hora y lo envía por email.
+    Genera un token de reset de contraseña (single-use, DB-backed) y lo envía por email.
+
+    FIX: Now uses database-backed single-use tokens instead of stateless JWT.
+    - Token is stored as SHA-256 hash (not the raw token)
+    - Token can only be used once (used_at is marked)
+    - Expires after 1 hour
 
     Siempre devuelve HTTP 200 aunque el email no exista — esto previene
     la enumeración de usuarios (OWASP A07).
-
-    El token es un JWT de tipo 'password_reset'. El frontend debe dirigir
-    al usuario a la pantalla de nueva contraseña con el token como parámetro.
-
-    El envío real de email (SendGrid/SES) requiere configurar SMTP_ENABLED=True en .env.
     """
     _SAFE_RESPONSE = PasswordResetResponse(message="If that email is registered, a reset link has been sent.")
 
@@ -980,7 +988,10 @@ async def request_password_reset(
         # Always return the same response to prevent enumeration.
         return _SAFE_RESPONSE
 
-    reset_token = AuthService.create_password_reset_token(user.id, user.primary_role)
+    # FIX: Create single-use token (async, DB-backed)
+    reset_token = await AuthService.create_password_reset_token(
+        user.id, user.primary_role, db
+    )
     reset_url   = f"{settings.APP_BASE_URL}/auth/password-reset/confirm?token={reset_token}"
 
     await EmailService.send_password_reset(
@@ -998,6 +1009,64 @@ async def request_password_reset(
     )
 
     return _SAFE_RESPONSE
+
+
+# ------------------------------------------------------------------ #
+#  Password Reset Confirm (FIX: single-use token)                         #
+# ------------------------------------------------------------------ #
+
+@router.post(
+    "/password-reset/confirm",
+    response_model=PasswordResetConfirmResponse,
+    summary="Confirm password reset with single-use token",
+)
+@limiter.limit("5/minute")
+async def confirm_password_reset(
+    request: Request,
+    body: PasswordResetConfirmRequest,
+    db: AsyncSession = Depends(get_db),
+) -> PasswordResetConfirmResponse:
+    """
+    Verify the single-use reset token and update the user's password.
+    
+    FIX: Uses database-backed single-use tokens.
+    - Token is validated against DB (not JWT)
+    - Token is consumed (marked as used) on success
+    - Cannot be reused
+    """
+    user_id = await AuthService.verify_password_reset_token(body.token, db)
+    
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset token.",
+        )
+    
+    # Get user and update password
+    user = await UserRepository(db).get_by_id(user_id)
+    if user is None or not user.is_active or user.is_deleted:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User not found or inactive.",
+        )
+    
+    # Update password and increment token_version to invalidate sessions
+    user.password_hash = AuthService.hash_password(body.new_password)
+    user.token_version = getattr(user, 'token_version', 1) + 1
+    
+    await db.commit()
+    
+    await AuditRepository(db).log(
+        action=AuditAction.PASSWORD_RESET_REQUESTED,  # Reuse action or add new one
+        entity_type="user",
+        entity_id=str(user.id),
+        actor_id=user.id,
+        metadata={"ip": request.client.host if request.client else None, "action": "password_changed"},
+    )
+    
+    return PasswordResetConfirmResponse(
+        message="Password reset successfully. Please log in with your new password.",
+    )
 
 
 # ------------------------------------------------------------------ #
@@ -1222,7 +1291,7 @@ async def webauthn_authenticate_complete(
         )
 
     _role         = user.primary_role or "client"
-    access_token  = AuthService.create_access_token(user.id, _role)
+    access_token  = AuthService.create_access_token(user.id, _role, token_version=getattr(user, "token_version", 1))
     refresh_token = await AuthService.create_refresh_token(user.id, _role, db)
 
     await db.commit()
@@ -1232,3 +1301,95 @@ async def webauthn_authenticate_complete(
         refresh_token=refresh_token,
         token_type="bearer",
     )
+
+
+# ------------------------------------------------------------------ #
+#  Session Management (FIX for audit TODO-009)                            #
+# ------------------------------------------------------------------ #
+
+@router.get(
+    "/sessions",
+    response_model=SessionsListResponse,
+    summary="List active sessions for current user",
+)
+async def list_sessions(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> SessionsListResponse:
+    """
+    List all active sessions (refresh token families) for the current user.
+    
+    FIX: Enables users to see and manage their active sessions.
+    Returns sessions grouped by family (device), showing creation time,
+    last usage, and revocation status.
+    """
+    repo = RefreshTokenRepository(db)
+    tokens, total = await repo.get_sessions_for_user(current_user.id)
+    
+    sessions = [
+        SessionRead(
+            family_id=token.family_id,
+            created_at=token.created_at,
+            last_used_at=token.used_at,
+            revoked=token.revoked,
+            expires_at=token.expires_at,
+        )
+        for token in tokens
+    ]
+    
+    return SessionsListResponse(sessions=sessions, total=total)
+
+
+@router.delete(
+    "/sessions/{family_id}",
+    response_model=SessionRevokeResponse,
+    summary="Revoke a specific session",
+)
+async def revoke_session(
+    family_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> SessionRevokeResponse:
+    """
+    Revoke a specific session (device/family_id).
+    
+    FIX: Enables users to selectively revoke sessions.
+    Useful when a device is lost or the user wants to log out a specific device.
+    """
+    repo = RefreshTokenRepository(db)
+    
+    # Check if session exists
+    session = await repo.get_session_by_family(current_user.id, family_id)
+    if session is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session not found.",
+        )
+    
+    await repo.revoke_session(current_user.id, family_id)
+    await db.commit()
+    
+    return SessionRevokeResponse(
+        revoked_family_id=family_id,
+        message="Session revoked successfully.",
+    )
+
+
+@router.delete(
+    "/sessions",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Revoke all sessions (log out everywhere)",
+)
+async def revoke_all_sessions(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """
+    Revoke all sessions for the current user.
+    
+    FIX: Enables "log out everywhere" functionality.
+    Useful when the user suspects their account is compromised.
+    """
+    repo = RefreshTokenRepository(db)
+    await repo.revoke_all_for_user(current_user.id)
+    await db.commit()

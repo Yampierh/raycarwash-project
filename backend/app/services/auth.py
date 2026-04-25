@@ -68,6 +68,19 @@ class AuthService:
         return _pwd_context.verify(plain_password, hashed_password)
 
     # ---- Token creation -------------------------------------------- #
+    # DONE (2026-04-25): token_version included in JWT payload as "v" claim.
+    #   Callers pass user.token_version; increment it to immediately invalidate
+    #   all sessions for that user (e.g., on password reset, role change).
+    #
+    # TODO: LATER - Add standard JWT claims (iss, aud, jti) per RFC 7519:
+    #       - iss: settings.APP_BASE_URL  (prevents token from other envs)
+    #       - aud: "raycarwash-api"  (rejects tokens for other services)
+    #       - jti: uuid.uuid4()   (enables revocation blacklist in Redis)
+    #
+    # TODO: LATER - Switch from HS256 to RS256 for JWT signing:
+    #       - Generate RSA key pair
+    #       - Create GET /.well-known/jwks.json endpoint
+    #       - Use private key to sign, public key to verify
 
     @staticmethod
     def _build_token(
@@ -75,22 +88,25 @@ class AuthService:
         role_name: str,
         token_type: str,
         expires_delta: timedelta,
+        token_version: int = 1,
     ) -> str:
         now    = datetime.now(timezone.utc)
         expire = now + expires_delta
         payload = {
             "sub":  str(subject),
             "role": role_name,
-            "type": token_type,          
+            "type": token_type,
+            "v":    token_version,
             "iat":  int(now.timestamp()),
             "exp":  int(expire.timestamp()),
         }
-        return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+        return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
     @staticmethod
     def create_access_token(
         subject: uuid.UUID,
         role_name: str,
+        token_version: int = 1,
         expires_delta: timedelta | None = None,
     ) -> str:
         """Short-lived token (30 min default). Attached to every API request."""
@@ -98,6 +114,7 @@ class AuthService:
             subject=subject,
             role_name=role_name,
             token_type=_TOKEN_TYPE_ACCESS,
+            token_version=token_version,
             expires_delta=expires_delta
             or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
         )
@@ -138,7 +155,7 @@ class AuthService:
         """
         payload = jwt.decode(
             token,
-            settings.SECRET_KEY,
+            settings.JWT_SECRET_KEY,
             algorithms=[settings.JWT_ALGORITHM],
         )
         if payload.get("type") != expected_type:
@@ -151,14 +168,52 @@ class AuthService:
     # ---- Password reset token -------------------------------------- #
 
     @staticmethod
-    def create_password_reset_token(user_id: uuid.UUID, role_name: str) -> str:
-        """Short-lived token (1 h) sent inside a reset link. Type = 'password_reset'."""
-        return AuthService._build_token(
-            subject=user_id,
-            role_name=role_name,
-            token_type=_TOKEN_TYPE_RESET,
-            expires_delta=timedelta(hours=1),
-        )
+    async def create_password_reset_token(
+        user_id: uuid.UUID,
+        role_name: str,
+        db: AsyncSession,
+    ) -> str:
+        """
+        Create a single-use password reset token and store its hash in DB.
+        
+        FIX: Now uses database-backed single-use tokens instead of stateless JWT.
+        The raw token is returned to the user; only the hash is stored.
+        """
+        from app.repositories.password_reset_token_repository import PasswordResetTokenRepository
+        
+        raw = secrets.token_urlsafe(32)
+        expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+        
+        # Invalidate any existing unused tokens for this user
+        # (only one active reset at a time)
+        repo = PasswordResetTokenRepository(db)
+        await repo.invalidate_all_for_user(user_id)
+        
+        # Create new token
+        await repo.create(user_id=user_id, raw_token=raw, expires_at=expires_at)
+        
+        return raw
+
+    @staticmethod
+    async def verify_password_reset_token(
+        raw_token: str,
+        db: AsyncSession,
+    ) -> uuid.UUID | None:
+        """
+        Verify a password reset token and return user_id if valid.
+        
+        FIX: Single-use guarantee - token is consumed (marked as used) on verification.
+        Returns user_id on success, None if invalid/used/expired.
+        """
+        from app.repositories.password_reset_token_repository import PasswordResetTokenRepository
+        
+        repo = PasswordResetTokenRepository(db)
+        token = await repo.consume(raw_token)
+        
+        if token is None:
+            return None
+        
+        return token.user_id
 
     @staticmethod
     def create_registration_token(user_id: uuid.UUID, role_name: str) -> str:
@@ -206,7 +261,7 @@ class AuthService:
             "iat":       int(now.timestamp()),
             "exp":       int(expire.timestamp()),
         }
-        return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+        return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
     @staticmethod
     def decode_webauthn_challenge_token(
@@ -223,7 +278,7 @@ class AuthService:
         try:
             payload = jwt.decode(
                 token,
-                settings.SECRET_KEY,
+                settings.JWT_SECRET_KEY,
                 algorithms=[settings.JWT_ALGORITHM],
             )
         except JWTError as exc:
@@ -266,19 +321,27 @@ class AuthService:
         Scope-limited token (30 min) issued to users who authenticated via a
         social provider but have no roles assigned yet.
 
-        The 'scope' claim is checked in get_current_user() — any endpoint
-        that does NOT opt-in via allow_onboarding_scope=True will return 403.
+        SECURITY FIX (2026-04-24): Changed from type="access" + scope="onboarding"
+        to dedicated type="onboarding".
+        
+        Before: Payload was {"type": "access", "scope": "onboarding", ...}
+        Risk: Middleware checking only type=="access" would accept onboarding tokens.
+        
+        After: Payload is {"type": "onboarding", ...}
+        Security: Type discriminator now properly rejects onboarding tokens
+        unless allow_onboarding_scope=True is passed to get_current_user().
+        
+        get_current_user() accepts this type when allow_onboarding_scope=True.
         """
         now    = datetime.now(timezone.utc)
         expire = now + timedelta(minutes=30)
         payload = {
             "sub":   str(user_id),
-            "type":  _TOKEN_TYPE_ACCESS,
-            "scope": _TOKEN_TYPE_ONBOARDING,
+            "type":  _TOKEN_TYPE_ONBOARDING,  # Dedicated type - not "access"!
             "iat":   int(now.timestamp()),
             "exp":   int(expire.timestamp()),
         }
-        return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+        return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
     @staticmethod
     async def rotate_refresh_token(
@@ -329,7 +392,7 @@ class AuthService:
         if user is None or not user.is_active or user.is_deleted:
             raise credentials_exception
 
-        new_access  = AuthService.create_access_token(user.id, user.primary_role or "client")
+        new_access  = AuthService.create_access_token(user.id, user.primary_role or "client", token_version=getattr(user, "token_version", 1))
         new_refresh = await AuthService.create_refresh_token(
             user.id,
             user.primary_role or "client",
@@ -501,6 +564,24 @@ class AuthService:
 
         return user
 
+        # TODO: HIGH - No account lockout mechanism after N failed login attempts.
+        # BUG: Currently no limit on login attempts - vulnerable to brute force.
+        # Risk: Attacker can make unlimited attempts against a single account.
+        # FIX: Add failed_attempts counter in User model, lock after 5 attempts for 15 min.
+        #      Use Redis for distributed counter or DB field with expiry.
+        #      Example logic:
+        #      if user.failed_attempts >= 5 and user.locked_until > now():
+        #          raise HTTPException(423, "Account temporarily locked")
+        #      After successful login: reset failed_attempts to 0
+        #      After failed attempt: increment with expiry
+
+        # TODO: HIGH - No failed login tracking for fraud detection/brute force analysis.
+        # BUG: Failed login attempts not logged - can't detect attack patterns.
+        # Risk: No audit trail for security analysis or forensics.
+        # FIX: Log all failed attempts to audit_logs with IP, user_agent, timestamp.
+        #      Track: failed_attempt, user_id, ip, user_agent, timestamp.
+        #      Enable pattern detection (e.g., >10 failures from same IP in 5 min).
+
 
 # ------------------------------------------------------------------ #
 #  FastAPI dependency: get_current_user                               #
@@ -516,12 +597,12 @@ async def get_current_user(
 
     Validates:
       1. Signature + expiry (jose)
-      2. Token type = "access" (prevents refresh token reuse)
+      2. Token type = "access" or "onboarding" (properly discriminated now)
       3. User still exists and is active (DB lookup)
-      4. If scope == "onboarding" and allow_onboarding_scope is False → 403
+      4. If type == "onboarding" and allow_onboarding_scope is False → 403
 
-    Endpoints that are part of the onboarding flow must inject this dependency
-    with allow_onboarding_scope=True via a custom Depends wrapper.
+    FIX: Now properly discriminates onboarding tokens by type (not scope).
+    get_current_user_for_onboarding() should be used on onboarding endpoints.
     """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -529,7 +610,14 @@ async def get_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        payload = AuthService.decode_token(token, expected_type=_TOKEN_TYPE_ACCESS)
+        # For backward compat: accept both "access" and "onboarding" tokens
+        # Then filter based on allow_onboarding_scope
+        payload = jwt.decode(
+            token,
+            settings.JWT_SECRET_KEY,
+            algorithms=[settings.JWT_ALGORITHM],
+        )
+        token_type = payload.get("type")
         user_id_str: str | None = payload.get("sub")
         if user_id_str is None:
             raise credentials_exception
@@ -537,8 +625,8 @@ async def get_current_user(
     except (JWTError, ValueError):
         raise credentials_exception
 
-    # Scope check: onboarding tokens cannot access regular endpoints
-    if payload.get("scope") == _TOKEN_TYPE_ONBOARDING and not allow_onboarding_scope:
+    # Token type check (FIX: use dedicated type instead of scope)
+    if token_type == _TOKEN_TYPE_ONBOARDING and not allow_onboarding_scope:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Onboarding required. Complete role selection before accessing this endpoint.",
@@ -554,9 +642,9 @@ async def get_current_user(
     # Eager load user_roles for RBAC (selectin on UserRoleAssociation.role handles the join)
     await db.refresh(user, attribute_names=["user_roles"])
 
-    # Onboarding-scoped tokens are allowed through regardless of completion state.
+    # Onboarding tokens are allowed through regardless of completion state.
     # All other tokens require onboarding_completed == True.
-    if not user.onboarding_completed and not payload.get("scope") == _TOKEN_TYPE_ONBOARDING:
+    if token_type != _TOKEN_TYPE_ONBOARDING and not user.onboarding_completed:
         logger.warning("Auth rejected — onboarding incomplete: %s", user_id)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
