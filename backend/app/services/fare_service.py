@@ -54,7 +54,7 @@ def generate_fare_token(fare_id: str, price_cents: int, expires_at: datetime) ->
     settings = get_settings()
     msg = f"{fare_id}:{price_cents}:{expires_at.isoformat()}"
     return hmac.new(
-        settings.SECRET_KEY.encode(),
+        settings.JWT_SECRET_KEY.encode(),
         msg.encode(),
         hashlib.sha256,
     ).hexdigest()
