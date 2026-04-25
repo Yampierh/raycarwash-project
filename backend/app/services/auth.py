@@ -47,8 +47,9 @@ _TOKEN_TYPE_REFRESH      = "refresh"
 _TOKEN_TYPE_RESET        = "password_reset"
 _TOKEN_TYPE_REGISTRATION = "registration"
 _TOKEN_TYPE_ONBOARDING   = "onboarding"   # scope-limited: only /onboarding/* endpoints
-_TOKEN_TYPE_WEBAUTHN_REG  = "webauthn_registration"
-_TOKEN_TYPE_WEBAUTHN_AUTH = "webauthn_authentication"
+_TOKEN_TYPE_WEBAUTHN_REG   = "webauthn_registration"
+_TOKEN_TYPE_WEBAUTHN_AUTH  = "webauthn_authentication"
+_TOKEN_TYPE_EMAIL_VERIFY   = "email_verification"
 
 # Expose constants for use in routers without breaking encapsulation
 TOKEN_TYPE_WEBAUTHN_REG  = _TOKEN_TYPE_WEBAUTHN_REG
@@ -357,6 +358,42 @@ class AuthService:
         return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
     @staticmethod
+    def create_email_verification_token(user_id: uuid.UUID) -> str:
+        """
+        Stateless JWT for email address verification.
+        type="email_verification", 24-hour expiry.
+        Sent as a link: /auth/email/verify?token=<token>
+        """
+        now    = datetime.now(timezone.utc)
+        expire = now + timedelta(hours=settings.EMAIL_VERIFICATION_EXPIRE_HOURS)
+        payload = {
+            "sub":  str(user_id),
+            "type": _TOKEN_TYPE_EMAIL_VERIFY,
+            "iat":  int(now.timestamp()),
+            "exp":  int(expire.timestamp()),
+        }
+        return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+
+    @staticmethod
+    def decode_email_verification_token(token: str) -> uuid.UUID | None:
+        """
+        Decode and validate an email verification token.
+        Returns user_id on success, None if invalid or expired.
+        """
+        try:
+            payload = jwt.decode(
+                token,
+                settings.JWT_SECRET_KEY,
+                algorithms=[settings.JWT_ALGORITHM],
+                options={"verify_aud": False},
+            )
+            if payload.get("type") != _TOKEN_TYPE_EMAIL_VERIFY:
+                return None
+            return uuid.UUID(payload["sub"])
+        except (JWTError, ValueError, KeyError):
+            return None
+
+    @staticmethod
     async def rotate_refresh_token(
         raw_token: str,
         db: AsyncSession,
@@ -585,6 +622,14 @@ class AuthService:
 
         if not user.is_active or user.is_deleted:
             _pwd_context.dummy_verify()
+            return None
+
+        # ---- Email verification gate ----
+        if settings.REQUIRE_EMAIL_VERIFICATION and not user.is_verified:
+            _pwd_context.dummy_verify()
+            logger.info(
+                "Login blocked — email not verified | user=%s", user.id
+            )
             return None
 
         # ---- Lockout check ----

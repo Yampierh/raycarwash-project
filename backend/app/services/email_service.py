@@ -75,6 +75,45 @@ class EmailService:
             body_text=body_text,
         )
 
+    @staticmethod
+    async def send_email_verification(
+        email: str, verify_url: str, full_name: str = ""
+    ) -> None:
+        """Send an email address verification link (valid 24 hours)."""
+        greeting = f"Hi {full_name}," if full_name else "Hi,"
+        body_html = f"""
+        <html><body style="font-family: sans-serif; max-width: 480px; margin: 40px auto;">
+          <h2 style="color: #1a1a2e;">Verify your email</h2>
+          <p>{greeting}</p>
+          <p>Please verify your email address. The link expires in <strong>24 hours</strong>.</p>
+          <p style="margin: 32px 0;">
+            <a href="{verify_url}"
+               style="background:#4f46e5;color:#fff;padding:12px 24px;
+                      border-radius:6px;text-decoration:none;font-weight:600;">
+              Verify Email
+            </a>
+          </p>
+          <p style="color:#888;font-size:13px;">
+            If you didn't create a RayCarwash account, you can safely ignore this email.
+          </p>
+          <hr style="border:none;border-top:1px solid #eee;margin:32px 0;">
+          <p style="color:#aaa;font-size:12px;">RayCarwash — Fort Wayne, IN</p>
+        </body></html>
+        """
+        body_text = (
+            f"{greeting}\n\n"
+            "Please verify your RayCarwash email address.\n\n"
+            f"Verification link (valid 24 hours): {verify_url}\n\n"
+            "If you didn't create this account, ignore this email.\n\n"
+            "— RayCarwash"
+        )
+        await EmailService._send(
+            to_email=email,
+            subject="Verify your RayCarwash email address",
+            body_html=body_html,
+            body_text=body_text,
+        )
+
     # ---------------------------------------------------------------- #
     #  Internal                                                         #
     # ---------------------------------------------------------------- #

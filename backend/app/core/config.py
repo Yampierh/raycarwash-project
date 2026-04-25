@@ -139,6 +139,19 @@ class Settings(BaseSettings):
         description="General API rate limit per authenticated user per minute.",
     )
 
+    REQUIRE_EMAIL_VERIFICATION: bool = Field(
+        default=False,
+        description=(
+            "When True, password login is blocked until the user verifies their email. "
+            "Set to True in production once SMTP is configured. "
+            "Social login (Google, Apple) always marks email as verified."
+        ),
+    )
+    EMAIL_VERIFICATION_EXPIRE_HOURS: int = Field(
+        default=24,
+        description="Lifetime of email verification tokens in hours.",
+    )
+
     # ---------------------------------------------------------------- #
     #  Business logic                                                   #
     # ---------------------------------------------------------------- #

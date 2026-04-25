@@ -138,6 +138,17 @@ async def register(
     )
     await db.commit()
 
+    # Send email verification link (non-blocking — failure does not abort registration)
+    verification_token = AuthService.create_email_verification_token(user.id)
+    verify_url = f"{settings.APP_BASE_URL}/auth/email/verify?token={verification_token}"
+    try:
+        await EmailService.send_email_verification(
+            email=str(body.email),
+            verify_url=verify_url,
+        )
+    except Exception:
+        logger.exception("Failed to send verification email to %s — registration proceeds", body.email)
+
     onboarding_token = AuthService.create_onboarding_token(user.id)
     return LoginResponse(
         onboarding_token=onboarding_token,
@@ -1522,3 +1533,81 @@ async def delete_webauthn_credential(
         deleted_id=credential_id,
         message="Passkey removed successfully.",
     )
+
+
+# ------------------------------------------------------------------ #
+#  Email verification                                                 #
+# ------------------------------------------------------------------ #
+
+@router.post(
+    "/email/verify",
+    status_code=status.HTTP_200_OK,
+    summary="Verify email address with the token from the verification email.",
+)
+async def verify_email(
+    token: str,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Mark the user's email as verified.
+
+    The token is a signed JWT (type='email_verification', 24h TTL) sent to
+    the user's email address on registration.
+
+    This endpoint is idempotent — verifying an already-verified email returns 200.
+    """
+    user_id = AuthService.decode_email_verification_token(token)
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired verification token.",
+        )
+
+    user = await UserRepository(db).get_by_id(user_id)
+    if user is None or not user.is_active or user.is_deleted:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User not found.",
+        )
+
+    if not user.is_verified:
+        user.is_verified = True
+        await db.commit()
+        logger.info("Email verified | user=%s", user.id)
+
+    return {"message": "Email address verified successfully."}
+
+
+@router.post(
+    "/email/resend-verification",
+    status_code=status.HTTP_200_OK,
+    summary="Resend the email verification link.",
+)
+@limiter.limit("3/minute")
+async def resend_verification_email(
+    request: Request,
+    body: PasswordResetRequest,     # reuse { email: EmailStr } schema
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Re-send the verification email. Always returns 200 to prevent enumeration.
+
+    Rate-limited to 3/minute. The new token invalidates the previous one only
+    by expiry — both remain valid until they expire (this is acceptable because
+    double-verification is harmless).
+    """
+    _SAFE = {"message": "If that email is registered and unverified, a new link has been sent."}
+
+    user = await UserRepository(db).get_by_email(str(body.email))
+    if user is None or not user.is_active or user.is_deleted or user.is_verified:
+        return _SAFE
+
+    verification_token = AuthService.create_email_verification_token(user.id)
+    verify_url = f"{settings.APP_BASE_URL}/auth/email/verify?token={verification_token}"
+    await EmailService.send_email_verification(
+        email=str(body.email),
+        verify_url=verify_url,
+        full_name=user.full_name,
+    )
+    logger.info("Email verification resent | user=%s", user.id)
+    return _SAFE
