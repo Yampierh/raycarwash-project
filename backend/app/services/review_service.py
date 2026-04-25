@@ -80,8 +80,8 @@ class ReviewService:
 
         created = await self._review_repo.create(review)
 
-        # Update detailer's aggregate rating
-        await self._review_repo.update_detailer_aggregate(appointment.detailer_id)
+        # Update detailer's aggregate rating atomically (FIX: race condition prevention)
+        await self._review_repo.update_detailer_aggregate(appointment.detailer_id, payload.rating)
 
         await self._audit_repo.log(
             action=AuditAction.REVIEW_CREATED,

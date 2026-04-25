@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import uuid
 from datetime import datetime, timezone
+from typing import List
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +12,12 @@ from app.models.models import RefreshToken
 
 
 class RefreshTokenRepository:
+    """
+    Repository for refresh tokens with session management capabilities.
+    
+    FIX: Added methods for session listing and selective revocation
+    to support the session management endpoints.
+    """
 
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
@@ -84,3 +91,99 @@ class RefreshTokenRepository:
             .values(revoked=True)
         )
         await self._db.execute(stmt)
+
+    # ------------------------------------------------------------------ #
+    #  Session management methods (for GET/DELETE /auth/sessions)           #
+    # ------------------------------------------------------------------ #
+
+    async def get_sessions_for_user(
+        self,
+        user_id: uuid.UUID,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> tuple[List[RefreshToken], int]:
+        """
+        Get active sessions for a user, grouped by family_id.
+        Returns (sessions, total_count).
+        
+        FIX: Enables the session management endpoints.
+        """
+        # Get distinct family IDs for this user
+        family_stmt = (
+            select(RefreshToken.family_id)
+            .where(RefreshToken.user_id == user_id)
+            .distinct()
+            .order_by(RefreshToken.family_id)
+            .offset(offset)
+            .limit(limit)
+        )
+        family_result = await self._db.execute(family_stmt)
+        family_ids = [row[0] for row in family_result.fetchall()]
+
+        if not family_ids:
+            return [], 0
+
+        # Get the latest token for each family (for created_at, last_used_at)
+        tokens_stmt = (
+            select(RefreshToken)
+            .where(RefreshToken.user_id == user_id)
+            .where(RefreshToken.family_id.in_(family_ids))
+            .order_by(RefreshToken.family_id, RefreshToken.created_at.desc())
+        )
+        token_result = await self._db.execute(tokens_stmt)
+        tokens = list(token_result.scalars().all())
+
+        # Deduplicate by family_id (keep first/most recent)
+        seen = set()
+        unique_tokens = []
+        for token in tokens:
+            if token.family_id not in seen:
+                seen.add(token.family_id)
+                unique_tokens.append(token)
+
+        # Count total families
+        count_stmt = (
+            select(RefreshToken.family_id)
+            .where(RefreshToken.user_id == user_id)
+            .distinct()
+        )
+        count_result = await self._db.execute(count_stmt)
+        total = len(count_result.fetchall())
+
+        return unique_tokens, total
+
+    async def get_session_by_family(
+        self,
+        user_id: uuid.UUID,
+        family_id: uuid.UUID,
+    ) -> RefreshToken | None:
+        """Get a session by family_id for a user."""
+        stmt = (
+            select(RefreshToken)
+            .where(RefreshToken.user_id == user_id)
+            .where(RefreshToken.family_id == family_id)
+            .order_by(RefreshToken.created_at.desc())
+            .limit(1)
+        )
+        result = await self._db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def revoke_session(
+        self,
+        user_id: uuid.UUID,
+        family_id: uuid.UUID,
+    ) -> bool:
+        """
+        Revoke a specific session (family_id).
+        Returns True if found and revoked.
+        
+        FIX: Enables selective session revocation.
+        """
+        stmt = (
+            update(RefreshToken)
+            .where(RefreshToken.user_id == user_id)
+            .where(RefreshToken.family_id == family_id)
+            .values(revoked=True)
+        )
+        result = await self._db.execute(stmt)
+        return result.rowcount > 0

@@ -59,7 +59,27 @@ class Token(_BaseSchema):
 class RegisterRequest(BaseModel):
     """Body para POST /auth/register — crear cuenta nueva."""
     email: EmailStr
-    password: str = Field(..., min_length=8, max_length=128)
+    password: str = Field(
+        ..., 
+        min_length=8, 
+        max_length=128,
+        # TODO: MEDIUM - Password complexity requirements missing.
+        # BUG: Only enforces length - no complexity rules.
+        # Risk: Weak passwords (e.g., "password123") are accepted.
+        # FIX: Add validator for complexity:
+        # - At least 1 uppercase letter
+        # - At least 1 lowercase letter
+        # - At least 1 number
+        # - At least 1 special character (!@#$%^&*)
+        # Example validator:
+        # @field_validator('password')
+        # def validate_password_strength(cls, v):
+        #     if not re.search(r'[A-Z]', v): raise ValueError('uppercase')
+        #     if not re.search(r'[a-z]', v): raise ValueError('lowercase')
+        #     if not re.search(r'\d', v): raise ValueError('number')
+        #     if not re.search(r'[!@#$%^&*]', v): raise ValueError('special')
+        #     return v
+    )
 
     @field_validator("email", mode="before")
     @classmethod
@@ -211,6 +231,17 @@ class SocialAuthResponse(BaseModel):
 class PasswordResetRequest(BaseModel):
     """Body for POST /auth/password-reset."""
     email: EmailStr
+
+
+class PasswordResetConfirmRequest(BaseModel):
+    """Body for POST /auth/password-reset/confirm."""
+    token: str = Field(..., description="Single-use reset token from email.")
+    new_password: str = Field(..., min_length=8, max_length=128)
+
+
+class PasswordResetConfirmResponse(BaseModel):
+    """Response for successful password reset."""
+    message: str
 
 
 class PasswordResetResponse(BaseModel):
@@ -1084,6 +1115,34 @@ class WebAuthnCredentialRead(_BaseSchema):
     device_name: str | None
     created_at: datetime
     last_used_at: datetime | None
+
+
+# ================================================================== #
+#  SESSION MANAGEMENT SCHEMAS                                        #
+# ================================================================== #
+
+class SessionRead(_BaseSchema):
+    """
+    Public representation of an active session (refresh token family).
+    FIX: Enables users to see and revoke their active sessions.
+    """
+    family_id: uuid.UUID
+    created_at: datetime
+    last_used_at: datetime | None
+    revoked: bool
+    expires_at: datetime
+
+
+class SessionsListResponse(_BaseSchema):
+    """Response for GET /auth/sessions."""
+    sessions: list[SessionRead]
+    total: int
+
+
+class SessionRevokeResponse(_BaseSchema):
+    """Response for DELETE /auth/sessions/{family_id}."""
+    revoked_family_id: uuid.UUID
+    message: str
 
 
 # ================================================================== #
