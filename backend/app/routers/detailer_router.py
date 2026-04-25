@@ -18,7 +18,7 @@ import uuid
 from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -28,6 +28,8 @@ from app.models.models import (
     AppointmentStatus,
     AuditAction,
     ProviderProfile,
+    ProviderSpecialty,
+    Specialty,
     DetailerService,
     Service,
     User,
@@ -57,6 +59,36 @@ logger   = logging.getLogger(__name__)
 settings = get_settings()
 
 router = APIRouter(prefix="/api/v1/detailers", tags=["Detailers"])
+
+
+async def _sync_specialties(
+    profile: ProviderProfile,
+    slugs: list[str],
+    db: AsyncSession,
+) -> None:
+    """
+    Replace a provider's specialties with the given slug list.
+    Clears all existing ProviderSpecialty rows for the profile, then inserts
+    new ones by resolving slugs against the specialties lookup table.
+    Unknown slugs are silently skipped.
+    """
+    await db.execute(
+        delete(ProviderSpecialty).where(
+            ProviderSpecialty.provider_profile_id == profile.id
+        )
+    )
+    if slugs:
+        result = await db.execute(
+            select(Specialty).where(Specialty.slug.in_(slugs))
+        )
+        found = result.scalars().all()
+        for sp in found:
+            db.add(ProviderSpecialty(
+                provider_profile_id=profile.id,
+                specialty_id=sp.id,
+            ))
+    await db.flush()
+    await db.refresh(profile, attribute_names=["specialties_rel"])
 
 
 # ================================================================== #
@@ -195,9 +227,9 @@ async def upsert_my_profile(
             timezone=payload.timezone,
             working_hours=working_hours_dict,
             is_accepting_bookings=True,
-            specialties=payload.specialties,
         )
         profile = await repo.create_profile(profile)
+        await _sync_specialties(profile, payload.specialties or [], db)
         await AuditRepository(db).log(
             action=AuditAction.DETAILER_PROFILE_CREATED,
             entity_type="provider_profile",
@@ -214,9 +246,9 @@ async def upsert_my_profile(
             "service_radius_miles": payload.service_radius_miles,
             "timezone": payload.timezone,
             "working_hours": working_hours_dict,
-            "specialties": payload.specialties,
         }
         profile = await repo.update_profile(current_user.id, fields)
+        await _sync_specialties(profile, payload.specialties or [], db)
         await AuditRepository(db).log(
             action=AuditAction.DETAILER_PROFILE_UPDATED,
             entity_type="provider_profile",

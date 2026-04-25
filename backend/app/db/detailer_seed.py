@@ -22,6 +22,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import (
     ProviderProfile,
+    ProviderSpecialty,
+    Specialty,
     DetailerService,
     Role,
     Service,
@@ -300,13 +302,19 @@ async def seed_detailers(db: AsyncSession) -> None:
             total_reviews=d["total_reviews"],
             timezone=d["timezone"],
             working_hours=d["working_hours"],
-            specialties=d["specialties"],
             current_lat=d["current_lat"],
             current_lng=d["current_lng"],
             last_location_update=datetime.now(timezone.utc),
         )
         db.add(profile)
         await db.flush()  # get profile.id
+
+        # Wire specialties via junction table
+        for slug in d.get("specialties", []):
+            sp_result = await db.execute(select(Specialty).where(Specialty.slug == slug))
+            sp = sp_result.scalar_one_or_none()
+            if sp:
+                db.add(ProviderSpecialty(provider_profile_id=profile.id, specialty_id=sp.id))
 
         # Create DetailerService rows
         custom_prices: dict[str, int] = d.get("custom_prices", {})

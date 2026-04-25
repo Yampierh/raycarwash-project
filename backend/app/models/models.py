@@ -820,18 +820,18 @@ class ProviderProfile(TimestampMixin, Base):
     total_reviews: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0
     )
-    # ---- Specialties (Sprint 6) ----
-    # TODO: MEDIUM - JSONB prevents efficient queries for filtering by specialty.
-    #        Should migrate to junction table:
-    #        CREATE TABLE provider_specialties (
-    #          provider_profile_id UUID REFERENCES provider_profiles(id),
-    #          specialty_id UUID REFERENCES specialties(id),
-    #          PRIMARY KEY (provider_profile_id, specialty_id)
-    #        );
-    specialties: Mapped[list | None] = mapped_column(
-        JSONB, nullable=True, default=list,
-        comment='List of specialty tags, e.g. ["ceramic_coating", "full_detail"].',
+    # ---- Specialties — junction table (migrated from JSONB in e1f2a3b4c5d6) ----
+    specialties_rel: Mapped[list["Specialty"]] = relationship(
+        "Specialty",
+        secondary="provider_specialties",
+        back_populates="providers",
+        lazy="selectin",
     )
+
+    @property
+    def specialties(self) -> list[str]:
+        """Return specialty slugs as a list of strings (backward-compat read path)."""
+        return [s.slug for s in (self.specialties_rel or [])]
 
     # ---- Real-time location (detailers only) ----
     current_lat: Mapped[float | None] = mapped_column(
@@ -1849,3 +1849,75 @@ class ProcessedWebhook(Base):
 
     def __repr__(self) -> str:
         return f"<ProcessedWebhook event={self.stripe_event_id} type={self.event_type}>"
+
+
+# ------------------------------------------------------------------ #
+#  Model: Specialty + ProviderSpecialty junction                      #
+# ------------------------------------------------------------------ #
+
+class Specialty(Base):
+    """
+    Lookup table of service specialties (e.g. 'ceramic_coating', 'full_detail').
+
+    Replaces the ProviderProfile.specialties JSONB column (migration e1f2a3b4c5d6).
+    Using a proper junction table enables:
+      - Efficient filtering: JOIN rather than JSONB @> operator
+      - Referential integrity: no dangling slug strings
+      - Future per-specialty pricing or metadata
+
+    slug is the stable identifier used in API responses and the seed.
+    name is the human-readable label shown in the UI.
+    """
+
+    __tablename__ = "specialties"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    slug: Mapped[str] = mapped_column(
+        String(50), nullable=False, unique=True, index=True,
+        comment="Stable identifier (e.g. 'ceramic_coating'). Never rename.",
+    )
+    name: Mapped[str] = mapped_column(
+        String(100), nullable=False,
+        comment="Human-readable label (e.g. 'Ceramic Coating').",
+    )
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    providers: Mapped[list["ProviderProfile"]] = relationship(
+        "ProviderProfile",
+        secondary="provider_specialties",
+        back_populates="specialties_rel",
+    )
+
+    def __repr__(self) -> str:
+        return f"<Specialty slug={self.slug!r}>"
+
+
+class ProviderSpecialty(Base):
+    """
+    Many-to-many junction between ProviderProfile and Specialty.
+    Composite primary key — one row per (provider, specialty) pair.
+    """
+
+    __tablename__ = "provider_specialties"
+
+    provider_profile_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("provider_profiles.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    specialty_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("specialties.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    added_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=sa_text("now()"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<ProviderSpecialty profile={self.provider_profile_id} specialty={self.specialty_id}>"

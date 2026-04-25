@@ -12,7 +12,7 @@ from math import ceil
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import Addon, Service, ServiceCategory
+from app.models.models import Addon, Service, ServiceCategory, Specialty
 
 logger = logging.getLogger(__name__)
 
@@ -448,3 +448,41 @@ async def seed_services(db: AsyncSession) -> None:
 
     await db.commit()
     logger.info("Seed complete — %d new service(s) inserted.", seeded)
+
+# ------------------------------------------------------------------ #
+#  Specialty Seed                                                     #
+# ------------------------------------------------------------------ #
+
+_SPECIALTIES = [
+    ("ceramic_coating",       "Ceramic Coating"),
+    ("paint_correction",      "Paint Correction"),
+    ("full_detail",           "Full Detail"),
+    ("interior_detail",       "Interior Detail"),
+    ("exterior_wash",         "Exterior Wash"),
+    ("engine_bay",            "Engine Bay Cleaning"),
+    ("paint_decontamination", "Paint Decontamination"),
+    ("window_tinting",        "Window Tinting"),
+    ("luxury_vehicles",       "Luxury Vehicles"),
+    ("trucks",                "Trucks & SUVs"),
+    ("fleet",                 "Fleet Services"),
+    ("express_wash",          "Express Wash"),
+    ("eco_friendly",          "Eco-Friendly Products"),
+    ("budget_friendly",       "Budget-Friendly"),
+    ("family_vehicles",       "Family Vehicles"),
+    ("exterior",              "Exterior Detail"),
+    ("bilingual",             "Bilingual Service"),
+    ("mobile_mechanic",       "Mobile Mechanic"),
+]
+
+
+async def seed_specialties(db: AsyncSession) -> None:
+    """Idempotent upsert of the specialties lookup table."""
+    seeded = 0
+    for slug, name in _SPECIALTIES:
+        existing = await db.execute(select(Specialty).where(Specialty.slug == slug))
+        if existing.scalar_one_or_none():
+            continue
+        db.add(Specialty(slug=slug, name=name))
+        seeded += 1
+    await db.commit()
+    logger.info("Specialty seed complete — %d new specialty(ies) inserted.", seeded)
