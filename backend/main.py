@@ -9,7 +9,7 @@ import uuid
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
@@ -35,23 +35,12 @@ from app.db.seed import seed_addons, seed_services, seed_service_categories, see
 from app.db.seed_rbac import seed_rbac
 from app.db.detailer_seed import seed_detailers
 
-# Domain models — imported via registry above; direct imports only for inline route below
-from domains.audit.models import AuditAction
-from domains.auth.models import Role, UserRoleAssociation
-from domains.users.models import User
 from infrastructure.db.base import Base
 
-from app.repositories.audit_repository import AuditRepository
-from app.repositories.user_repository import UserRepository
-from sqlalchemy import select
-
-# ── API aggregation — single include replaces 15 individual router imports ──
 from api.router import api_router
 from app.ws.connection_manager import ConnectionManager
 
 from shared.schemas import ErrorDetail, HealthResponse
-from domains.users.schemas import UserCreate, UserRead
-from app.services.auth import AuthService
 from app.core.logging_context import RequestIdFilter, StaticFieldsFilter, request_id_var
 from pythonjsonlogger import jsonlogger
 
@@ -324,77 +313,3 @@ async def health_check(db: AsyncSession = Depends(get_db)) -> HealthResponse:
         db_reachable=db_ok,
     )
 
-
-# ── User registration ────────────────────────────────────────────── #
-# Kept inline for MVP. Extract to app/routers/user_router.py in Sprint 5
-# once admin-only endpoints (list users, deactivate) are needed.
-
-@app.post(
-    "/api/v1/users",
-    response_model=UserRead,
-    status_code=status.HTTP_201_CREATED,
-    tags=["Users"],
-    summary="Register a new CLIENT or DETAILER account.",
-    responses={
-        409: {"model": ErrorDetail, "description": "Email already registered."},
-    },
-)
-async def create_user(
-    payload: UserCreate,
-    db: AsyncSession = Depends(get_db),
-) -> UserRead:
-    """
-    Open registration. ADMIN role is blocked at the schema layer.
-    Password is bcrypt-hashed by AuthService — never stored in plaintext.
-
-    After registering with role=detailer, call POST /api/v1/detailers/profile
-    to complete onboarding and become discoverable.
-    """
-    user_repo = UserRepository(db)
-
-    if await user_repo.email_exists(payload.email):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=ErrorDetail(
-                code="EMAIL_TAKEN",
-                message=f"An account with '{payload.email}' already exists.",
-            ).model_dump(),
-        )
-
-    user = User(
-        email=payload.email,
-        full_name=payload.full_name,
-        phone_number=payload.phone_number,
-        password_hash=AuthService.hash_password(payload.password),
-    )
-
-    created = await user_repo.create(user)
-
-    role_names = payload.role_names or ["client"]
-    for role_name in role_names:
-        if role_name == "admin":
-            continue
-        result = await db.execute(select(Role).where(Role.name == role_name))
-        role = result.scalar_one_or_none()
-        if role:
-            user_role = UserRoleAssociation(
-                user_id=created.id,
-                role_id=role.id,
-            )
-            db.add(user_role)
-
-    await db.commit()
-    await db.refresh(created, ["user_roles"])
-
-    await AuditRepository(db).log(
-        action=AuditAction.USER_REGISTERED,
-        entity_type="user",
-        entity_id=str(created.id),
-        actor_id=created.id,
-        metadata={"roles": role_names},
-    )
-
-    logger.info("User registered | id=%s email=%s roles=%s",
-                created.id, created.email, role_names)
-
-    return UserRead.model_validate(created)

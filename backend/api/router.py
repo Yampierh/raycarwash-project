@@ -21,6 +21,7 @@ from domains.vehicles.router         import router as vehicle_router
 from domains.matching.router         import router as matching_router
 from domains.providers.router        import router as detailer_router
 from domains.providers.verification_router import router as verification_router
+from domains.users.router            import router as user_router
 
 api_router = APIRouter()
 
@@ -68,3 +69,6 @@ api_router.include_router(payment_router)
 
 # Reviews — /api/v1/reviews/*
 api_router.include_router(review_router)
+
+# Users — /api/v1/users/*
+api_router.include_router(user_router)
