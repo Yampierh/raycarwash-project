@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -45,6 +46,29 @@ class _BaseRequestSchema(BaseModel):
 PositiveCents = int  # Validated via Field(gt=0) at usage sites
 
 
+def _validate_password_strength(v: str) -> str:
+    """
+    Enforce minimum password complexity.
+    Rules: ≥8 chars (enforced by Field), plus at least one each of:
+      uppercase letter, lowercase letter, digit, special character.
+    Returns the password unchanged if valid; raises ValueError otherwise.
+    """
+    errors = []
+    if not re.search(r"[A-Z]", v):
+        errors.append("one uppercase letter")
+    if not re.search(r"[a-z]", v):
+        errors.append("one lowercase letter")
+    if not re.search(r"\d", v):
+        errors.append("one digit")
+    if not re.search(r"[!@#$%^&*()\-_=+\[\]{};:'\",.<>?/\\|`~]", v):
+        errors.append("one special character (!@#$%^&* etc.)")
+    if errors:
+        raise ValueError(
+            f"Password must contain at least: {', '.join(errors)}."
+        )
+    return v
+
+
 # ================================================================== #
 #  AUTH SCHEMAS                                                       #
 # ================================================================== #
@@ -59,32 +83,17 @@ class Token(_BaseSchema):
 class RegisterRequest(BaseModel):
     """Body para POST /auth/register — crear cuenta nueva."""
     email: EmailStr
-    password: str = Field(
-        ..., 
-        min_length=8, 
-        max_length=128,
-        # TODO: MEDIUM - Password complexity requirements missing.
-        # BUG: Only enforces length - no complexity rules.
-        # Risk: Weak passwords (e.g., "password123") are accepted.
-        # FIX: Add validator for complexity:
-        # - At least 1 uppercase letter
-        # - At least 1 lowercase letter
-        # - At least 1 number
-        # - At least 1 special character (!@#$%^&*)
-        # Example validator:
-        # @field_validator('password')
-        # def validate_password_strength(cls, v):
-        #     if not re.search(r'[A-Z]', v): raise ValueError('uppercase')
-        #     if not re.search(r'[a-z]', v): raise ValueError('lowercase')
-        #     if not re.search(r'\d', v): raise ValueError('number')
-        #     if not re.search(r'[!@#$%^&*]', v): raise ValueError('special')
-        #     return v
-    )
+    password: str = Field(..., min_length=8, max_length=128)
 
     @field_validator("email", mode="before")
     @classmethod
     def lowercase_email(cls, value: str) -> str:
         return value.lower().strip()
+
+    @field_validator("password", mode="after")
+    @classmethod
+    def strong_password(cls, v: str) -> str:
+        return _validate_password_strength(v)
 
 
 class LoginRequest(BaseModel):
@@ -237,6 +246,11 @@ class PasswordResetConfirmRequest(BaseModel):
     """Body for POST /auth/password-reset/confirm."""
     token: str = Field(..., description="Single-use reset token from email.")
     new_password: str = Field(..., min_length=8, max_length=128)
+
+    @field_validator("new_password", mode="after")
+    @classmethod
+    def strong_password(cls, v: str) -> str:
+        return _validate_password_strength(v)
 
 
 class PasswordResetConfirmResponse(BaseModel):
