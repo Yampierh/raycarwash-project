@@ -28,32 +28,18 @@ from datetime import datetime, timezone
 import stripe
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.db.session import get_db
-from app.models.models import DetailerProfile
+from app.models.models import DetailerProfile, ProcessedWebhook
 from app.services.payment_service import PaymentService
 
 logger   = logging.getLogger(__name__)
 settings = get_settings()
 
 router = APIRouter(prefix="/webhooks", tags=["Webhooks"])
-
-
-# TODO: LATER - Stripe idempotency missing.
-#       Stripe guarantees at-least-once delivery — same event can arrive multiple times.
-#       Without tracking, PAYMENT_CAPTURED could be processed twice (double fulfillment).
-#       FIX: Add processed_webhooks table:
-#       CREATE TABLE processed_webhooks (
-#         stripe_event_id VARCHAR(64) PRIMARY KEY,
-#         processed_at TIMESTAMP NOT NULL DEFAULT NOW()
-#       );
-#       In handler:
-#       try:
-#         INSERT INTO processed_webhooks (stripe_event_id) VALUES (:id);
-#       except UniqueViolation:
-#         return Response(status=200)  # already processed
 
 
 @router.post(
@@ -126,6 +112,27 @@ async def stripe_webhook(
     event_type = event.get("type", "unknown")
     event_id   = event.get("id", "unknown")
     logger.info("Stripe webhook received | type=%s id=%s", event_type, event_id)
+
+    # ---- Idempotency check ----
+    # Stripe guarantees at-least-once delivery. Use ON CONFLICT DO NOTHING to
+    # detect duplicates atomically — no rollback path needed.
+    dedup_stmt = (
+        pg_insert(ProcessedWebhook)
+        .values(
+            stripe_event_id=event_id,
+            event_type=event_type,
+            processed_at=datetime.now(timezone.utc),
+        )
+        .on_conflict_do_nothing(index_elements=["stripe_event_id"])
+    )
+    result = await db.execute(dedup_stmt)
+    await db.flush()
+    if result.rowcount == 0:
+        logger.info(
+            "Stripe webhook duplicate — already processed | id=%s type=%s",
+            event_id, event_type,
+        )
+        return {"received": True}
 
     payment_svc = PaymentService(db)
 

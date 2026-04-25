@@ -21,6 +21,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text as sa_text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.ext.asyncio import AsyncAttrs
@@ -1780,3 +1781,45 @@ class AppointmentAssignment(Base):
 
     def __repr__(self) -> str:
         return f"<AppointmentAssignment appt={self.appointment_id} detailer={self.detailer_id} status={self.status}>"
+
+
+# ------------------------------------------------------------------ #
+#  Model: ProcessedWebhook                                            #
+# ------------------------------------------------------------------ #
+
+class ProcessedWebhook(Base):
+    """
+    Deduplication table for Stripe webhook events.
+
+    Stripe guarantees at-least-once delivery — the same event can arrive
+    multiple times (network retry, Stripe retry on non-2xx, etc.).
+    Without idempotency tracking, PAYMENT_CAPTURED could be processed twice,
+    resulting in double-fulfillment or double-credit to a provider.
+
+    Pattern:
+      1. Attempt INSERT (stripe_event_id PRIMARY KEY).
+      2. If UNIQUE VIOLATION → already processed → return 200 immediately.
+      3. If inserted → process event normally.
+
+    Uses ON CONFLICT DO NOTHING so the handler never needs a rollback path.
+    """
+
+    __tablename__ = "processed_webhooks"
+
+    stripe_event_id: Mapped[str] = mapped_column(
+        String(64), primary_key=True,
+        comment="Stripe event ID (evt_xxxxxxxx). Primary key ensures uniqueness.",
+    )
+    event_type: Mapped[str] = mapped_column(
+        String(80), nullable=False,
+        comment="Stripe event type, e.g. 'payment_intent.succeeded'.",
+    )
+    processed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=sa_text("now()"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<ProcessedWebhook event={self.stripe_event_id} type={self.event_type}>"
