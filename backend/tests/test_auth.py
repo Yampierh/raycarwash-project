@@ -925,3 +925,132 @@ class TestOnboardingTokenSecurity:
         )
         # User not found in DB → 401 or 403
         assert resp.status_code in (401, 403, 404)
+
+
+# ============================================
+# token_version — instant session revocation
+# ============================================
+class TestTokenVersionRevocation:
+    """
+    Verify that incrementing user.token_version immediately invalidates
+    existing access tokens without waiting for JWT expiry.
+    """
+
+    @pytest.mark.asyncio
+    async def test_valid_token_accepted_when_version_matches(
+        self, client: AsyncClient, test_user: User
+    ):
+        """Baseline: a freshly issued token is accepted on /auth/me."""
+        token = await get_access_token(client, "testclient@example.com")
+        resp = await client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+        assert resp.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_token_rejected_after_version_increment(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ):
+        """
+        A token issued before token_version is incremented must be rejected
+        with 401 on the next request.
+        """
+        from app.repositories.user_repository import UserRepository
+
+        # Issue a token (carries current token_version=1)
+        token = await get_access_token(client, "testclient@example.com")
+
+        # Simulate session revocation (e.g. admin suspends account, password reset)
+        user = await UserRepository(db_session).get_by_id(test_user.id)
+        user.token_version = (getattr(user, "token_version", 1) or 1) + 1
+        await db_session.commit()
+
+        # The old token must now be rejected
+        resp = await client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+        assert resp.status_code == 401, (
+            "Access token must be rejected after token_version is incremented. "
+            "Instant session revocation is broken."
+        )
+
+    @pytest.mark.asyncio
+    async def test_new_token_accepted_after_version_increment(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ):
+        """
+        After token_version is incremented, a freshly issued token (carrying
+        the new version) must still be accepted.
+        """
+        from app.repositories.user_repository import UserRepository
+
+        # Increment version
+        user = await UserRepository(db_session).get_by_id(test_user.id)
+        user.token_version = (getattr(user, "token_version", 1) or 1) + 1
+        await db_session.commit()
+
+        # Login again — new token carries the incremented version
+        new_token = await get_access_token(client, "testclient@example.com")
+        assert new_token is not None
+
+        resp = await client.get("/auth/me", headers={"Authorization": f"Bearer {new_token}"})
+        assert resp.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_password_reset_invalidates_existing_session(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ):
+        """
+        End-to-end: a token issued before a password reset must be rejected
+        after the reset completes.
+        """
+        from app.services.auth import AuthService
+
+        # Get a token before the reset
+        old_token = await get_access_token(client, "testclient@example.com")
+
+        # Perform password reset
+        raw_reset = await AuthService.create_password_reset_token(
+            test_user.id, test_user.primary_role or "client", db_session
+        )
+        await db_session.commit()
+
+        confirm = await client.post(
+            "/auth/password-reset/confirm",
+            json={"token": raw_reset, "new_password": "AfterReset99!"},
+        )
+        assert confirm.status_code == 200
+
+        # Old token must now be rejected
+        resp = await client.get("/auth/me", headers={"Authorization": f"Bearer {old_token}"})
+        assert resp.status_code == 401, (
+            "Token issued before password reset must be rejected after reset. "
+            "Password reset must increment token_version."
+        )
+
+    @pytest.mark.asyncio
+    async def test_token_without_v_claim_still_accepted(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ):
+        """
+        Tokens issued before the 'v' claim was introduced (no 'v' field) must
+        still be accepted for backward compatibility — only tokens with a
+        mismatched 'v' are rejected.
+        """
+        from app.core.config import get_settings
+
+        settings = get_settings()
+
+        # Forge a legacy token with no "v" claim
+        legacy_token = jwt.encode(
+            {
+                "sub":  str(test_user.id),
+                "role": test_user.primary_role or "client",
+                "type": "access",
+                # No "v" claim — simulates pre-migration token
+                "iat":  1000000000,
+                "exp":  9999999999,
+            },
+            settings.JWT_SECRET_KEY,
+            algorithm="HS256",
+        )
+
+        resp = await client.get("/auth/me", headers={"Authorization": f"Bearer {legacy_token}"})
+        # Legacy tokens without "v" are allowed through (backward compat)
+        assert resp.status_code == 200

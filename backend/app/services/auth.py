@@ -597,12 +597,10 @@ async def get_current_user(
 
     Validates:
       1. Signature + expiry (jose)
-      2. Token type = "access" or "onboarding" (properly discriminated now)
+      2. Token type = "access" or "onboarding"
       3. User still exists and is active (DB lookup)
-      4. If type == "onboarding" and allow_onboarding_scope is False → 403
-
-    FIX: Now properly discriminates onboarding tokens by type (not scope).
-    get_current_user_for_onboarding() should be used on onboarding endpoints.
+      4. token_version claim "v" matches user.token_version (instant revocation)
+      5. If type == "onboarding" and allow_onboarding_scope is False → 403
     """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -610,8 +608,6 @@ async def get_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        # For backward compat: accept both "access" and "onboarding" tokens
-        # Then filter based on allow_onboarding_scope
         payload = jwt.decode(
             token,
             settings.JWT_SECRET_KEY,
@@ -625,7 +621,7 @@ async def get_current_user(
     except (JWTError, ValueError):
         raise credentials_exception
 
-    # Token type check (FIX: use dedicated type instead of scope)
+    # Token type check — onboarding tokens only allowed on designated endpoints.
     if token_type == _TOKEN_TYPE_ONBOARDING and not allow_onboarding_scope:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -639,11 +635,25 @@ async def get_current_user(
         logger.warning("Auth failed — user inactive or missing: %s", user_id)
         raise credentials_exception
 
-    # Eager load user_roles for RBAC (selectin on UserRoleAssociation.role handles the join)
+    # token_version check — instant session revocation.
+    # When token_version is incremented (e.g. on password reset, role removal),
+    # any token carrying the old "v" value is immediately rejected without
+    # waiting for the 30-minute JWT expiry window.
+    # Only enforced on access tokens; onboarding tokens don't carry "v".
+    if token_type == _TOKEN_TYPE_ACCESS:
+        token_v = payload.get("v")
+        db_v    = getattr(user, "token_version", 1)
+        if token_v is not None and token_v != db_v:
+            logger.warning(
+                "Auth rejected — token_version mismatch (token=%s db=%s) user=%s",
+                token_v, db_v, user_id,
+            )
+            raise credentials_exception
+
+    # Eager load user_roles for RBAC.
     await db.refresh(user, attribute_names=["user_roles"])
 
-    # Onboarding tokens are allowed through regardless of completion state.
-    # All other tokens require onboarding_completed == True.
+    # Onboarding tokens bypass the completion check (they're issued pre-completion).
     if token_type != _TOKEN_TYPE_ONBOARDING and not user.onboarding_completed:
         logger.warning("Auth rejected — onboarding incomplete: %s", user_id)
         raise HTTPException(
