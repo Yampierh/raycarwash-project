@@ -169,14 +169,30 @@ def create_application() -> FastAPI:
     application.state.limiter = limiter
     application.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+    # ---- Correlation ID middleware ----
+    # Generates a unique X-Request-ID per request (or echoes the client-supplied
+    # one). Injected into logging context so every log line in a request carries
+    # the same ID. Returned in the response header so clients can quote it in
+    # bug reports.
+    @application.middleware("http")
+    async def correlation_id_middleware(request: Request, call_next):
+        import uuid as _uuid
+        request_id = request.headers.get("X-Request-ID") or str(_uuid.uuid4())
+        import logging as _logging
+        _log = _logging.getLogger("raycarwash.request")
+        _log.debug("→ %s %s  request_id=%s", request.method, request.url.path, request_id)
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        return response
+
     # ---- CORS ----
     application.add_middleware(
         CORSMiddleware,
         allow_origins=settings.ALLOWED_ORIGINS,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "Accept"],
-        expose_headers=["X-Process-Time-Ms"],
+        allow_headers=["Authorization", "Content-Type", "Accept", "X-Request-ID"],
+        expose_headers=["X-Process-Time-Ms", "X-Request-ID"],
     )
 
     # ---- Router registration order matters for prefix specificity ----

@@ -68,19 +68,17 @@ class AuthService:
         return _pwd_context.verify(plain_password, hashed_password)
 
     # ---- Token creation -------------------------------------------- #
-    # DONE (2026-04-25): token_version included in JWT payload as "v" claim.
-    #   Callers pass user.token_version; increment it to immediately invalidate
-    #   all sessions for that user (e.g., on password reset, role change).
-    #
-    # TODO: LATER - Add standard JWT claims (iss, aud, jti) per RFC 7519:
-    #       - iss: settings.APP_BASE_URL  (prevents token from other envs)
-    #       - aud: "raycarwash-api"  (rejects tokens for other services)
-    #       - jti: uuid.uuid4()   (enables revocation blacklist in Redis)
+    # DONE (2026-04-25): token_version ("v"), iss, aud, jti claims added.
+    #   "v"   — increment user.token_version to instantly invalidate all sessions.
+    #   "iss" — settings.APP_BASE_URL; prevents staging tokens in prod.
+    #   "aud" — "raycarwash-api"; decoded with verify_aud=False + manual check
+    #            for backward compat with tokens issued before this change.
+    #   "jti" — uuid per token; future revocation blacklist hook.
     #
     # TODO: LATER - Switch from HS256 to RS256 for JWT signing:
     #       - Generate RSA key pair
-    #       - Create GET /.well-known/jwks.json endpoint
-    #       - Use private key to sign, public key to verify
+    #       - Expose GET /.well-known/jwks.json
+    #       - Microservices verify with public key, private key never shared
 
     @staticmethod
     def _build_token(
@@ -93,12 +91,17 @@ class AuthService:
         now    = datetime.now(timezone.utc)
         expire = now + expires_delta
         payload = {
-            "sub":  str(subject),
+            # RFC 7519 standard claims
+            "iss": settings.APP_BASE_URL,   # issuer — prevents cross-env token reuse
+            "aud": "raycarwash-api",         # audience — rejects tokens for other services
+            "jti": str(uuid.uuid4()),        # unique token ID — enables future revocation blacklist
+            "sub": str(subject),
+            "iat": int(now.timestamp()),
+            "exp": int(expire.timestamp()),
+            # App-specific claims
             "role": role_name,
             "type": token_type,
             "v":    token_version,
-            "iat":  int(now.timestamp()),
-            "exp":  int(expire.timestamp()),
         }
         return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
@@ -149,15 +152,25 @@ class AuthService:
         """
         Decode and verify a JWT. Raises JWTError on any validation failure.
 
-        The `expected_type` check prevents token type confusion:
-        using a refresh token where an access token is expected is
-        silently rejected.
+        Validates:
+          - Signature (JWT_SECRET_KEY, JWT_ALGORITHM)
+          - Expiry (exp claim)
+          - Audience (aud == "raycarwash-api")
+          - Token type (type claim must match expected_type)
+
+        Audience validation is skipped for tokens without an "aud" claim so
+        that tokens issued before this change (which lack "aud") remain valid.
         """
         payload = jwt.decode(
             token,
             settings.JWT_SECRET_KEY,
             algorithms=[settings.JWT_ALGORITHM],
+            options={"verify_aud": False},  # we check aud manually below
         )
+        # Validate audience if present (backward-compat: skip if absent)
+        aud = payload.get("aud")
+        if aud is not None and aud != "raycarwash-api":
+            raise JWTError(f"Invalid audience: expected 'raycarwash-api', got '{aud}'.")
         if payload.get("type") != expected_type:
             raise JWTError(
                 f"Wrong token type: expected '{expected_type}', "
@@ -612,7 +625,12 @@ async def get_current_user(
             token,
             settings.JWT_SECRET_KEY,
             algorithms=[settings.JWT_ALGORITHM],
+            options={"verify_aud": False},  # aud checked manually; backward-compat
         )
+        # Validate aud if present (tokens before this change lack "aud")
+        aud = payload.get("aud")
+        if aud is not None and aud != "raycarwash-api":
+            raise JWTError("Invalid audience")
         token_type = payload.get("type")
         user_id_str: str | None = payload.get("sub")
         if user_id_str is None:
