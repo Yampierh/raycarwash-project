@@ -27,7 +27,7 @@ from app.models.models import (
     Appointment,
     AppointmentStatus,
     AuditAction,
-    DetailerProfile,
+    ProviderProfile,
     DetailerService,
     Service,
     User,
@@ -35,12 +35,12 @@ from app.models.models import (
 )
 from app.repositories.appointment_repository import AppointmentRepository
 from app.repositories.audit_repository import AuditRepository
-from app.repositories.detailer_repository import DetailerRepository
+from app.repositories.provider_repository import ProviderRepository
 from app.schemas.schemas import (
     DetailerMeRead,
-    DetailerProfileCreate,
-    DetailerProfileRead,
-    DetailerProfileUpdate,
+    ProviderProfileCreate,
+    ProviderProfileRead,
+    ProviderProfileUpdate,
     DetailerPublicRead,
     DetailerServiceRead,
     DetailerServiceUpdate,
@@ -82,7 +82,7 @@ async def list_detailers(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="lat and lng must be provided together or both omitted.",
         )
-    repo = DetailerRepository(db)
+    repo = ProviderRepository(db)
     rows, total = await repo.list_available(
         lat=lat, lng=lng, radius_miles=radius_miles,
         min_rating=min_rating, page=page, page_size=page_size,
@@ -124,7 +124,7 @@ async def get_my_profile(
     db: AsyncSession = Depends(get_db),
 ) -> DetailerMeRead:
     """Returns full profile including computed stats (earnings, service count)."""
-    repo    = DetailerRepository(db)
+    repo    = ProviderRepository(db)
     profile = await repo.get_profile(current_user.id)
 
     if profile is None:
@@ -160,7 +160,7 @@ async def get_my_profile(
     summary="Create or update the authenticated detailer's profile (upsert).",
 )
 async def upsert_my_profile(
-    payload: DetailerProfileCreate,
+    payload: ProviderProfileCreate,
     current_user: User = Depends(require_role("detailer")),
     db: AsyncSession = Depends(get_db),
 ) -> DetailerMeRead:
@@ -168,7 +168,7 @@ async def upsert_my_profile(
     Upsert semantics: creates profile on first call, updates on subsequent calls.
     Used by both the Onboarding screen and the Edit Profile screen.
     """
-    repo    = DetailerRepository(db)
+    repo    = ProviderRepository(db)
     profile = await repo.get_profile(current_user.id)
 
     working_hours_dict = (
@@ -187,7 +187,7 @@ async def upsert_my_profile(
 
     if profile is None:
         # CREATE
-        profile = DetailerProfile(
+        profile = ProviderProfile(
             user_id=current_user.id,
             bio=payload.bio,
             years_of_experience=payload.years_of_experience,
@@ -200,12 +200,12 @@ async def upsert_my_profile(
         profile = await repo.create_profile(profile)
         await AuditRepository(db).log(
             action=AuditAction.DETAILER_PROFILE_CREATED,
-            entity_type="detailer_profile",
+            entity_type="provider_profile",
             entity_id=str(profile.id),
             actor_id=current_user.id,
             metadata={"timezone": payload.timezone},
         )
-        logger.info("DetailerProfile created | user=%s", current_user.id)
+        logger.info("ProviderProfile created | user=%s", current_user.id)
     else:
         # UPDATE
         fields: dict = {
@@ -219,12 +219,12 @@ async def upsert_my_profile(
         profile = await repo.update_profile(current_user.id, fields)
         await AuditRepository(db).log(
             action=AuditAction.DETAILER_PROFILE_UPDATED,
-            entity_type="detailer_profile",
+            entity_type="provider_profile",
             entity_id=str(profile.id),
             actor_id=current_user.id,
             metadata={"updated_fields": list(fields.keys())},
         )
-        logger.info("DetailerProfile updated | user=%s", current_user.id)
+        logger.info("ProviderProfile updated | user=%s", current_user.id)
 
     total_earnings_cents, total_services = await _compute_detailer_stats(
         current_user.id, db
@@ -257,7 +257,7 @@ async def update_accepting_status(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Activates or deactivates the detailer's visibility in matching/discovery."""
-    repo    = DetailerRepository(db)
+    repo    = ProviderRepository(db)
     profile = await repo.get_profile(current_user.id)
 
     if profile is None:
@@ -295,7 +295,7 @@ async def list_my_services(
     For each service, looks up the detailer's own record (is_active, custom_price_cents).
     If no record exists yet, the service is shown as inactive with no custom price.
     """
-    profile = await DetailerRepository(db).get_profile(current_user.id)
+    profile = await ProviderRepository(db).get_profile(current_user.id)
     if profile is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -341,7 +341,7 @@ async def update_my_service(
     - is_active: makes this service bookable by clients.
     - custom_price_cents: null = use platform base price.
     """
-    profile = await DetailerRepository(db).get_profile(current_user.id)
+    profile = await ProviderRepository(db).get_profile(current_user.id)
     if profile is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -489,20 +489,20 @@ async def update_detailer_location(
 
 @router.get(
     "/{detailer_id}/profile",
-    response_model=DetailerProfileRead,
+    response_model=ProviderProfileRead,
     summary="Fetch a detailer's public profile.",
 )
-async def get_detailer_profile(
+async def get_provider_profile(
     detailer_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-) -> DetailerProfileRead:
-    profile = await DetailerRepository(db).get_profile(detailer_id)
+) -> ProviderProfileRead:
+    profile = await ProviderRepository(db).get_profile(detailer_id)
     if profile is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Detailer profile for {detailer_id} not found.",
         )
-    return DetailerProfileRead.model_validate(profile)
+    return ProviderProfileRead.model_validate(profile)
 
 
 # ================================================================== #

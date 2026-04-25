@@ -32,7 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.limiter import limiter
 from app.db.session import get_db
-from app.models.models import AuditAction, ClientProfile, DetailerProfile, User, Role, UserRoleAssociation
+from app.models.models import AuditAction, ClientProfile, OnboardingStatus, ProviderProfile, User, Role, UserRoleAssociation
 from app.repositories.audit_repository import AuditRepository
 from app.repositories.auth_provider_repository import AuthProviderRepository
 from app.repositories.password_reset_token_repository import PasswordResetTokenRepository
@@ -125,7 +125,7 @@ async def register(
     new_user = User(
         email=body.email,
         password_hash=AuthService.hash_password(body.password),
-        onboarding_completed=False,
+        onboarding_status=OnboardingStatus.PENDING_PROFILE,
     )
     user = await UserRepository(db).create(new_user)
 
@@ -521,7 +521,7 @@ async def complete_user_profile(
 
     # Explicitly refresh profiles to avoid stale identity-map state from the
     # same SQLAlchemy session (common in tests and after prior refreshes).
-    await db.refresh(user, attribute_names=["client_profile", "detailer_profile", "user_roles"])
+    await db.refresh(user, attribute_names=["client_profile", "provider_profile", "user_roles"])
 
     if body.full_name:
         user.full_name = body.full_name
@@ -543,8 +543,8 @@ async def complete_user_profile(
         # Create the profile for the chosen role if it doesn't exist yet
         if body.role == "client" and not user.client_profile:
             db.add(ClientProfile(user_id=user.id))
-        elif body.role == "detailer" and not user.detailer_profile:
-            db.add(DetailerProfile(user_id=user.id))
+        elif body.role == "detailer" and not user.provider_profile:
+            db.add(ProviderProfile(user_id=user.id))
 
     # Mark onboarding as complete — this is the single source of truth
     user.onboarding_status = "completed"
@@ -696,7 +696,7 @@ async def update_user_profile(
 ) -> UserRead:
     """
     Updates full_name and/or phone_number.
-    Note: service_address was moved to ClientProfile/DetailerProfile (Sprint 6).
+    Note: service_address was moved to ClientProfile/ProviderProfile (Sprint 6).
     Only supplied (non-None) fields are changed.
     """
     fields: dict = {}
@@ -704,7 +704,7 @@ async def update_user_profile(
         fields["full_name"] = payload.full_name
     if payload.phone_number is not None:
         fields["phone_number"] = payload.phone_number
-    # NOTE: service_address removed - it now lives in ClientProfile/DetailerProfile
+    # NOTE: service_address removed - it now lives in ClientProfile/ProviderProfile
 
     if fields:
         current_user = await UserRepository(db).update(current_user, fields)

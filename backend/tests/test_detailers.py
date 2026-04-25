@@ -4,7 +4,7 @@ import uuid
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import User, DetailerProfile, Service
+from app.models.models import User, ProviderProfile, Service
 
 
 # ============================================
@@ -25,7 +25,7 @@ async def get_auth_headers(client: AsyncClient, email: str, password: str) -> di
 @pytest.fixture
 async def detailer_with_profile(db_session: AsyncSession, test_detailer: User) -> User:
     """Detailer con perfil completo."""
-    profile = DetailerProfile(
+    profile = ProviderProfile(
         user_id=test_detailer.id,
         bio="Expert detailer with 5 years experience",
         years_of_experience=5,

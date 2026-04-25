@@ -15,7 +15,7 @@ from typing import Any
 from sqlalchemy import and_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import DetailerProfile, User, Role, UserRoleAssociation
+from app.models.models import ProviderProfile, User, Role, UserRoleAssociation
 
 
 # ------------------------------------------------------------------ #
@@ -37,7 +37,7 @@ def _haversine_miles(lat1: float, lng1: float, lat2: float, lng2: float) -> floa
     return 2 * R * math.asin(math.sqrt(a))
 
 
-class DetailerRepository:
+class ProviderRepository:
 
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
@@ -46,10 +46,10 @@ class DetailerRepository:
     #  Read                                                             #
     # ---------------------------------------------------------------- #
 
-    async def get_profile(self, user_id: uuid.UUID) -> DetailerProfile | None:
-        stmt = select(DetailerProfile).where(
-            DetailerProfile.user_id == user_id,
-            DetailerProfile.is_deleted.is_(False),
+    async def get_profile(self, user_id: uuid.UUID) -> ProviderProfile | None:
+        stmt = select(ProviderProfile).where(
+            ProviderProfile.user_id == user_id,
+            ProviderProfile.is_deleted.is_(False),
         )
         result = await self._db.execute(stmt)
         return result.scalar_one_or_none()
@@ -77,7 +77,7 @@ class DetailerRepository:
         by proximity to (lat, lng) within radius_miles.
 
         ALGORITHM:
-          1. JOIN users + detailer_profiles.
+          1. JOIN users + provider_profiles.
           2. Filter: active DETAILER, is_accepting_bookings, not deleted.
           3. Optional: min_rating filter.
           4. Optional bounding-box pre-filter (cheap SQL) before Haversine.
@@ -87,7 +87,7 @@ class DetailerRepository:
 
         Returns:
           (rows, total_count)
-          Each row: {"user": User, "profile": DetailerProfile, "distance_miles": float | None}
+          Each row: {"user": User, "profile": ProviderProfile, "distance_miles": float | None}
 
         NOTE: For production scale (>10k detailers), replace with PostGIS
         ST_DWithin() + ST_Distance() for O(log n) index-backed geo queries.
@@ -96,12 +96,12 @@ class DetailerRepository:
             Role.name == "detailer",
             User.is_active.is_(True),
             User.is_deleted.is_(False),
-            DetailerProfile.is_deleted.is_(False),
-            DetailerProfile.is_accepting_bookings.is_(True),
+            ProviderProfile.is_deleted.is_(False),
+            ProviderProfile.is_accepting_bookings.is_(True),
         ]
 
         if min_rating is not None:
-            filters.append(DetailerProfile.average_rating >= min_rating)
+            filters.append(ProviderProfile.average_rating >= min_rating)
 
         # Bounding-box pre-filter — cuts down rows before expensive Haversine.
         # 1° latitude ≈ 69 miles; longitude degree shrinks by cos(lat).
@@ -111,17 +111,17 @@ class DetailerRepository:
                 0.001, 69.0 * math.cos(math.radians(lat))
             )
             filters.extend([
-                DetailerProfile.current_lat.isnot(None),
-                DetailerProfile.current_lng.isnot(None),
-                DetailerProfile.current_lat.between(lat - lat_delta, lat + lat_delta),
-                DetailerProfile.current_lng.between(lng - lng_delta, lng + lng_delta),
+                ProviderProfile.current_lat.isnot(None),
+                ProviderProfile.current_lng.isnot(None),
+                ProviderProfile.current_lat.between(lat - lat_delta, lat + lat_delta),
+                ProviderProfile.current_lng.between(lng - lng_delta, lng + lng_delta),
             ])
 
         stmt = (
-            select(User, DetailerProfile)
+            select(User, ProviderProfile)
             .join(UserRoleAssociation, UserRoleAssociation.user_id == User.id)
             .join(Role, Role.id == UserRoleAssociation.role_id)
-            .join(DetailerProfile, DetailerProfile.user_id == User.id)
+            .join(ProviderProfile, ProviderProfile.user_id == User.id)
             .where(and_(*filters))
         )
 
@@ -167,7 +167,7 @@ class DetailerRepository:
     #  Write                                                            #
     # ---------------------------------------------------------------- #
 
-    async def create_profile(self, profile: DetailerProfile) -> DetailerProfile:
+    async def create_profile(self, profile: ProviderProfile) -> ProviderProfile:
         self._db.add(profile)
         await self._db.flush()
         await self._db.refresh(profile)
@@ -177,7 +177,7 @@ class DetailerRepository:
         self,
         user_id: uuid.UUID,
         fields: dict[str, Any],
-    ) -> DetailerProfile | None:
+    ) -> ProviderProfile | None:
         """
         PATCH semantics: only update columns present in `fields`.
         Returns the updated profile or None if it doesn't exist.
@@ -191,10 +191,10 @@ class DetailerRepository:
         fields["updated_at"] = datetime.now(timezone.utc)
 
         await self._db.execute(
-            update(DetailerProfile)
+            update(ProviderProfile)
             .where(
-                DetailerProfile.user_id == user_id,
-                DetailerProfile.is_deleted.is_(False),
+                ProviderProfile.user_id == user_id,
+                ProviderProfile.is_deleted.is_(False),
             )
             .values(**fields)
         )
@@ -214,10 +214,10 @@ class DetailerRepository:
         object, modifying it, and flushing. For a location-tracking endpoint
         that may be called every 30 seconds per active detailer, this matters.
         """
-        # Fix: current_lat/lng/last_location_update live on DetailerProfile, not User
+        # Fix: current_lat/lng/last_location_update live on ProviderProfile, not User
         await self._db.execute(
-            update(DetailerProfile)
-            .where(DetailerProfile.user_id == user_id)
+            update(ProviderProfile)
+            .where(ProviderProfile.user_id == user_id)
             .values(
                 current_lat=lat,
                 current_lng=lng,

@@ -33,7 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.db.session import get_db
-from app.models.models import DetailerProfile, ProcessedWebhook
+from app.models.models import ProviderProfile, ProcessedWebhook
 from app.services.payment_service import PaymentService
 
 logger   = logging.getLogger(__name__)
@@ -183,8 +183,8 @@ async def _handle_identity_verified(event: dict, db: AsyncSession) -> None:
     user_id_str = session_obj.get("metadata", {}).get("user_id")
 
     result = await db.execute(
-        select(DetailerProfile).where(
-            DetailerProfile.stripe_verification_session_id == session_id
+        select(ProviderProfile).where(
+            ProviderProfile.stripe_verification_session_id == session_id
         )
     )
     profile = result.scalar_one_or_none()
@@ -218,8 +218,8 @@ async def _handle_identity_requires_input(event: dict, db: AsyncSession) -> None
     rejection_msg  = f"{reason_code}: {reason_reason}".strip(": ")
 
     result = await db.execute(
-        select(DetailerProfile).where(
-            DetailerProfile.stripe_verification_session_id == session_id
+        select(ProviderProfile).where(
+            ProviderProfile.stripe_verification_session_id == session_id
         )
     )
     profile = result.scalar_one_or_none()

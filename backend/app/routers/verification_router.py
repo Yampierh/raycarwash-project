@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.services.auth import get_current_user
 from app.db.session import get_db
-from app.models.models import DetailerProfile, User
+from app.models.models import ProviderProfile, User
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -72,14 +72,14 @@ class VerificationStatusResponse(BaseModel):
 #  Helpers                                                            #
 # ------------------------------------------------------------------ #
 
-async def _get_or_create_profile(user: User, db: AsyncSession) -> DetailerProfile:
-    """Return the detailer's DetailerProfile, creating a skeleton if missing."""
+async def _get_or_create_profile(user: User, db: AsyncSession) -> ProviderProfile:
+    """Return the detailer's ProviderProfile, creating a skeleton if missing."""
     result = await db.execute(
-        select(DetailerProfile).where(DetailerProfile.user_id == user.id)
+        select(ProviderProfile).where(ProviderProfile.user_id == user.id)
     )
     profile = result.scalar_one_or_none()
     if profile is None:
-        profile = DetailerProfile(user_id=user.id)
+        profile = ProviderProfile(user_id=user.id)
         db.add(profile)
         await db.flush()
     return profile
@@ -219,7 +219,7 @@ async def verification_status(
     current_user: User = Depends(get_current_user),
 ) -> VerificationStatusResponse:
     result = await db.execute(
-        select(DetailerProfile).where(DetailerProfile.user_id == current_user.id)
+        select(ProviderProfile).where(ProviderProfile.user_id == current_user.id)
     )
     profile = result.scalar_one_or_none()
 

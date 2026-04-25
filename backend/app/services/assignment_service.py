@@ -70,7 +70,7 @@ async def assign(
         AppointmentAssignment,
         AppointmentStatus,
         AssignmentStatus,
-        DetailerProfile,
+        ProviderProfile,
     )
     from app.services.h3_service import find_nearby_detailers
 
@@ -82,11 +82,11 @@ async def assign(
         return
 
     result = await db.execute(
-        select(DetailerProfile)
+        select(ProviderProfile)
         .where(
-            DetailerProfile.user_id.in_([uuid.UUID(d) for d in detailer_ids]),
-            DetailerProfile.is_accepting_bookings.is_(True),
-            DetailerProfile.is_deleted.is_(False),
+            ProviderProfile.user_id.in_([uuid.UUID(d) for d in detailer_ids]),
+            ProviderProfile.is_accepting_bookings.is_(True),
+            ProviderProfile.is_deleted.is_(False),
         )
     )
     profiles = result.scalars().all()

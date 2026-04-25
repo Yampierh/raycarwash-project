@@ -65,10 +65,10 @@ async def test_appointment(
     test_vehicle: Vehicle
 ) -> Appointment:
     """Create a test appointment in PENDING status."""
-    from app.models.models import DetailerProfile, AppointmentVehicle
+    from app.models.models import ProviderProfile, AppointmentVehicle
     
     # Create detailer profile
-    detailer_profile = DetailerProfile(
+    provider_profile = ProviderProfile(
         user_id=test_detailer.id,
         bio="Test detailer",
         years_of_experience=5,
@@ -76,7 +76,7 @@ async def test_appointment(
         timezone="America/Indiana/Indianapolis",
         is_accepting_bookings=True,
     )
-    db_session.add(detailer_profile)
+    db_session.add(provider_profile)
     await db_session.flush()
     
     # Create appointment
@@ -128,8 +128,8 @@ class TestCreateAppointment:
     ):
         """Test crear cita exitosamente."""
         # Setup detailer profile
-        from app.models.models import DetailerProfile
-        profile = DetailerProfile(
+        from app.models.models import ProviderProfile
+        profile = ProviderProfile(
             user_id=test_detailer.id,
             bio="Test",
             years_of_experience=5,
@@ -243,8 +243,8 @@ class TestCreateAppointment:
         await db_session.refresh(other_vehicle)
         
         # Setup detailer profile
-        from app.models.models import DetailerProfile
-        profile = DetailerProfile(
+        from app.models.models import ProviderProfile
+        profile = ProviderProfile(
             user_id=test_detailer.id,
             bio="Test",
             years_of_experience=5,
@@ -643,8 +643,8 @@ class TestMultiVehicleAppointment:
     ):
         """Test crear cita con múltiples vehículos."""
         # Setup detailer profile
-        from app.models.models import DetailerProfile
-        profile = DetailerProfile(
+        from app.models.models import ProviderProfile
+        profile = ProviderProfile(
             user_id=test_detailer.id,
             bio="Test",
             years_of_experience=5,

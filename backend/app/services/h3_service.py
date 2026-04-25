@@ -54,7 +54,7 @@ async def update_h3_index(
     db: AsyncSession,
 ) -> None:
     """Update Redis H3 sets and persist index columns to PostgreSQL."""
-    from app.models.models import DetailerProfile
+    from app.models.models import ProviderProfile
 
     settings = get_settings()
     new_cell_r7 = h3.latlng_to_cell(new_lat, new_lng, settings.H3_RESOLUTION_SEARCH)
@@ -71,8 +71,8 @@ async def update_h3_index(
     )
 
     await db.execute(
-        update(DetailerProfile)
-        .where(DetailerProfile.user_id == uuid.UUID(detailer_id))
+        update(ProviderProfile)
+        .where(ProviderProfile.user_id == uuid.UUID(detailer_id))
         .values(
             current_lat=new_lat,
             current_lng=new_lng,

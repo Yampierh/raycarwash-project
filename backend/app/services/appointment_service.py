@@ -43,7 +43,7 @@ from app.models.models import (
 from app.repositories.addon_repository import AddonRepository
 from app.repositories.appointment_repository import AppointmentRepository
 from app.repositories.audit_repository import AuditRepository
-from app.repositories.detailer_repository import DetailerRepository
+from app.repositories.provider_repository import ProviderRepository
 from app.repositories.service_repository import ServiceRepository
 from app.repositories.user_repository import UserRepository
 from app.repositories.vehicle_repository import VehicleRepository
@@ -99,7 +99,7 @@ class AppointmentService:
         self._user_repo        = UserRepository(db)
         self._vehicle_repo     = VehicleRepository(db)
         self._service_repo     = ServiceRepository(db)
-        self._detailer_repo    = DetailerRepository(db)
+        self._detailer_repo    = ProviderRepository(db)
         self._audit_repo       = AuditRepository(db)
         self._addon_repo       = AddonRepository(db)
 
@@ -215,7 +215,7 @@ class AppointmentService:
 
         ALGORITHM:
           1. Verify detailer exists and is accepting bookings.
-          2. Load working hours from DetailerProfile JSONB.
+          2. Load working hours from ProviderProfile JSONB.
              Return [] if day is disabled.
           3. Determine effective slot width:
              - With service_id + vehicle_size → service_duration + travel_buffer
@@ -262,7 +262,7 @@ class AppointmentService:
 
         # Sprint 4: timezone-aware conversion.
         # HH:MM times are stored in the detailer's local timezone (IANA string
-        # in DetailerProfile.timezone). We create aware datetimes in that zone
+        # in ProviderProfile.timezone). We create aware datetimes in that zone
         # then convert to UTC for all downstream comparisons.
         detailer_tz_name = (profile.timezone if profile else None) or "America/Indiana/Indianapolis"
         try:

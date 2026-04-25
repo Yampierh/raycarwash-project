@@ -35,7 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import AsyncSessionLocal, get_db
 from app.repositories.appointment_repository import AppointmentRepository
-from app.repositories.detailer_repository import DetailerRepository
+from app.repositories.provider_repository import ProviderRepository
 from app.services.auth import ws_get_current_user
 from app.ws.connection_manager import ConnectionManager
 
@@ -204,7 +204,7 @@ async def _persist_location(
     """
     try:
         async with AsyncSessionLocal() as db:
-            repo = DetailerRepository(db)
+            repo = ProviderRepository(db)
             await repo.update_location(user_id, lat, lng)
             await db.commit()
     except Exception as exc:

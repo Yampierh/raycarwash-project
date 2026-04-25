@@ -4,7 +4,7 @@ import uuid
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import User, Service, DetailerProfile
+from app.models.models import User, Service, ProviderProfile
 
 
 # ============================================
@@ -25,7 +25,7 @@ async def get_auth_headers(client: AsyncClient, email: str, password: str) -> di
 @pytest.fixture
 async def detailer_with_profile(db_session: AsyncSession, test_detailer: User) -> User:
     """Create detailer with complete profile."""
-    profile = DetailerProfile(
+    profile = ProviderProfile(
         user_id=test_detailer.id,
         bio="Professional detailer",
         years_of_experience=5,
@@ -321,7 +321,7 @@ class TestMatchingSorting:
         db_session.add(user1)
         await db_session.flush()
         
-        profile1 = DetailerProfile(
+        profile1 = ProviderProfile(
             user_id=user1.id,
             bio="High rated",
             years_of_experience=10,
@@ -346,7 +346,7 @@ class TestMatchingSorting:
         db_session.add(user2)
         await db_session.flush()
         
-        profile2 = DetailerProfile(
+        profile2 = ProviderProfile(
             user_id=user2.id,
             bio="Low rated",
             years_of_experience=2,

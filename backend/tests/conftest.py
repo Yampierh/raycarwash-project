@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from main import app
 from app.db.session import get_db
-from app.models.models import Base, User, Role, UserRoleAssociation, ClientProfile, DetailerProfile, OnboardingStatus
+from app.models.models import Base, User, Role, UserRoleAssociation, ClientProfile, ProviderProfile, OnboardingStatus
 from app.core.config import get_settings
 from app.core.limiter import limiter
 
@@ -148,7 +148,7 @@ async def _create_user_with_role(
     if role_name == "client":
         db_session.add(ClientProfile(user_id=created_user.id))
     elif role_name == "detailer":
-        db_session.add(DetailerProfile(user_id=created_user.id))
+        db_session.add(ProviderProfile(user_id=created_user.id))
 
     await db_session.commit()
 

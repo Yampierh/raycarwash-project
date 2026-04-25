@@ -7,7 +7,7 @@ import uuid
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import DetailerProfile, Review
+from app.models.models import ProviderProfile, Review
 
 
 class ReviewRepository:
@@ -71,24 +71,24 @@ class ReviewRepository:
         
         WHY denormalise here?
         Every public-facing detailer list query would otherwise require
-        a GROUP BY + AVG subquery. Denormalising into DetailerProfile
+        a GROUP BY + AVG subquery. Denormalising into ProviderProfile
         makes reads O(1) while writes (new review → update aggregate) are
         rare. The trade-off is strongly in favour of the read-heavy pattern.
         """
         # Atomic SQL update - no race condition possible
         # Uses COALESCE to handle the first review (NULL → 0)
         await self._db.execute(
-            update(DetailerProfile)
-            .where(DetailerProfile.user_id == detailer_id)
+            update(ProviderProfile)
+            .where(ProviderProfile.user_id == detailer_id)
             .values(
                 average_rating=(
                     # SQLite/Postgres compatible formula
                     # new_avg = (old_avg * total + new) / (total + 1)
                     # But we compute it in SQL to be atomic
-                    (DetailerProfile.average_rating * DetailerProfile.total_reviews + new_rating) 
-                    / (DetailerProfile.total_reviews + 1)
+                    (ProviderProfile.average_rating * ProviderProfile.total_reviews + new_rating) 
+                    / (ProviderProfile.total_reviews + 1)
                 ),
-                total_reviews=DetailerProfile.total_reviews + 1,
+                total_reviews=ProviderProfile.total_reviews + 1,
             )
         )
         await self._db.flush()

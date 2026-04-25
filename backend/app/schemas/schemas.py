@@ -791,7 +791,7 @@ class PaginatedResponse(_BaseSchema):
 #  SPRINT 3: SCHEMAS DE DETAILER                                      #
 # ================================================================== #
 
-class DetailerProfileRead(_BaseSchema):
+class ProviderProfileRead(_BaseSchema):
     id: uuid.UUID
     user_id: uuid.UUID
     bio: str | None = Field(default=None)
@@ -908,11 +908,11 @@ class WorkingHoursDay(BaseModel):
         return self
 
 
-class DetailerProfileCreate(_BaseRequestSchema):
+class ProviderProfileCreate(_BaseRequestSchema):
     """
     Payload for POST /api/v1/detailers/profile.
 
-    Creates the DetailerProfile row for an existing DETAILER user.
+    Creates the ProviderProfile row for an existing DETAILER user.
     All fields except timezone are optional (sensible defaults are applied).
     """
 
@@ -961,7 +961,7 @@ class DetailerProfileCreate(_BaseRequestSchema):
         return v
 
 
-class DetailerProfileUpdate(_BaseRequestSchema):
+class ProviderProfileUpdate(_BaseRequestSchema):
     """
     Payload for PATCH /api/v1/detailers/profile.
     All fields are optional — only supplied fields are updated.
@@ -995,7 +995,7 @@ class DetailerPublicRead(_BaseSchema):
     """
     Public detailer card for discovery results (GET /api/v1/detailers).
 
-    Joins User + DetailerProfile — constructed manually in the router
+    Joins User + ProviderProfile — constructed manually in the router
     because it spans two ORM objects.
     """
     user_id: uuid.UUID

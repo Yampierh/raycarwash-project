@@ -3,7 +3,7 @@
 # Test seed: 6 realistic detailers in Fort Wayne, IN.
 # Each detailer gets:
 #   - A User row with 'detailer' role (via RBAC)
-#   - A DetailerProfile row (bio, working_hours, timezone, location)
+#   - A ProviderProfile row (bio, working_hours, timezone, location)
 #   - A set of active services with some custom prices
 #
 # Idempotent: keyed on email — safe to call on every startup.
@@ -21,7 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import (
-    DetailerProfile,
+    ProviderProfile,
     DetailerService,
     Role,
     Service,
@@ -290,7 +290,7 @@ async def seed_detailers(db: AsyncSession) -> None:
         db.add(user_role)
 
         # Create detailer profile (location now on profile, not user)
-        profile = DetailerProfile(
+        profile = ProviderProfile(
             user_id=user.id,
             bio=d["bio"],
             years_of_experience=d["years_of_experience"],

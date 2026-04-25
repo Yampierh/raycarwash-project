@@ -174,8 +174,8 @@ class AuditAction(str, enum.Enum):
     # Review events
     REVIEW_CREATED  = "review_created"
     # Detailer profile events (Sprint 4)
-    DETAILER_PROFILE_CREATED = "detailer_profile_created"
-    DETAILER_PROFILE_UPDATED = "detailer_profile_updated"
+    DETAILER_PROFILE_CREATED = "provider_profile_created"
+    DETAILER_PROFILE_UPDATED = "provider_profile_updated"
 
 
 # ------------------------------------------------------------------ #
@@ -457,7 +457,7 @@ class User(TimestampMixin, Base):
 
     Identity: email, full_name (encrypted), phone_number (encrypted), password_hash.
     Roles: many-to-many via user_roles. A user can hold multiple roles (client + detailer).
-    Profiles: ClientProfile and DetailerProfile extend the user for role-specific data.
+    Profiles: ClientProfile and ProviderProfile extend the user for role-specific data.
     onboarding_status: state machine (pending_profile | pending_verification | completed).
                        onboarding_completed is a read-only property (= status == COMPLETED).
     PII (full_name, phone_number) is encrypted at rest via SECRET_KEY.
@@ -580,8 +580,8 @@ class User(TimestampMixin, Base):
         lazy="selectin",
         cascade="all, delete-orphan",
     )
-    detailer_profile: Mapped[DetailerProfile | None] = relationship(
-        "DetailerProfile",
+    provider_profile: Mapped[ProviderProfile | None] = relationship(
+        "ProviderProfile",
         back_populates="user",
         uselist=False,
         lazy="selectin",
@@ -672,9 +672,13 @@ class User(TimestampMixin, Base):
         """Check if user has client role."""
         return self.has_role("client")
 
-    def is_detailer(self) -> bool:
-        """Check if user has detailer role."""
+    def is_provider(self) -> bool:
+        """Check if user is a service provider (role='detailer')."""
         return self.has_role("detailer")
+
+    def is_detailer(self) -> bool:
+        """Backward-compat alias for is_provider()."""
+        return self.is_provider()
 
     @property
     def primary_role(self) -> str | None:
@@ -701,7 +705,7 @@ class ServiceCategoryTable(TimestampMixin, Base):
     Allows the platform to support multiple service types with a single
     provider model.
 
-    FIX: Enables the DetailerProfile → ProviderProfile rename without
+    FIX: Enables the ProviderProfile → ProviderProfile rename without
     fragmenting the codebase. Future service types get their own rows here.
     """
 
@@ -724,15 +728,15 @@ class ServiceCategoryTable(TimestampMixin, Base):
 
 
 # ------------------------------------------------------------------ #
-#  Model: DetailerProfile                                             #
+#  Model: ProviderProfile                                             #
 # ------------------------------------------------------------------ #
 
-class DetailerProfile(TimestampMixin, Base):
+class ProviderProfile(TimestampMixin, Base):
     """
     One-to-one extension of User for DETAILER-specific configuration.
 
     RENAME: This model is being renamed to ProviderProfile in a phased approach.
-    The DetailerProfile name is being phased out in favor of a more
+    The ProviderProfile name is being phased out in favor of a more
     generic "Provider" terminology that can accommodate future service types.
 
     WHY a separate table instead of more columns on User?
@@ -754,7 +758,7 @@ class DetailerProfile(TimestampMixin, Base):
     while supporting arbitrary future changes (holiday schedules, etc.).
     """
 
-    __tablename__ = "detailer_profiles"
+    __tablename__ = "provider_profiles"
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -799,7 +803,7 @@ class DetailerProfile(TimestampMixin, Base):
     )
 
     # ---- Service category (Sprint 6 refactor) ----
-    # FIX: Added to support DetailerProfile → ProviderProfile rename.
+    # FIX: Added to support ProviderProfile → ProviderProfile rename.
     # Allows multiple service types with a single model.
     service_category_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
@@ -894,14 +898,14 @@ class DetailerProfile(TimestampMixin, Base):
         comment="Fraction of offers accepted. Updated by assignment engine.",
     )
 
-    user: Mapped[User] = relationship("User", back_populates="detailer_profile")
+    user: Mapped[User] = relationship("User", back_populates="provider_profile")
     detailer_services: Mapped[list[DetailerService]] = relationship(
         "DetailerService", back_populates="detailer", lazy="selectin",
         cascade="all, delete-orphan",
     )
 
     def __repr__(self) -> str:
-        return f"<DetailerProfile user_id={self.user_id}>"
+        return f"<ProviderProfile user_id={self.user_id}>"
 
 
 # ------------------------------------------------------------------ #
@@ -976,7 +980,7 @@ class DetailerService(TimestampMixin, Base):
     )
     detailer_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("detailer_profiles.id", ondelete="CASCADE"),
+        ForeignKey("provider_profiles.id", ondelete="CASCADE"),
         nullable=False, index=True,
     )
     service_id: Mapped[uuid.UUID] = mapped_column(
@@ -990,8 +994,8 @@ class DetailerService(TimestampMixin, Base):
     )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
-    detailer: Mapped[DetailerProfile] = relationship(
-        "DetailerProfile", back_populates="detailer_services"
+    detailer: Mapped[ProviderProfile] = relationship(
+        "ProviderProfile", back_populates="detailer_services"
     )
     service: Mapped[Service] = relationship("Service")
 
