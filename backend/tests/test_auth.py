@@ -678,6 +678,152 @@ class TestPasswordReset:
 
 
 # ============================================
+# POST /auth/password-reset/confirm
+# Single-use token guarantee
+# ============================================
+class TestPasswordResetSingleUse:
+    """
+    Verify that password reset tokens are single-use and DB-backed.
+
+    Strategy: create tokens directly via AuthService to get the raw token
+    (bypassing email delivery), then exercise the confirm endpoint.
+    """
+
+    @pytest.mark.asyncio
+    async def test_reset_token_works_on_first_use(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ):
+        """First use of a valid token must update the password and return 200."""
+        from app.services.auth import AuthService
+
+        raw_token = await AuthService.create_password_reset_token(
+            test_user.id, test_user.primary_role or "client", db_session
+        )
+        await db_session.commit()
+
+        resp = await client.post(
+            "/auth/password-reset/confirm",
+            json={"token": raw_token, "new_password": "NewPass9999!"},
+        )
+        assert resp.status_code == 200
+        assert "successfully" in resp.json()["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_reset_token_rejected_on_second_use(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ):
+        """Same token must be rejected on second use — single-use guarantee."""
+        from app.services.auth import AuthService
+
+        raw_token = await AuthService.create_password_reset_token(
+            test_user.id, test_user.primary_role or "client", db_session
+        )
+        await db_session.commit()
+
+        first = await client.post(
+            "/auth/password-reset/confirm",
+            json={"token": raw_token, "new_password": "FirstNew9999!"},
+        )
+        assert first.status_code == 200
+
+        second = await client.post(
+            "/auth/password-reset/confirm",
+            json={"token": raw_token, "new_password": "SecondAttempt!!1"},
+        )
+        assert second.status_code == 400, (
+            "Reused reset token must be rejected with 400. "
+            "Single-use guarantee is broken."
+        )
+
+    @pytest.mark.asyncio
+    async def test_reset_expired_token_rejected(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ):
+        """Token with expires_at in the past must be rejected."""
+        from datetime import datetime, timezone, timedelta
+        from app.repositories.password_reset_token_repository import PasswordResetTokenRepository
+        import secrets
+
+        raw_token = secrets.token_urlsafe(32)
+        repo = PasswordResetTokenRepository(db_session)
+        await repo.create(
+            user_id=test_user.id,
+            raw_token=raw_token,
+            expires_at=datetime.now(timezone.utc) - timedelta(hours=2),
+        )
+        await db_session.commit()
+
+        resp = await client.post(
+            "/auth/password-reset/confirm",
+            json={"token": raw_token, "new_password": "ShouldFail1!"},
+        )
+        assert resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_reset_nonexistent_token_rejected(self, client: AsyncClient):
+        """A completely unknown token must be rejected with 400."""
+        resp = await client.post(
+            "/auth/password-reset/confirm",
+            json={"token": "totally-invalid-token-that-does-not-exist", "new_password": "Fail1234!"},
+        )
+        assert resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_reset_increments_token_version(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ):
+        """Successful password reset must increment token_version to invalidate sessions."""
+        from app.services.auth import AuthService
+        from app.repositories.user_repository import UserRepository
+
+        original_version = getattr(test_user, "token_version", 1)
+
+        raw_token = await AuthService.create_password_reset_token(
+            test_user.id, test_user.primary_role or "client", db_session
+        )
+        await db_session.commit()
+
+        resp = await client.post(
+            "/auth/password-reset/confirm",
+            json={"token": raw_token, "new_password": "VersionBump9!"},
+        )
+        assert resp.status_code == 200
+
+        refreshed = await UserRepository(db_session).get_by_id(test_user.id)
+        new_version = getattr(refreshed, "token_version", 1)
+        assert new_version == original_version + 1, (
+            f"token_version must be incremented after password reset "
+            f"(expected {original_version + 1}, got {new_version})."
+        )
+
+    @pytest.mark.asyncio
+    async def test_new_request_invalidates_prior_token(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: User
+    ):
+        """Requesting a second reset must invalidate the first token."""
+        from app.services.auth import AuthService
+
+        first_token = await AuthService.create_password_reset_token(
+            test_user.id, test_user.primary_role or "client", db_session
+        )
+        await db_session.commit()
+
+        # Request a second reset — this invalidates the first token
+        _second_token = await AuthService.create_password_reset_token(
+            test_user.id, test_user.primary_role or "client", db_session
+        )
+        await db_session.commit()
+
+        resp = await client.post(
+            "/auth/password-reset/confirm",
+            json={"token": first_token, "new_password": "ShouldFail1!"},
+        )
+        assert resp.status_code == 400, (
+            "First token must be invalidated when a second reset is requested."
+        )
+
+
+# ============================================
 # Security: key isolation
 # ============================================
 class TestKeyIsolation:
