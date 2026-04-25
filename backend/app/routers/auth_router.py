@@ -547,7 +547,7 @@ async def complete_user_profile(
             db.add(DetailerProfile(user_id=user.id))
 
     # Mark onboarding as complete — this is the single source of truth
-    user.onboarding_completed = True
+    user.onboarding_status = "completed"
 
     await db.flush()
 

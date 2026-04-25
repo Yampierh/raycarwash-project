@@ -52,6 +52,22 @@ def _get_encryption_key() -> bytes:
 #  Enumerations                                                       #
 # ------------------------------------------------------------------ #
 
+class OnboardingStatus(str, enum.Enum):
+    """
+    State machine for the user registration flow.
+
+    PENDING_PROFILE     — just registered, full_name / role not yet set.
+    PENDING_VERIFICATION — provider submitted documents, waiting for approval.
+    COMPLETED           — all required steps done; full API access granted.
+
+    Stored as VARCHAR(30) so new states require no DB schema migration.
+    The old onboarding_completed boolean is now a computed property on User.
+    """
+    PENDING_PROFILE      = "pending_profile"
+    PENDING_VERIFICATION = "pending_verification"
+    COMPLETED            = "completed"
+
+
 class VehicleSize(str, enum.Enum):
     SMALL  = "small"
     MEDIUM = "medium"
@@ -442,8 +458,8 @@ class User(TimestampMixin, Base):
     Identity: email, full_name (encrypted), phone_number (encrypted), password_hash.
     Roles: many-to-many via user_roles. A user can hold multiple roles (client + detailer).
     Profiles: ClientProfile and DetailerProfile extend the user for role-specific data.
-    onboarding_completed: single source of truth for whether the user finished registration.
-                          Set to True by PUT /auth/complete-profile.
+    onboarding_status: state machine (pending_profile | pending_verification | completed).
+                       onboarding_completed is a read-only property (= status == COMPLETED).
     PII (full_name, phone_number) is encrypted at rest via SECRET_KEY.
     Social login identities live in AuthProvider rows linked to this user.
     """
@@ -492,20 +508,26 @@ class User(TimestampMixin, Base):
     # Risk: Spam accounts, fake profiles.
     # FIX: Require email verification before allowing login or actions.
     is_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    onboarding_completed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
-    # TODO: LATER - onboarding_completed: bool will break when platform adds more steps.
-    #       Already needs: photo upload, vehicle verification, background check consent.
-    #       FIX: Replace with state machine:
-    #       class OnboardingStatus(str, Enum):
-    #           PENDING_PROFILE = "pending_profile"
-    #           PENDING_ROLE = "pending_role"
-    #           PENDING_VERIFICATION = "pending_verification"
-    #           PENDING_APPROVAL = "pending_approval"
-    #           COMPLETED = "completed"
-    #       onboarding_status: Mapped[OnboardingStatus] = mapped_column(
-    #           Enum(OnboardingStatus), default=OnboardingStatus.PENDING_PROFILE)
-    #       Map onboarding_completed = property returning status == COMPLETED
+    # ---- Onboarding state machine ----
+    # Replaces the old onboarding_completed: bool field (migration b8c9d0e1f2a3).
+    # Stored as VARCHAR(30) — new statuses require no DB migration.
+    onboarding_status: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False,
+        default=OnboardingStatus.PENDING_PROFILE,
+        server_default=OnboardingStatus.PENDING_PROFILE,
+        comment=(
+            "Onboarding state machine. "
+            "Values: pending_profile | pending_verification | completed. "
+            "See OnboardingStatus enum."
+        ),
+    )
+
+    @property
+    def onboarding_completed(self) -> bool:
+        """Backward-compat alias — True when onboarding_status == 'completed'."""
+        return self.onboarding_status == OnboardingStatus.COMPLETED
 
     # --- Token version for instant revocation ---
     # FEATURE ADDED (2026-04-24): token_version field for instant session invalidation.

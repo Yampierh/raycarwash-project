@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from main import app
 from app.db.session import get_db
-from app.models.models import Base, User, Role, UserRoleAssociation, ClientProfile, DetailerProfile
+from app.models.models import Base, User, Role, UserRoleAssociation, ClientProfile, DetailerProfile, OnboardingStatus
 from app.core.config import get_settings
 from app.core.limiter import limiter
 
@@ -137,7 +137,7 @@ async def _create_user_with_role(
         full_name=full_name,
         password_hash=AuthService.hash_password(password),
         is_active=True,
-        onboarding_completed=True,
+        onboarding_status=OnboardingStatus.COMPLETED,
     )
     user_repo = UserRepository(db_session)
     created_user = await user_repo.create(user)
@@ -195,7 +195,7 @@ async def incomplete_user(db_session: AsyncSession) -> User:
         full_name=None,
         password_hash=AuthService.hash_password("Test1234!"),
         is_active=True,
-        onboarding_completed=False,
+        onboarding_status=OnboardingStatus.PENDING_PROFILE,
     )
     user_repo = UserRepository(db_session)
     created = await user_repo.create(user)
