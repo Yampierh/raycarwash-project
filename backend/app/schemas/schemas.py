@@ -1117,6 +1117,26 @@ class WebAuthnCredentialRead(_BaseSchema):
     last_used_at: datetime | None
 
 
+class WebAuthnCredentialsListResponse(_BaseSchema):
+    """Response for GET /auth/webauthn/credentials."""
+    credentials: list[WebAuthnCredentialRead]
+    total: int
+
+
+class WebAuthnCredentialRenameRequest(_BaseRequestSchema):
+    """Body for PATCH /auth/webauthn/credentials/{id}."""
+    device_name: str = Field(
+        ..., min_length=1, max_length=120,
+        description="New user-visible label for this passkey (e.g. 'Work MacBook').",
+    )
+
+
+class WebAuthnCredentialDeleteResponse(_BaseSchema):
+    """Response for DELETE /auth/webauthn/credentials/{id}."""
+    deleted_id: uuid.UUID
+    message: str
+
+
 # ================================================================== #
 #  SESSION MANAGEMENT SCHEMAS                                        #
 # ================================================================== #

@@ -92,3 +92,53 @@ class WebAuthnRepository:
         )
         result = await self._db.execute(stmt)
         return result.rowcount > 0
+
+    # ------------------------------------------------------------------ #
+    #  Credential management (list / rename / delete by PK)              #
+    # ------------------------------------------------------------------ #
+
+    async def get_by_pk_and_user(
+        self, credential_pk: uuid.UUID, user_id: uuid.UUID
+    ) -> WebAuthnCredential | None:
+        """Fetch a single credential by its UUID primary key, scoped to owner."""
+        stmt = select(WebAuthnCredential).where(
+            WebAuthnCredential.id == credential_pk,
+            WebAuthnCredential.user_id == user_id,
+        )
+        result = await self._db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def rename_credential(
+        self, credential_pk: uuid.UUID, user_id: uuid.UUID, device_name: str
+    ) -> WebAuthnCredential | None:
+        """
+        Update device_name for a credential owned by user_id.
+        Returns the updated row, or None if not found.
+        """
+        cred = await self.get_by_pk_and_user(credential_pk, user_id)
+        if cred is None:
+            return None
+        cred.device_name = device_name
+        await self._db.flush()
+        return cred
+
+    async def delete_by_pk(
+        self, credential_pk: uuid.UUID, user_id: uuid.UUID
+    ) -> bool:
+        """
+        Delete a passkey by its UUID primary key, scoped to owner.
+        Returns True if deleted, False if not found.
+        """
+        stmt = delete(WebAuthnCredential).where(
+            WebAuthnCredential.id == credential_pk,
+            WebAuthnCredential.user_id == user_id,
+        )
+        result = await self._db.execute(stmt)
+        return result.rowcount > 0
+
+    async def count_for_user(self, user_id: uuid.UUID) -> int:
+        """Return total number of passkeys registered for a user."""
+        from sqlalchemy import func
+        stmt = select(func.count()).where(WebAuthnCredential.user_id == user_id)
+        result = await self._db.execute(stmt)
+        return result.scalar_one()

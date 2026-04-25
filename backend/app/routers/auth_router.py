@@ -38,6 +38,7 @@ from app.repositories.auth_provider_repository import AuthProviderRepository
 from app.repositories.password_reset_token_repository import PasswordResetTokenRepository
 from app.repositories.user_repository import UserRepository
 from app.repositories.refresh_token_repository import RefreshTokenRepository
+from app.repositories.webauthn_repository import WebAuthnRepository
 from app.schemas.schemas import (
     AppleLoginRequest,
     CheckEmailRequest,
@@ -69,6 +70,10 @@ from app.schemas.schemas import (
     WebAuthnAuthBeginRequest,
     WebAuthnAuthBeginResponse,
     WebAuthnAuthCompleteRequest,
+    WebAuthnCredentialsListResponse,
+    WebAuthnCredentialRead,
+    WebAuthnCredentialRenameRequest,
+    WebAuthnCredentialDeleteResponse,
 )
 from app.services.auth import (
     AuthService,
@@ -1393,3 +1398,123 @@ async def revoke_all_sessions(
     repo = RefreshTokenRepository(db)
     await repo.revoke_all_for_user(current_user.id)
     await db.commit()
+
+
+# ------------------------------------------------------------------ #
+#  Passkey (WebAuthn) credential management                          #
+# ------------------------------------------------------------------ #
+
+import base64
+
+
+@router.get(
+    "/webauthn/credentials",
+    response_model=WebAuthnCredentialsListResponse,
+    summary="List registered passkeys for the current user.",
+)
+async def list_webauthn_credentials(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> WebAuthnCredentialsListResponse:
+    """
+    Return all passkeys (FIDO2 credentials) registered by the current user.
+    Each entry shows the device name, creation time, and last use timestamp.
+    """
+    repo = WebAuthnRepository(db)
+    creds = await repo.get_credentials_by_user(current_user.id)
+    return WebAuthnCredentialsListResponse(
+        credentials=[
+            WebAuthnCredentialRead(
+                id=c.id,
+                credential_id=base64.urlsafe_b64encode(c.credential_id).rstrip(b"=").decode(),
+                device_name=c.device_name,
+                created_at=c.created_at,
+                last_used_at=c.last_used_at,
+            )
+            for c in creds
+        ],
+        total=len(creds),
+    )
+
+
+@router.patch(
+    "/webauthn/credentials/{credential_id}",
+    response_model=WebAuthnCredentialRead,
+    summary="Rename a passkey.",
+)
+async def rename_webauthn_credential(
+    credential_id: uuid.UUID,
+    body: WebAuthnCredentialRenameRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> WebAuthnCredentialRead:
+    """
+    Update the user-visible device name for a registered passkey.
+    Only the owner of the credential can rename it.
+    """
+    repo = WebAuthnRepository(db)
+    updated = await repo.rename_credential(credential_id, current_user.id, body.device_name)
+    if updated is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Passkey not found.",
+        )
+    await db.commit()
+    return WebAuthnCredentialRead(
+        id=updated.id,
+        credential_id=base64.urlsafe_b64encode(updated.credential_id).rstrip(b"=").decode(),
+        device_name=updated.device_name,
+        created_at=updated.created_at,
+        last_used_at=updated.last_used_at,
+    )
+
+
+@router.delete(
+    "/webauthn/credentials/{credential_id}",
+    response_model=WebAuthnCredentialDeleteResponse,
+    summary="Remove a registered passkey.",
+)
+async def delete_webauthn_credential(
+    credential_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> WebAuthnCredentialDeleteResponse:
+    """
+    Delete a specific passkey. Useful when a device is lost or replaced.
+
+    Guard: refuses to delete the last passkey if the user has no password
+    and no other authentication method — prevents lockout.
+    """
+    repo = WebAuthnRepository(db)
+
+    # Safety check: ensure the credential belongs to this user
+    cred = await repo.get_by_pk_and_user(credential_id, current_user.id)
+    if cred is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Passkey not found.",
+        )
+
+    # Lockout guard: block deletion of the last passkey when user has no password
+    total = await repo.count_for_user(current_user.id)
+    has_password = bool(current_user.password_hash)
+    if total <= 1 and not has_password:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Cannot remove the last passkey when no password is set. "
+                "Set a password first, or register another passkey before removing this one."
+            ),
+        )
+
+    deleted = await repo.delete_by_pk(credential_id, current_user.id)
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Passkey not found.",
+        )
+    await db.commit()
+    return WebAuthnCredentialDeleteResponse(
+        deleted_id=credential_id,
+        message="Passkey removed successfully.",
+    )
