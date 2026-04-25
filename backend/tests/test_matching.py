@@ -4,7 +4,9 @@ import uuid
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import User, Service, ProviderProfile
+from domains.providers.models import ProviderProfile
+from domains.services_catalog.models import Service
+from domains.users.models import User
 
 
 # ============================================
@@ -186,7 +188,7 @@ class TestSmartMatching:
         db_session: AsyncSession
     ):
         """Test matching con addons."""
-        from app.models.models import Addon
+        from domains.services_catalog.models import Addon
         
         addon = Addon(
             name="Clay Bar Treatment",
@@ -303,9 +305,9 @@ class TestMatchingSorting:
     ):
         """Test que resultados están ordenados por rating y distancia."""
         # Crear múltiples detailers con diferentes ratings
-        from app.services.auth import AuthService
+        from domains.auth.service import AuthService
         from sqlalchemy import select
-        from app.models.models import Role
+        from domains.auth.models import Role
         
         result = await db_session.execute(select(Role).where(Role.name == "detailer"))
         detailer_role = result.scalar_one()

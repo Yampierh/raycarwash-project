@@ -4,7 +4,9 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from app.models.models import User, Vehicle, Role
+from domains.auth.models import Role
+from domains.users.models import User
+from domains.vehicles.models import Vehicle
 
 
 # ============================================
@@ -24,7 +26,7 @@ async def get_auth_headers(client: AsyncClient, email: str, password: str) -> di
 
 async def create_test_user_with_session(db_session: AsyncSession) -> User:
     """Create a test user with client role using the provided session."""
-    from app.services.auth import AuthService
+    from domains.auth.service import AuthService
     from sqlalchemy import select
     
     result = await db_session.execute(select(Role).where(Role.name == "client"))
@@ -40,7 +42,7 @@ async def create_test_user_with_session(db_session: AsyncSession) -> User:
     await db_session.flush()
     
     # Create user role association
-    from app.models.models import UserRoleAssociation
+    from domains.auth.models import UserRoleAssociation
     user_role = UserRoleAssociation(user_id=user.id, role_id=client_role.id)
     db_session.add(user_role)
     await db_session.commit()

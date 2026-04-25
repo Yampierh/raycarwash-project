@@ -5,7 +5,10 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from app.models.models import User, Vehicle, Service, Appointment, AppointmentStatus
+from domains.appointments.models import Appointment, AppointmentStatus
+from domains.services_catalog.models import Service
+from domains.users.models import User
+from domains.vehicles.models import Vehicle
 
 
 # ============================================
@@ -65,7 +68,8 @@ async def test_appointment(
     test_vehicle: Vehicle
 ) -> Appointment:
     """Create a test appointment in PENDING status."""
-    from app.models.models import ProviderProfile, AppointmentVehicle
+    from domains.appointments.models import AppointmentVehicle
+    from domains.providers.models import ProviderProfile
     
     # Create detailer profile
     provider_profile = ProviderProfile(
@@ -128,7 +132,7 @@ class TestCreateAppointment:
     ):
         """Test crear cita exitosamente."""
         # Setup detailer profile
-        from app.models.models import ProviderProfile
+        from domains.providers.models import ProviderProfile
         profile = ProviderProfile(
             user_id=test_detailer.id,
             bio="Test",
@@ -243,7 +247,7 @@ class TestCreateAppointment:
         await db_session.refresh(other_vehicle)
         
         # Setup detailer profile
-        from app.models.models import ProviderProfile
+        from domains.providers.models import ProviderProfile
         profile = ProviderProfile(
             user_id=test_detailer.id,
             bio="Test",
@@ -402,7 +406,7 @@ class TestGetAppointment:
     ):
         """Test usuario no participante no puede ver la cita."""
         # Create third user
-        from app.services.auth import AuthService
+        from domains.auth.service import AuthService
         other_user = User(
             email="other@example.com",
             full_name="Other User",
@@ -643,7 +647,7 @@ class TestMultiVehicleAppointment:
     ):
         """Test crear cita con múltiples vehículos."""
         # Setup detailer profile
-        from app.models.models import ProviderProfile
+        from domains.providers.models import ProviderProfile
         profile = ProviderProfile(
             user_id=test_detailer.id,
             bio="Test",

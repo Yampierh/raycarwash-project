@@ -13,8 +13,11 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from main import app
-from app.db.session import get_db
-from app.models.models import Base, User, Role, UserRoleAssociation, ClientProfile, ProviderProfile, OnboardingStatus
+from infrastructure.db.session import get_db
+from domains.auth.models import Role, UserRoleAssociation
+from domains.providers.models import ProviderProfile
+from domains.users.models import User, ClientProfile, OnboardingStatus
+from infrastructure.db.base import Base
 from app.core.config import get_settings
 from app.core.limiter import limiter
 
@@ -125,8 +128,8 @@ async def _create_user_with_role(
     Uses UserRoleAssociation directly (not user.roles which is a read-only property).
     Sets onboarding_completed=True so the user can access protected endpoints.
     """
-    from app.repositories.user_repository import UserRepository
-    from app.services.auth import AuthService
+    from domains.users.repository import UserRepository
+    from domains.auth.service import AuthService
     from sqlalchemy import select
 
     result = await db_session.execute(select(Role).where(Role.name == role_name))
@@ -187,8 +190,8 @@ async def incomplete_user(db_session: AsyncSession) -> User:
     User who registered but never completed onboarding.
     Has no role, no profile, onboarding_completed=False.
     """
-    from app.repositories.user_repository import UserRepository
-    from app.services.auth import AuthService
+    from domains.users.repository import UserRepository
+    from domains.auth.service import AuthService
 
     user = User(
         email="incomplete@example.com",

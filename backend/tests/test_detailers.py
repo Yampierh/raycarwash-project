@@ -4,7 +4,9 @@ import uuid
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.models import User, ProviderProfile, Service
+from domains.providers.models import ProviderProfile
+from domains.services_catalog.models import Service
+from domains.users.models import User
 
 
 # ============================================

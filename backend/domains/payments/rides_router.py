@@ -12,7 +12,7 @@ from infrastructure.db.session import get_db
 from domains.appointments.models import Appointment, AppointmentAssignment, AppointmentStatus, AssignmentStatus
 from domains.payments.models import FareEstimate
 from domains.auth.service import get_current_user, require_role
-from app.services.fare_service import verify_fare_token
+from domains.payments.fare_service import verify_fare_token
 from domains.payments.service_v2 import PaymentCoordinator
 
 logger = logging.getLogger(__name__)

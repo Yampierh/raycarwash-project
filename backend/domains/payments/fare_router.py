@@ -16,7 +16,7 @@ from domains.services_catalog.models import Service
 from domains.vehicles.models import VehicleSize
 from domains.payments.schemas import FareEstimateRequest, FareEstimateResponse
 from domains.auth.service import require_role
-from app.services.fare_service import calculate_surge, generate_fare_token
+from domains.payments.fare_service import calculate_surge, generate_fare_token
 
 logger = logging.getLogger(__name__)
 

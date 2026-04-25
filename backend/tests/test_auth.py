@@ -7,7 +7,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.models.models import User
+from domains.users.models import User
 from tests.conftest import get_access_token
 
 
@@ -169,7 +169,7 @@ class TestLogin:
         self, client: AsyncClient, test_user: User, db_session: AsyncSession
     ):
         """Usuario inactivo → 401."""
-        from app.repositories.user_repository import UserRepository
+        from domains.users.repository import UserRepository
         user = await UserRepository(db_session).get_by_email("testclient@example.com")
         user.is_active = False
         await db_session.commit()
@@ -448,7 +448,7 @@ class TestCompleteProfile:
         Usuario client que completa perfil como detailer acumula ambos roles.
         No pierde el rol client.
         """
-        from app.services.auth import AuthService
+        from domains.auth.service import AuthService
 
         onboarding_token = AuthService.create_onboarding_token(test_user.id)
 
@@ -694,7 +694,7 @@ class TestPasswordResetSingleUse:
         self, client: AsyncClient, db_session: AsyncSession, test_user: User
     ):
         """First use of a valid token must update the password and return 200."""
-        from app.services.auth import AuthService
+        from domains.auth.service import AuthService
 
         raw_token = await AuthService.create_password_reset_token(
             test_user.id, test_user.primary_role or "client", db_session
@@ -713,7 +713,7 @@ class TestPasswordResetSingleUse:
         self, client: AsyncClient, db_session: AsyncSession, test_user: User
     ):
         """Same token must be rejected on second use — single-use guarantee."""
-        from app.services.auth import AuthService
+        from domains.auth.service import AuthService
 
         raw_token = await AuthService.create_password_reset_token(
             test_user.id, test_user.primary_role or "client", db_session
@@ -741,7 +741,7 @@ class TestPasswordResetSingleUse:
     ):
         """Token with expires_at in the past must be rejected."""
         from datetime import datetime, timezone, timedelta
-        from app.repositories.password_reset_token_repository import PasswordResetTokenRepository
+        from domains.auth.password_reset_token_repository import PasswordResetTokenRepository
         import secrets
 
         raw_token = secrets.token_urlsafe(32)
@@ -773,8 +773,8 @@ class TestPasswordResetSingleUse:
         self, client: AsyncClient, db_session: AsyncSession, test_user: User
     ):
         """Successful password reset must increment token_version to invalidate sessions."""
-        from app.services.auth import AuthService
-        from app.repositories.user_repository import UserRepository
+        from domains.auth.service import AuthService
+        from domains.users.repository import UserRepository
 
         original_version = getattr(test_user, "token_version", 1)
 
@@ -801,7 +801,7 @@ class TestPasswordResetSingleUse:
         self, client: AsyncClient, db_session: AsyncSession, test_user: User
     ):
         """Requesting a second reset must invalidate the first token."""
-        from app.services.auth import AuthService
+        from domains.auth.service import AuthService
 
         first_token = await AuthService.create_password_reset_token(
             test_user.id, test_user.primary_role or "client", db_session
@@ -953,7 +953,7 @@ class TestTokenVersionRevocation:
         A token issued before token_version is incremented must be rejected
         with 401 on the next request.
         """
-        from app.repositories.user_repository import UserRepository
+        from domains.users.repository import UserRepository
 
         # Issue a token (carries current token_version=1)
         token = await get_access_token(client, "testclient@example.com")
@@ -978,7 +978,7 @@ class TestTokenVersionRevocation:
         After token_version is incremented, a freshly issued token (carrying
         the new version) must still be accepted.
         """
-        from app.repositories.user_repository import UserRepository
+        from domains.users.repository import UserRepository
 
         # Increment version
         user = await UserRepository(db_session).get_by_id(test_user.id)
@@ -1000,7 +1000,7 @@ class TestTokenVersionRevocation:
         End-to-end: a token issued before a password reset must be rejected
         after the reset completes.
         """
-        from app.services.auth import AuthService
+        from domains.auth.service import AuthService
 
         # Get a token before the reset
         old_token = await get_access_token(client, "testclient@example.com")
@@ -1114,7 +1114,7 @@ class TestAccountLockout:
         self, client: AsyncClient, db_session: AsyncSession, test_user: User
     ):
         """Successful login resets failed_login_attempts to 0."""
-        from app.repositories.user_repository import UserRepository
+        from domains.users.repository import UserRepository
 
         # 3 failures (below threshold)
         for _ in range(3):
@@ -1140,7 +1140,7 @@ class TestAccountLockout:
     ):
         """Expired locked_until allows login again (counter resets on success)."""
         from datetime import timezone, timedelta
-        from app.repositories.user_repository import UserRepository
+        from domains.users.repository import UserRepository
 
         # Manually set lockout to 1 second in the past (already expired)
         user = await UserRepository(db_session).get_by_id(test_user.id)
