@@ -1,9 +1,18 @@
-# app/models/models.py
-# COMPATIBILITY SHIM — re-exports all models from domain packages.
-# Existing code using `from app.models.models import X` continues to work unchanged.
-# New code should import directly from the domain: `from domains.users.models import User`.
+"""
+infrastructure/db/registry.py
 
-from infrastructure.db.base import Base, TimestampMixin, _get_encryption_key  # noqa: F401
+Imports ALL domain models so SQLAlchemy's mapper registry can resolve
+every string-based relationship reference before any query runs.
+
+Call `import infrastructure.db.registry` once at startup — in main.py's
+lifespan or at module level — before create_all() or any ORM query.
+
+WHY a separate file (not __init__.py)?
+  Domain model files do `from infrastructure.db.base import Base`.
+  If __init__.py imported all domains, Python would hit a circular
+  initialization: domain → infrastructure.db → __init__ → domain.
+  A separate registry.py avoids that cycle entirely.
+"""
 
 from domains.auth.models import (  # noqa: F401
     Permission, Role, RolePermission, UserRoleAssociation,
@@ -27,3 +36,4 @@ from domains.payments.models import (  # noqa: F401
     PaymentLedger, LedgerSeal, LedgerRevision,
 )
 from domains.audit.models import AuditLog, AuditAction  # noqa: F401
+from infrastructure.db.base import Base  # noqa: F401

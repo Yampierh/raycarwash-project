@@ -3,7 +3,9 @@ from logging.config import fileConfig
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 
-from app.models.models import Base
+# registry.py imports ALL domain models, ensuring the full metadata is populated.
+import infrastructure.db.registry  # noqa: F401
+from infrastructure.db.base import Base
 import asyncio
 from sqlalchemy.ext.asyncio import create_async_engine
 from alembic import context
