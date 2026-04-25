@@ -23,6 +23,7 @@ from app.core.redis import close_redis_pool, init_redis_pool
 from app.workers.location_worker import location_worker
 from app.workers.assignment_worker import assignment_worker
 from app.workers.ledger_seal_worker import ledger_seal_worker
+from app.workers.token_cleanup_worker import token_cleanup_worker
 
 # Register ledger models with SQLAlchemy Base so create_all includes their tables
 import app.models.ledger  # noqa: F401
@@ -123,14 +124,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.assignment_responses = {}   # {"{appt_id}:{detailer_id}": "accepted"|"declined"}
 
     # Background workers
-    app.state.location_worker_task    = asyncio.create_task(location_worker(app.state))
-    app.state.assignment_worker_task  = asyncio.create_task(assignment_worker(app.state))
-    app.state.ledger_seal_worker_task = asyncio.create_task(ledger_seal_worker(app.state))
-    logger.info("✅  Location + Assignment + LedgerSeal workers started.")
+    app.state.location_worker_task      = asyncio.create_task(location_worker(app.state))
+    app.state.assignment_worker_task    = asyncio.create_task(assignment_worker(app.state))
+    app.state.ledger_seal_worker_task   = asyncio.create_task(ledger_seal_worker(app.state))
+    app.state.token_cleanup_worker_task = asyncio.create_task(token_cleanup_worker(app.state))
+    logger.info("✅  Location + Assignment + LedgerSeal + TokenCleanup workers started.")
 
     yield
 
-    for task_attr in ("location_worker_task", "assignment_worker_task", "ledger_seal_worker_task"):
+    for task_attr in ("location_worker_task", "assignment_worker_task", "ledger_seal_worker_task", "token_cleanup_worker_task"):
         task = getattr(app.state, task_attr, None)
         if task:
             task.cancel()

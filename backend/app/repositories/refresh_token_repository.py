@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import List
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import RefreshToken
@@ -187,3 +187,22 @@ class RefreshTokenRepository:
         )
         result = await self._db.execute(stmt)
         return result.rowcount > 0
+
+    # ------------------------------------------------------------------ #
+    #  Cleanup                                                             #
+    # ------------------------------------------------------------------ #
+
+    async def delete_expired(self, grace_period_days: int = 1) -> int:
+        """
+        Hard-delete refresh tokens that expired more than grace_period_days ago.
+
+        Grace period prevents deletion of tokens that are in-flight (the client
+        has not yet called /auth/refresh but the token is technically expired).
+        Returns the count of deleted rows.
+
+        Intended to run as a scheduled job (e.g. daily cron).
+        """
+        cutoff = datetime.now(timezone.utc) - timedelta(days=grace_period_days)
+        stmt = delete(RefreshToken).where(RefreshToken.expires_at < cutoff)
+        result = await self._db.execute(stmt)
+        return result.rowcount
