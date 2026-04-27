@@ -394,17 +394,17 @@ async def seed_service_categories(db: AsyncSession) -> None:
     FIX: Enables multi-service provider model (DetailerProfile → ProviderProfile).
     Each category can have its own services and specialties.
     """
-    from domains.services_catalog.models import ServiceCategory
-    
+    from domains.services_catalog.models import ServiceCategoryTable
+
     seeded = 0
     for entry in SERVICE_CATEGORIES:
         exists = await db.execute(
-            select(ServiceCategory).where(ServiceCategory.slug == entry["slug"])
+            select(ServiceCategoryTable).where(ServiceCategoryTable.slug == entry["slug"])
         )
         if exists.scalar_one_or_none():
             logger.debug("Skip service category (already seeded): %s", entry["slug"])
             continue
-        db.add(ServiceCategory(**entry))
+        db.add(ServiceCategoryTable(**entry))
         seeded += 1
         logger.info("Seeded service category: %s (%s)", entry["name"], entry["slug"])
     
