@@ -12,18 +12,37 @@ Connects clients with mobile service providers (detailers, mechanics, and more) 
 
 ```
 raycarwash-project/
-├── backend/                        # FastAPI · Python 3.11+ · PostgreSQL
-│   ├── main.py                     # App factory, router registration, lifespan hooks
-│   ├── requirements.txt
-│   └── app/
-│       ├── core/                   # config.py (Pydantic settings), limiter.py (slowapi)
-│       ├── db/                     # session.py, seed.py, detailer_seed.py
-│       ├── models/models.py        # All SQLAlchemy ORM models
-│       ├── schemas/schemas.py      # All Pydantic v2 schemas
-│       ├── repositories/           # Data access layer (8 repos)
-│       ├── services/               # Business logic layer
-│       ├── routers/                # FastAPI route handlers (10 routers)
-│       └── ws/                     # WebSocket connection manager + router
+├── backend/                        # FastAPI · Python 3.13 · PostgreSQL
+│   ├── main.py                     # Composition root — lifespan, middleware, health check
+│   ├── api/router.py               # Single aggregation of all domain routers
+│   ├── domains/                    # Domain-Driven Design (DDD-lite)
+│   │   ├── auth/                   # JWT, OAuth2 social, WebAuthn passkeys, lockout
+│   │   ├── users/                  # Registration, profiles, onboarding
+│   │   ├── providers/              # Detailer profiles, Stripe Identity verification
+│   │   ├── vehicles/               # Vehicle CRUD, NHTSA VIN lookup
+│   │   ├── appointments/           # FSM booking lifecycle, availability slots
+│   │   ├── matching/               # H3 geospatial + scoring engine
+│   │   ├── payments/               # Stripe intents, webhooks, fare estimation, ledger
+│   │   ├── services_catalog/       # Service + addon catalogue
+│   │   ├── reviews/                # Rating aggregation
+│   │   ├── realtime/               # Redis Pub/Sub WebSocket rooms
+│   │   └── audit/                  # Append-only audit log
+│   ├── infrastructure/             # Adapters for external systems
+│   │   ├── db/                     # SQLAlchemy engine, session, Base, mapper registry
+│   │   ├── redis/                  # Connection pool + fakeredis dev fallback
+│   │   ├── email/                  # SMTP transactional email
+│   │   ├── nhtsa/                  # VIN decode API client
+│   │   └── h3/                     # H3 geospatial indexing (detailer discovery)
+│   ├── shared/schemas.py           # Cross-domain base classes + shared types
+│   ├── workers/                    # Async background workers
+│   │   ├── location_worker.py      # GPS stream → H3 index + WS broadcast
+│   │   ├── assignment_worker.py    # Auto-assignment engine
+│   │   ├── ledger_seal_worker.py   # Daily ledger SHA-256 seal
+│   │   └── token_cleanup_worker.py # Expired token GC
+│   ├── events/bus.py               # In-process async event bus
+│   └── app/                        # Legacy infrastructure (config, seed, security)
+│       ├── core/                   # config.py, security.py, limiter.py
+│       └── db/                     # seed.py, seed_rbac.py, detailer_seed.py
 │
 ├── frontend/                       # React Native · Expo · TypeScript
 │   └── src/
@@ -118,13 +137,15 @@ EXPO_PUBLIC_API_URL=http://localhost:8000
 
 ### Backend
 - FastAPI (REST + WebSocket)
-- SQLAlchemy async (asyncpg)
+- SQLAlchemy async (asyncpg) — DDD-lite domain structure
 - PostgreSQL 14+
 - Pydantic v2
 - Alembic (migrations)
 - Stripe SDK v11 + Stripe Identity
-- WebAuthn (passkeys)
+- WebAuthn (passkeys via FIDO2)
 - slowapi (rate limiting)
+- H3 (Uber's geospatial indexing library)
+- Redis / fakeredis (Pub/Sub + location caching)
 
 ### Frontend
 - React Native (Expo)
@@ -132,6 +153,19 @@ EXPO_PUBLIC_API_URL=http://localhost:8000
 - Axios + WebSocket
 - Zustand (auth store)
 - expo-secure-store
+
+---
+
+## Architecture: DDD-lite
+
+The backend was refactored from a monolithic `app/` structure into a Domain-Driven Design layout. Each domain owns its models, schemas, repository, service, and router. Cross-domain dependencies go through the `shared/` layer or direct domain imports (no circular dependencies).
+
+**Import rules:**
+
+- `domains/X` → may import from `domains/Y` (direct, no shims)
+- `domains/X` → may import from `infrastructure/` and `shared/`
+- `workers/` → imports from `domains/` and `infrastructure/`
+- `app/core/` and `app/db/` → remain as stable infrastructure (not domain code)
 
 ---
 
@@ -174,8 +208,27 @@ EXPO_PUBLIC_API_URL=http://localhost:8000
 | 3 | ✅ Done | Appointments, services, Stripe payments, state machine |
 | 4 | ✅ Done | Detailer discovery, webhooks, refund policy, timezone scheduling, rate limiting, social login |
 | 5 | ✅ Done | Addons, multi-vehicle bookings, smart matching, email service |
-| 6 | 🔄 In progress | Security hardening, push notifications, admin dashboard, test coverage |
-| 7 | 📋 Planned | Multiservice: ServiceCategory model, mechanic vertical, provider onboarding by type |
+| 6 | ✅ Done | DDD-lite refactor, structured logging + request ID, WebAuthn passkeys, Stripe Identity, H3 geospatial, auto-assignment engine, append-only ledger, WebSocket real-time tracking |
+| 7 | 📋 Planned | Push notifications (RAMEN/Fireball), admin dashboard, full test coverage, multiservice: mechanic vertical |
+
+---
+
+## Test status
+
+```text
+tests/test_auth.py         69/69  ✅ all pass
+tests/test_appointments.py 19/19  ✅ all pass
+tests/test_detailers.py    ~pass  (profile fixture edge cases pending)
+tests/test_matching.py     ~pass  (H3 index requires real Redis for spatial tests)
+tests/test_vehicles.py     ~pass  (body_class / onboarding edge cases pending)
+```
+
+Run tests:
+
+```bash
+cd backend
+python -m pytest tests/test_auth.py tests/test_appointments.py -q
+```
 
 ---
 
