@@ -1139,7 +1139,7 @@ class TestAccountLockout:
         self, client: AsyncClient, db_session: AsyncSession, test_user: User
     ):
         """Expired locked_until allows login again (counter resets on success)."""
-        from datetime import timezone, timedelta
+        from datetime import datetime, timezone, timedelta
         from domains.users.repository import UserRepository
 
         # Manually set lockout to 1 second in the past (already expired)

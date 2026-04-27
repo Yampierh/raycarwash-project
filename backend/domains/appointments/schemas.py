@@ -106,8 +106,8 @@ class AppointmentRead(_BaseSchema):
     id: uuid.UUID
     status: AppointmentStatus
     scheduled_time: datetime
-    estimated_end_time: datetime
-    travel_buffer_end_time: datetime
+    estimated_end_time: datetime | None = Field(default=None)
+    travel_buffer_end_time: datetime | None = Field(default=None)
     service_address: str | None = Field(default=None)
     client_notes: str | None = Field(default=None)
     detailer_notes: str | None = Field(default=None)

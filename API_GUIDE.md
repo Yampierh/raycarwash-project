@@ -1,24 +1,35 @@
-# RayCarWash API Guide
+# RayCarWash API guide
 
-Complete API reference for frontend integration.
+Complete reference for frontend integration.
 
 **Base URL**: `http://localhost:8000`
-**Version**: `v1`
+**Docs**: `/docs` (Swagger) · `/redoc`
 
 ---
 
-## Authentication Flow (Identifier-First)
+## Two API clients — critical
 
-### 1. Identify
+The frontend uses two separate Axios instances:
+
+```
+authClient  → base URL: /auth       (login, identify, verify, social, refresh)
+apiClient   → base URL: /api/v1     (everything else)
+```
+
+Never call auth endpoints through `apiClient` — they live at `/auth`, not `/api/v1/auth`.
+
+---
+
+## Authentication flow (identifier-first, Uber style)
+
+### Step 1 — Identify
 
 ```
 POST /auth/identify
-Content-Type: application/json
-
 { "identifier": "user@example.com" }   // email or phone
 ```
 
-**Response** (200):
+Response:
 ```json
 {
   "is_new_user": false,
@@ -28,42 +39,82 @@ Content-Type: application/json
 
 ---
 
-### 2. Verify (Password)
+### Step 2 — Verify
 
+**Existing user (password)**:
 ```
 POST /auth/verify
-Content-Type: application/json
-
 { "identifier": "user@example.com", "password": "YourPassword" }
 ```
 
-**Response** (200):
+Response:
 ```json
 {
   "access_token": "eyJ...",
   "refresh_token": "eyJ...",
-  "token_type": "bearer",
-  "needs_profile_completion": false
+  "token_type": "bearer"
 }
 ```
 
-**Usage**: Include in all subsequent requests:
+**New user** (same endpoint):
+```json
+{
+  "registration_token": "eyJ...",
+  "needs_profile_completion": true
+}
 ```
-Authorization: Bearer <access_token>
+
+**Social login**:
 ```
+POST /auth/verify
+{ "identifier": "user@example.com", "provider": "google", "token": "google_access_token" }
+```
+
+Provider values: `"google"` | `"apple"`
 
 ---
 
-### 3. Token Refresh
+### Step 3 — Complete profile (new users only)
 
-Tokens expire in 30 minutes. Use refresh token to get new pair.
+Use `registration_token` as Bearer token. Expires in 30 minutes.
+
+```
+PUT /auth/complete-profile
+Authorization: Bearer <registration_token>
+
+{
+  "full_name": "John Doe",
+  "phone_number": "+12345678901",
+  "role": "client"
+}
+```
+
+Role values: `"client"` | `"detailer"`
+
+Response:
+```json
+{
+  "access_token": "eyJ...",
+  "refresh_token": "eyJ...",
+  "token_type": "bearer"
+}
+```
+
+After this call, store both tokens and route by role:
+- `client` → Main tabs
+- `detailer` → `DetailerOnboarding` if no profile exists, else `DetailerMain` tabs
+
+---
+
+### Token refresh
+
+Tokens expire in 30 minutes. Refresh token lasts 7 days.
 
 ```
 POST /auth/refresh?refresh_token=eyJ...
 ```
 
-**Response** (200):
-
+Response:
 ```json
 {
   "access_token": "new_access_token",
@@ -74,97 +125,80 @@ POST /auth/refresh?refresh_token=eyJ...
 
 ---
 
-### 4. Social Login
-
-```
-POST /auth/verify
-Content-Type: application/json
-
-{ "identifier": "user@example.com", "provider": "google", "token": "google_access_token" }
-```
-
-Provider values: `"google"` | `"apple"`
-
----
-
-### 5. Password Reset
+### Password reset
 
 ```
 POST /auth/password-reset
 { "email": "user@example.com" }
 ```
 
-**Note**: Always returns 200 (prevents email enumeration).
+Always returns 200 (prevents email enumeration).
 
 ---
 
-## Endpoints Reference
+### Get current user
 
-### Auth Endpoints (`/auth`)
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| POST | `/auth/token` | ❌ | Login with email/password |
-| POST | `/auth/refresh` | ❌ | Refresh access token |
-| GET | `/auth/me` | ✅ | Get current user profile |
-| PUT | `/auth/update` | ✅ | Update user profile |
-| POST | `/auth/google` | ❌ | Google OAuth login |
-| POST | `/auth/apple` | ❌ | Apple OAuth login |
-| POST | `/auth/password-reset` | ❌ | Request password reset |
-
----
-
-### User Endpoints (`/api/v1/users`)
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| POST | `/api/v1/users` | ❌ | Register new user |
-
-**Register Request**:
-```json
-{
-  "full_name": "John Doe",
-  "email": "john@example.com",
-  "password": "SecurePass123!",
-  "phone_number": "+1234567890",
-  "role_names": ["client"]  // or ["detailer"]
-}
+```
+GET /auth/me
+Authorization: Bearer <access_token>
 ```
 
 ---
 
-### Vehicle Endpoints (`/api/v1/vehicles`)
+### Update profile
+
+```
+PUT /auth/update
+Authorization: Bearer <access_token>
+
+{
+  "full_name": "John Doe",
+  "phone_number": "+12345678901",
+  "profile_photo_url": "https://..."
+}
+```
+
+All fields optional — partial update supported.
+
+---
+
+## Endpoints reference
+
+### Vehicles (`/api/v1/vehicles`)
 
 | Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| POST | `/api/v1/vehicles` | ✅ Client | Create vehicle |
-| GET | `/api/v1/vehicles` | ✅ Client | List own vehicles |
-| GET | `/api/v1/vehicles/lookup/{vin}` | ✅ | Decode VIN via NHTSA |
-| PUT | `/api/v1/vehicles/{id}` | ✅ Owner | Update vehicle |
-| DELETE | `/api/v1/vehicles/{id}` | ✅ Owner | Soft-delete vehicle |
+|---|---|---|---|
+| POST | `/api/v1/vehicles` | Bearer(client) | Create vehicle |
+| GET | `/api/v1/vehicles` | Bearer(client) | List own vehicles |
+| GET | `/api/v1/vehicles/{id}` | Bearer(client) | Vehicle detail |
+| PUT | `/api/v1/vehicles/{id}` | Bearer(client) | Update vehicle |
+| DELETE | `/api/v1/vehicles/{id}` | Bearer(client) | Soft delete |
+| GET | `/api/v1/vehicles/lookup/{vin}` | Bearer | NHTSA VIN decode |
 
-**Create Vehicle**:
+**Create vehicle**:
 ```json
 {
   "make": "Toyota",
   "model": "Camry",
   "year": 2023,
-  "license_plate": "ABC123",
   "color": "Silver",
-  "vin": "1HGBH41JXMN109186"  // optional
+  "license_plate": "ABC123",
+  "vin": "1HGBH41JXMN109186"
 }
 ```
 
+`body_class` is returned from NHTSA and stored. `VehicleSize` is derived from it at runtime — never sent by the client.
+
 ---
 
-### Service Endpoints (`/api/v1/services`)
+### Services (`/api/v1/services`)
 
 | Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| GET | `/api/v1/services` | ❌ | List all services |
-| GET | `/api/v1/services/{id}` | ❌ | Get service detail |
+|---|---|---|---|
+| GET | `/api/v1/services` | — | List all active services |
+| GET | `/api/v1/services/{id}` | — | Service detail |
 
-**Response**:
+Response fields:
 ```json
 {
   "id": "uuid",
@@ -185,13 +219,12 @@ POST /auth/password-reset
 
 ---
 
-### Addon Endpoints (`/api/v1/addons`)
+### Addons (`/api/v1/addons`)
 
 | Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| GET | `/api/v1/addons` | ❌ | List all active add-ons |
+|---|---|---|---|
+| GET | `/api/v1/addons` | — | List all active add-ons |
 
-**Response**:
 ```json
 [
   {
@@ -206,83 +239,76 @@ POST /auth/password-reset
 
 ---
 
-### Detailer Endpoints (`/api/v1/detailers`)
+### Detailers (`/api/v1/detailers`)
 
 | Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| GET | `/api/v1/detailers` | ❌ | Search detailers (geo-filter) |
-| GET | `/api/v1/detailers/me` | ✅ Detailer | Get own profile |
-| PUT | `/api/v1/detailers/me` | ✅ Detailer | Create/update profile |
-| PATCH | `/api/v1/detailers/me/status` | ✅ Detailer | Toggle accepting bookings |
-| GET | `/api/v1/detailers/me/services` | ✅ Detailer | List services |
-| PATCH | `/api/v1/detailers/me/services/{id}` | ✅ Detailer | Toggle service |
-| GET | `/api/v1/detailers/{id}/availability` | ❌ | Get available slots |
-| POST | `/api/v1/detailers/location` | ✅ Detailer | Update GPS location |
-| GET | `/api/v1/detailers/{id}/profile` | ❌ | Get public profile |
+|---|---|---|---|
+| GET | `/api/v1/detailers` | — | Search by geo + filters |
+| GET | `/api/v1/detailers/me` | Bearer(detailer) | Own profile + stats |
+| PUT | `/api/v1/detailers/me` | Bearer(detailer) | Upsert own profile |
+| PATCH | `/api/v1/detailers/me/status` | Bearer(detailer) | Toggle accepting bookings |
+| GET | `/api/v1/detailers/me/services` | Bearer(detailer) | Catalog with detailer toggle state |
+| PATCH | `/api/v1/detailers/me/services/{id}` | Bearer(detailer) | Toggle service + custom price |
+| GET | `/api/v1/detailers/{id}/availability` | — | Available slots |
+| POST | `/api/v1/detailers/location` | Bearer(detailer) | Update GPS position |
+| GET | `/api/v1/detailers/{id}/profile` | — | Public profile |
 
-**Search Query Params**:
+**Search query params**:
 ```
 GET /api/v1/detailers?lat=41.0793&lng=-85.1394&radius_miles=25&min_rating=4.0&page=1&page_size=20
 ```
 
-**Availability Query**:
+**Upsert own profile**:
+```json
+{
+  "bio": "5 years of professional detailing",
+  "years_of_experience": 5,
+  "service_radius_miles": 25,
+  "working_hours": {
+    "monday": { "start": "08:00", "end": "18:00" },
+    "tuesday": { "start": "08:00", "end": "18:00" }
+  }
+}
+```
+
+**Availability query**:
 ```
 GET /api/v1/detailers/{id}/availability?request_date=2025-12-20&service_id={uuid}&vehicle_size=medium
 ```
 
 ---
 
-### Matching Endpoints (`/api/v1/matching`)
+### Matching (`/api/v1/matching`)
 
 | Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| GET | `/api/v1/matching` | ✅ Client | Smart matching |
+|---|---|---|---|
+| GET | `/api/v1/matching` | Bearer(client) | Ranked detailers + available slots |
 
-**Query Params**:
+Query params:
 ```
-lat: float (required)
-lng: float (required)
-date: string (YYYY-MM-DD, required)
-service_id: UUID (required)
-vehicle_sizes: string (comma-separated: "small,medium", required)
-addon_ids: string (comma-separated UUIDs, optional)
-radius_miles: float (default 25, optional)
+lat           float    required
+lng           float    required
+date          string   required (YYYY-MM-DD)
+service_id    UUID     required
+vehicle_sizes string   required (comma-sep: "small,medium")
+addon_ids     string   optional (comma-sep UUIDs)
+radius_miles  float    optional (default 25)
 ```
 
-**Response**:
-```json
-[
-  {
-    "user_id": "uuid",
-    "full_name": "John Detailer",
-    "bio": "Professional detailer",
-    "years_of_experience": 5,
-    "service_radius_miles": 25,
-    "is_accepting_bookings": true,
-    "average_rating": 4.8,
-    "total_reviews": 50,
-    "distance_miles": 5.2,
-    "estimated_price": 14400,
-    "estimated_duration": 216,
-    "available_slots": [
-      { "start_time": "2025-12-20T10:00:00Z", "end_time": "2025-12-20T10:30:00Z", "is_available": true }
-    ]
-  }
-]
-```
+Response includes `distance_miles`, `estimated_price`, `estimated_duration`, and `available_slots` per detailer.
 
 ---
 
-### Appointment Endpoints (`/api/v1/appointments`)
+### Appointments (`/api/v1/appointments`)
 
 | Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| POST | `/api/v1/appointments` | ✅ Client | Create appointment |
-| GET | `/api/v1/appointments/mine` | ✅ | List own appointments |
-| GET | `/api/v1/appointments/{id}` | ✅ Participant | Get detail |
-| PATCH | `/api/v1/appointments/{id}/status` | ✅ Participant | Update status |
+|---|---|---|---|
+| POST | `/api/v1/appointments` | Bearer(client) | Create booking |
+| GET | `/api/v1/appointments` | Bearer | List own (paginated) |
+| GET | `/api/v1/appointments/{id}` | Bearer | Detail |
+| PATCH | `/api/v1/appointments/{id}/status` | Bearer | Status transition |
 
-**Create (Single Vehicle)**:
+**Create (single vehicle)**:
 ```json
 {
   "detailer_id": "uuid",
@@ -296,7 +322,7 @@ radius_miles: float (default 25, optional)
 }
 ```
 
-**Create (Multi-Vehicle - Sprint 5)**:
+**Create (multi-vehicle)**:
 ```json
 {
   "detailer_id": "uuid",
@@ -307,52 +333,46 @@ radius_miles: float (default 25, optional)
   "vehicles": [
     { "vehicle_id": "uuid1", "service_id": "uuid", "addon_ids": ["addon_uuid"] },
     { "vehicle_id": "uuid2", "service_id": "uuid" }
-  ],
-  "client_notes": "Two vehicles"
+  ]
 }
 ```
 
-**Status Update**:
+**Status update**:
 ```json
 {
   "status": "confirmed",
-  "detailer_notes": "Will arrive on time"
+  "detailer_notes": "On my way"
 }
 ```
 
-**Valid Status Transitions**:
+**Valid transitions**:
 
 | From | To | Who |
-|------|----|----|
-| PENDING | CONFIRMED | Detailer/Admin |
-| PENDING | CANCELLED_BY_CLIENT | Client/Detailer/Admin |
-| CONFIRMED | ARRIVED | Detailer/Admin |
-| CONFIRMED | IN_PROGRESS | Detailer/Admin |
-| CONFIRMED | CANCELLED_BY_CLIENT | Client/Detailer/Admin |
-| ARRIVED | IN_PROGRESS | Detailer/Admin |
-| IN_PROGRESS | COMPLETED | Detailer/Admin (requires actual_price) |
-| IN_PROGRESS | NO_SHOW | Detailer/Admin |
+|---|---|---|
+| PENDING | CONFIRMED | Detailer / Admin |
+| PENDING | CANCELLED_BY_CLIENT | Client / Admin |
+| CONFIRMED | ARRIVED | Detailer / Admin |
+| CONFIRMED | IN_PROGRESS | Detailer / Admin |
+| CONFIRMED | CANCELLED_BY_CLIENT | Client / Admin |
+| CONFIRMED | CANCELLED_BY_DETAILER | Detailer / Admin |
+| ARRIVED | IN_PROGRESS | Detailer / Admin |
+| IN_PROGRESS | COMPLETED | Detailer / Admin (requires `actual_price`) |
+| IN_PROGRESS | NO_SHOW | Detailer / Admin |
 
-**Lifecycle timestamps** (auto-stamped by service):
-
-- `arrived_at` — set on `ARRIVED`
-- `started_at` — set on `IN_PROGRESS`
-- `completed_at` — set on `COMPLETED`
+Auto-stamped timestamps: `arrived_at` on ARRIVED · `started_at` on IN_PROGRESS · `completed_at` on COMPLETED.
 
 ---
 
-### Payment Endpoints (`/api/v1/payments`)
+### Payments (`/api/v1/payments`)
 
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| POST | `/api/v1/payments/create-intent` | ✅ Client | Create Stripe PaymentIntent |
+```
+POST /api/v1/payments/create-intent
+Authorization: Bearer <client_token>
 
-**Request**:
-```json
 { "appointment_id": "uuid" }
 ```
 
-**Response**:
+Response:
 ```json
 {
   "client_secret": "pi_xxx_secret_xxx",
@@ -361,17 +381,16 @@ radius_miles: float (default 25, optional)
 }
 ```
 
+Use `client_secret` with Stripe SDK on the frontend to confirm the payment.
+
 ---
 
-### Review Endpoints (`/api/v1/reviews`)
+### Reviews (`/api/v1/reviews`)
 
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| POST | `/api/v1/reviews` | ✅ Client | Submit review |
-| GET | `/api/v1/reviews/detailer/{id}` | ❌ | List detailer reviews |
+```
+POST /api/v1/reviews
+Authorization: Bearer <client_token>
 
-**Create Review**:
-```json
 {
   "appointment_id": "uuid",
   "rating": 5,
@@ -379,53 +398,58 @@ radius_miles: float (default 25, optional)
 }
 ```
 
----
+Appointment must be in COMPLETED state. One review per appointment.
 
-### Webhook Endpoints (`/webhooks`)
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| POST | `/webhooks/stripe` | Stripe-Signature | Receive Stripe events |
+```
+GET /api/v1/reviews/detailer/{id}
+```
 
 ---
 
-### WebSocket Endpoint (`/ws`)
+### Webhooks
 
-```text
+```
+POST /webhooks/stripe
+Stripe-Signature: <hmac>
+```
+
+Handles: `payment_intent.succeeded`, `payment_intent.payment_failed`, `identity.verification_session.verified`.
+
+---
+
+## WebSocket
+
+```
 WS /ws/appointments/{appointment_id}?token=<access_token>
 ```
 
-JWT passed as a query parameter (WebSocket connections cannot send headers after handshake).
+JWT in query param — WS connections cannot send headers after handshake.
 
-**Access**: must be the client, detailer, or admin of the appointment.
+**Access**: must be client, detailer, or admin on the appointment.
 
 **Close codes**:
-
-| Code | Meaning                          |
-|------|----------------------------------|
+| Code | Meaning |
+|---|---|
 | 4001 | Unauthorized (bad/missing token) |
-| 4003 | Forbidden (not a participant)    |
-| 4004 | Appointment not found            |
+| 4003 | Forbidden (not a participant) |
+| 4004 | Appointment not found |
 
-**Client → Server messages**:
-
+**Client → server**:
 ```json
 { "type": "ping" }
 { "type": "location_update", "lat": 41.0793, "lng": -85.1394 }
 ```
 
-> `location_update` is only processed when sent by the detailer.
+`location_update` is only processed when sent by the detailer.
 
-**Server → Client messages**:
-
+**Server → client**:
 ```json
 { "type": "pong" }
 { "type": "status_change", "status": "arrived", "appointment_id": "uuid", "ts": "2026-04-11T..." }
 { "type": "location_update", "lat": 41.0793, "lng": -85.1394, "ts": "2026-04-11T..." }
 ```
 
-**Frontend usage** (`useAppointmentSocket` hook):
-
+**Frontend hook** (`useAppointmentSocket`):
 ```ts
 const { sendLocationUpdate } = useAppointmentSocket({
   appointmentId: appt.id,
@@ -434,37 +458,36 @@ const { sendLocationUpdate } = useAppointmentSocket({
 });
 ```
 
-The hook handles auto-reconnect with exponential backoff (1 s → 30 s max) and sends a heartbeat ping every 30 s.
-
-**`WS_BASE_URL`** is exported from `src/services/api.ts` — it replaces `http(s)://` with `ws(s)://` automatically.
+Hook handles: auto-connect, exponential backoff (1s → 30s max), heartbeat ping every 30s. `WS_BASE_URL` in `api.ts` replaces `http(s)://` with `ws(s)://` automatically.
 
 ---
 
-## Error Responses
+## Error format
 
-All errors follow this format:
-
+All errors:
 ```json
 { "detail": "Human-readable error message" }
 ```
 
-| HTTP Code | Meaning |
-|-----------|---------|
-| 400 | Bad request - invalid body |
-| 401 | Unauthorized - missing/invalid token |
-| 403 | Forbidden - not authorized |
+| Code | Meaning |
+|---|---|
+| 400 | Bad request |
+| 401 | Unauthorized — missing or invalid token |
+| 403 | Forbidden — not authorized for this action |
 | 404 | Not found |
-| 409 | Conflict - e.g., slot taken |
+| 409 | Conflict — e.g. slot already taken |
 | 422 | Validation error |
 | 429 | Rate limit exceeded |
 | 500 | Internal server error |
 
 ---
 
-## Rate Limits
+## Rate limits
 
 | Endpoint | Limit |
-|----------|-------|
+|---|---|
+| POST /auth/identify | 10/min per IP |
+| POST /auth/verify | 10/min per IP |
 | POST /auth/token | 10/min per IP |
 | POST /auth/refresh | 5/min per IP |
 | POST /auth/google | 5/min per IP |
@@ -472,65 +495,19 @@ All errors follow this format:
 
 ---
 
-## Date/Time Format
+## Formats
 
-All timestamps are in ISO 8601 UTC format:
-- `2025-12-20T14:00:00Z` (appointment scheduling)
-- `2025-12-20T10:30:00Z` (slot times)
+**Timestamps**: ISO 8601 UTC — `2025-12-20T14:00:00Z`
 
----
+**Prices**: integer cents — `$29.00` → `2900`. Display: `price_cents / 100`.
 
-## Prices
+**Coordinates**: decimal degrees — lat `-90` to `90`, lng `-180` to `180`.
 
-All prices are in **USD cents** (integer):
-- `$29.00` → `2900`
-- `$144.00` → `14400`
+**Vehicle sizes**:
 
-To display: `price_cents / 100`
-
----
-
-## Vehicle Sizes
-
-| Size | Vehicles | Multiplier |
-|------|----------|------------|
+| Size | Examples | Price multiplier |
+|---|---|---|
 | small | Sedan, Coupe | ×1.0 |
 | medium | SUV, Crossover, Compact Pickup | ×1.2 |
 | large | Crew Cab Pickup, Large SUV | ×1.5 |
 | xl | Van, Sprinter | ×2.0 |
-
----
-
-## Testing Checklist
-
-- [ ] Login returns access + refresh token
-- [ ] Token refresh works
-- [ ] Protected endpoints reject without token
-- [ ] Vehicles CRUD works for clients
-- [ ] Detailer search by location works
-- [ ] Availability returns correct slots
-- [ ] Appointment creation calculates correct price
-- [ ] Status transitions follow state machine
-- [ ] PaymentIntent created successfully
-
----
-
-## Frontend Integration Notes
-
-1. **Auth Client vs API Client**:
-   - `authClient` → base `/auth` (login, refresh, social)
-   - `apiClient` → base `/api/v1` (all other endpoints)
-
-2. **Token Storage**:
-   - Access token: short-lived (30 min)
-   - Refresh token: longer (7 days)
-   - Store securely (expo-secure-store on mobile)
-
-3. **Error Handling**:
-   - 401 triggers token refresh
-   - If refresh fails → redirect to login
-
-4. **Coordinate Format**:
-   - Use decimal degrees (41.0793, -85.1394)
-   - Latitude: -90 to 90
-   - Longitude: -180 to 180

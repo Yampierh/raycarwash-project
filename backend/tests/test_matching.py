@@ -5,7 +5,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from domains.providers.models import ProviderProfile
-from domains.services_catalog.models import Service
+from domains.services_catalog.models import Service, ServiceCategory
 from domains.users.models import User
 
 
@@ -26,18 +26,14 @@ async def get_auth_headers(client: AsyncClient, email: str, password: str) -> di
 
 @pytest.fixture
 async def detailer_with_profile(db_session: AsyncSession, test_detailer: User) -> User:
-    """Create detailer with complete profile."""
-    profile = ProviderProfile(
-        user_id=test_detailer.id,
-        bio="Professional detailer",
-        years_of_experience=5,
-        service_radius_miles=25,
-        timezone="America/Indiana/Indianapolis",
-        is_accepting_bookings=True,
-        current_latitude=41.0793,
-        current_longitude=-85.1394,
+    """Detailer with complete profile + location (profile already created by fixture)."""
+    from sqlalchemy import select
+    result = await db_session.execute(
+        select(ProviderProfile).where(ProviderProfile.user_id == test_detailer.id)
     )
-    db_session.add(profile)
+    profile = result.scalar_one()
+    profile.current_lat = 41.0793
+    profile.current_lng = -85.1394
     await db_session.commit()
     await db_session.refresh(test_detailer)
     return test_detailer
@@ -52,6 +48,15 @@ async def test_service(db_session: AsyncSession) -> Service:
         base_price_cents=12000,  # $120.00
         base_duration_minutes=180,
         is_active=True,
+        category=ServiceCategory.FULL_DETAIL,
+        price_small=12000,
+        price_medium=14400,
+        price_large=18000,
+        price_xl=24000,
+        duration_small_minutes=180,
+        duration_medium_minutes=216,
+        duration_large_minutes=270,
+        duration_xl_minutes=360,
     )
     db_session.add(service)
     await db_session.commit()
@@ -73,7 +78,7 @@ class TestSmartMatching:
             params={
                 "lat": 41.0793,
                 "lng": -85.1394,
-                "date": "2025-12-20",
+                "date": "2027-06-15",
                 "service_id": str(test_service.id),
                 "vehicle_sizes": "small,medium",
             },
@@ -144,7 +149,7 @@ class TestSmartMatching:
             params={
                 "lat": 41.0793,
                 "lng": -85.1394,
-                "date": "2025-12-20",
+                "date": "2027-06-15",
                 "service_id": str(test_service.id),
                 "vehicle_sizes": "invalid_size",
             },
@@ -170,7 +175,7 @@ class TestSmartMatching:
             params={
                 "lat": 41.0793,
                 "lng": -85.1394,
-                "date": "2025-12-20",
+                "date": "2027-06-15",
                 "service_id": fake_service_id,
                 "vehicle_sizes": "small",
             },
@@ -191,8 +196,8 @@ class TestSmartMatching:
         from domains.services_catalog.models import Addon
         
         addon = Addon(
-            name="Clay Bar Treatment",
-            description="Remove embedded contaminants",
+            name="Test Matching Addon",
+            description="Test-only addon for matching tests",
             price_cents=3000,
             duration_minutes=45,
             is_active=True,
@@ -210,7 +215,7 @@ class TestSmartMatching:
             params={
                 "lat": 41.0793,
                 "lng": -85.1394,
-                "date": "2025-12-20",
+                "date": "2027-06-15",
                 "service_id": str(test_service.id),
                 "vehicle_sizes": "small",
                 "addon_ids": str(addon.id),
@@ -241,7 +246,7 @@ class TestSmartMatching:
             params={
                 "lat": 41.0793,
                 "lng": -85.1394,
-                "date": "2025-12-20",
+                "date": "2027-06-15",
                 "service_id": str(test_service.id),
                 "vehicle_sizes": "small",
             },
@@ -279,7 +284,7 @@ class TestSmartMatching:
             params={
                 "lat": 41.0793,
                 "lng": -85.1394,
-                "date": "2025-12-20",
+                "date": "2027-06-15",
                 "service_id": str(test_service.id),
                 "vehicle_sizes": "small",
                 "radius_miles": 1,  # Muy pequeño
@@ -330,8 +335,8 @@ class TestMatchingSorting:
             service_radius_miles=50,
             timezone="America/Indiana/Indianapolis",
             is_accepting_bookings=True,
-            current_latitude=41.0793,
-            current_longitude=-85.1394,
+            current_lat=41.0793,
+            current_lng=-85.1394,
             average_rating=4.9,
             total_reviews=100,
         )
@@ -355,8 +360,8 @@ class TestMatchingSorting:
             service_radius_miles=50,
             timezone="America/Indiana/Indianapolis",
             is_accepting_bookings=True,
-            current_latitude=41.0793,
-            current_longitude=-85.1394,
+            current_lat=41.0793,
+            current_lng=-85.1394,
             average_rating=3.5,
             total_reviews=10,
         )
@@ -374,7 +379,7 @@ class TestMatchingSorting:
             params={
                 "lat": 41.0793,
                 "lng": -85.1394,
-                "date": "2025-12-20",
+                "date": "2027-06-15",
                 "service_id": str(test_service.id),
                 "vehicle_sizes": "small",
             },

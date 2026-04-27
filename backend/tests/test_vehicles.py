@@ -25,34 +25,31 @@ async def get_auth_headers(client: AsyncClient, email: str, password: str) -> di
 
 
 async def create_test_user_with_session(db_session: AsyncSession) -> User:
-    """Create a test user with client role using the provided session."""
+    """Create a fully-onboarded test user with client role."""
     from domains.auth.service import AuthService
-    from sqlalchemy import select
-    
+    from domains.auth.models import UserRoleAssociation
+    from domains.users.models import OnboardingStatus, ClientProfile
+
     result = await db_session.execute(select(Role).where(Role.name == "client"))
     client_role = result.scalar_one()
-    
+
     user = User(
         email="testclient@example.com",
         full_name="Test Client",
         password_hash=AuthService.hash_password("Test1234!"),
         is_active=True,
+        onboarding_status=OnboardingStatus.COMPLETED,
     )
     db_session.add(user)
     await db_session.flush()
-    
-    # Create user role association
-    from domains.auth.models import UserRoleAssociation
-    user_role = UserRoleAssociation(user_id=user.id, role_id=client_role.id)
-    db_session.add(user_role)
+
+    db_session.add(UserRoleAssociation(user_id=user.id, role_id=client_role.id))
+    db_session.add(ClientProfile(user_id=user.id))
     await db_session.commit()
-    await db_session.refresh(user)
-    
-    # Verify roles are set correctly
-    await db_session.refresh(user, attribute_names=['user_roles'])
+    await db_session.refresh(user, attribute_names=["user_roles"])
     for ur in user.user_roles:
-        await db_session.refresh(ur, attribute_names=['role'])
-    
+        await db_session.refresh(ur, attribute_names=["role"])
+
     return user
 
 
@@ -123,6 +120,7 @@ class TestCreateVehicle:
                 "year": 2023,
                 "license_plate": "XYZ789",
                 "color": "Blue",
+                "body_class": "Sedan",
             },
         )
         
@@ -145,6 +143,7 @@ class TestCreateVehicle:
                 "year": 2023,
                 "license_plate": "DUPLICATE",
                 "color": "Silver",
+                "body_class": "Sedan",
             },
         )
         
@@ -158,6 +157,7 @@ class TestCreateVehicle:
                 "year": 2022,
                 "license_plate": "DUPLICATE",
                 "color": "Red",
+                "body_class": "Sedan",
             },
         )
         
@@ -179,6 +179,7 @@ class TestCreateVehicle:
                 "year": 1800,  # Año inválido
                 "license_plate": "TEST123",
                 "color": "Silver",
+                "body_class": "Sedan",
             },
         )
         
@@ -225,6 +226,7 @@ class TestListVehicles:
                 "year": 2023,
                 "license_plate": "VEH1",
                 "color": "Silver",
+                "body_class": "Sedan",
             },
         )
         await client.post(
@@ -236,6 +238,7 @@ class TestListVehicles:
                 "year": 2022,
                 "license_plate": "VEH2",
                 "color": "Red",
+                "body_class": "Sedan",
             },
         )
         
@@ -324,6 +327,7 @@ class TestDeleteVehicle:
                 "year": 2023,
                 "license_plate": "DEL123",
                 "color": "Silver",
+                "body_class": "Sedan",
             },
         )
         vehicle_id = create_response.json()["id"]
@@ -352,6 +356,7 @@ class TestDeleteVehicle:
                 "year": 2023,
                 "license_plate": "OWNER123",
                 "color": "Silver",
+                "body_class": "Sedan",
             },
         )
         vehicle_id = create_response.json()["id"]
@@ -406,6 +411,7 @@ class TestUpdateVehicle:
                 "year": 2023,
                 "license_plate": "UPD123",
                 "color": "Silver",
+                "body_class": "Sedan",
             },
         )
         vehicle_id = create_response.json()["id"]
@@ -420,6 +426,7 @@ class TestUpdateVehicle:
                 "year": 2024,
                 "license_plate": "UPD123",
                 "color": "Gold",
+                "body_class": "Sedan",
             },
         )
         
@@ -443,6 +450,7 @@ class TestUpdateVehicle:
                 "year": 2023,
                 "license_plate": "NOTOWNER",
                 "color": "Silver",
+                "body_class": "Sedan",
             },
         )
         vehicle_id = create_response.json()["id"]
@@ -459,6 +467,7 @@ class TestUpdateVehicle:
                 "year": 2023,
                 "license_plate": "NOTOWNER",
                 "color": "Red",
+                "body_class": "Sedan",
             },
         )
         
@@ -481,6 +490,7 @@ class TestUpdateVehicle:
                 "year": 2023,
                 "license_plate": "TEST",
                 "color": "Silver",
+                "body_class": "Sedan",
             },
         )
         

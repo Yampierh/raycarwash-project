@@ -1,231 +1,249 @@
-# RayCarWash - Auditoría Técnica Completada
+# RayCarWash — audit report
 
-## 📅 Fecha: 9 de Abril 2026
-
----
-
-## 🎯 Resumen Ejecutivo
-
-Se realizó una auditoría técnica completa del repositorio (Backend + Frontend) enfocada en:
-1. ✅ Validación de endpoints
-2. ✅ Sincronización Frontend-Backend
-3. ✅ Documentación OpenAPI
-4. ✅ Tests de Auth (21/21 pasando)
-5. ⚠️ Tests de Vehicles (parcial)
-6. ⚠️ Tests de Appointments/Detailers/Matching (error de modelo)
+**Last updated**: April 2026
 
 ---
 
-## 📁 Archivos Modificados
+## Executive summary
 
-### Backend
-
-| Archivo | Cambio |
-|---------|--------|
-| `app/services/auth.py` | Agregado eager loading de user_roles en get_current_user() |
-| `app/routers/auth_router.py` | Removido service_address (movido a ClientProfile/DetailerProfile) |
-| `app/routers/vehicle_router.py` | Documentación OpenAPI completa |
-| `app/routers/addon_router.py` | Documentación OpenAPI completa |
-| `tests/conftest.py` | Fixtures con seed de RBAC, servicios y addons |
-| `tests/test_auth.py` | 21 tests pasando |
-| `tests/test_vehicles.py` | Tests creados (7/17 pasando) |
-| `tests/test_appointments.py` | Tests creados (error: falta columna category) |
-| `tests/test_matching.py` | Tests creados (error: falta columna category) |
-| `tests/test_detailers.py` | Tests creados (error: falta columna category) |
-| `pytest.ini` | Configuración pytest |
-
-### Frontend
-
-| Archivo | Cambio |
-|---------|--------|
-| `src/services/auth.service.ts` | Corregido formato de refresh token (query param) |
-| `src/services/auth.service.ts` | Corregido URL para social auth (usa authClient) |
+This document tracks all technical decisions, bugs found and fixed, and current test coverage across all sprints. It is the source of truth for what is done, what is broken, and what comes next.
 
 ---
 
-## 🐛 Bugs Encontrados y Corregidos
+## Decisions log
 
-### 1. URL de Social Auth (CRÍTICO) - ✅ CORREGIDO
-- **Problema**: Frontend usaba `apiClient` (base: `/api/v1`) para `/auth/google`, `/auth/apple`, `/auth/password-reset`
-- **Resultado**: Llamadas iban a `/api/v1/auth/google` (404)
-- **Solución**: Cambiar a usar `authClient` (base: `/auth`)
+### Auth flow — identifier-first (Uber style)
 
-### 2. Formato de Refresh Token - ✅ CORREGIDO
-- **Problema**: Frontend enviaba como JSON body, backend espera query parameter
-- **Solución**: Cambiar a formato query param
+Adopted in Sprint 2. Three-step flow:
 
-### 3. service_address en UserUpdate - ✅ CORREGIDO
-- **Problema**: Router intentaba actualizar campo que ya no existe en User
-- **Solución**: Removida lógica de service_address del endpoint `/auth/update`
+1. `POST /auth/identify` — email or phone, returns `is_new_user`
+2. `POST /auth/verify` — password or social token
+   - Existing user → full tokens
+   - New user → `registration_token` (30 min, scoped to profile completion only)
+3. `PUT /auth/complete-profile` — name, phone, role (client or detailer)
+   - Returns full `access_token` + `refresh_token`
 
-### 4. Eager Loading de Relaciones (CRÍTICO) - ✅ CORREGIDO
-- **Problema**: get_current_user() no cargaba relaciones user_roles, causando que is_client() retornara False
-- **Solución**: Agregado refresh para cargar user_roles y role en get_current_user()
+**Why**: reduces friction on first use. User only types email once; the system decides if they need to register or log in.
 
----
+### Two Axios clients
 
-## ✅ Tests de Auth - PASSING (21/21)
+`authClient` (base `/auth`) and `apiClient` (base `/api/v1`) are kept separate intentionally. Mixing them causes 404s because auth endpoints are not under `/api/v1/`.
 
-```
-tests/test_auth.py::TestLogin::test_login_success PASSED
-tests/test_auth.py::TestLogin::test_login_invalid_password PASSED
-tests/test_auth.py::TestLogin::test_login_nonexistent_user PASSED
-tests/test_auth.py::TestLogin::test_login_inactive_user PASSED
-tests/test_auth.py::TestLogin::test_login_missing_credentials PASSED
-tests/test_auth.py::TestTokenRefresh::test_refresh_success PASSED
-tests/test_auth.py::TestTokenRefresh::test_refresh_invalid_token PASSED
-tests/test_auth.py::TestTokenRefresh::test_refresh_expired_token PASSED
-tests/test_auth.py::TestTokenRefresh::test_refresh_missing_token PASSED
-tests/test_auth.py::TestGetCurrentUser::test_me_authenticated PASSED
-tests/test_auth.py::TestGetCurrentUser::test_me_unauthenticated PASSED
-tests/test_auth.py::TestGetCurrentUser::test_me_invalid_token PASSED
-tests/test_auth.py::TestUpdateProfile::test_update_profile_success PASSED
-tests/test_auth.py::TestUpdateProfile::test_update_profile_partial PASSED
-tests/test_auth.py::TestUpdateProfile::test_update_profile_unauthenticated PASSED
-tests/test_auth.py::TestGoogleLogin::test_google_login_new_user PASSED
-tests/test_auth.py::TestGoogleLogin::test_google_login_missing_token PASSED
-tests/test_auth.py::TestPasswordReset::test_password_reset_existing_user PASSED
-tests/test_auth.py::TestPasswordReset::test_password_reset_nonexistent_user PASSED
-tests/test_auth.py::TestPasswordReset::test_password_reset_missing_email PASSED
-tests/test_auth.py::TestRateLimiting::test_login_rate_limit PASSED
-```
+### VehicleSize is runtime-derived
+
+`body_class` is stored on Vehicle. `VehicleSize` (small/medium/large/xl) is derived from it at runtime via `body_class_to_size()`. Never stored — this keeps pricing flexible without migrations.
+
+### Prices in cents
+
+All prices are integer cents. Never floats. Frontend divides by 100 for display.
+
+### estimated_price is immutable
+
+Set once at appointment creation. `actual_price` is set on COMPLETED. These are two distinct fields.
+
+### Soft deletes everywhere
+
+`is_deleted + deleted_at` on every entity. No hard deletes. Preserves audit trail.
+
+### Multiservice architecture decision (April 2026)
+
+Decided to expand beyond detailing. Current plan:
+- Sprint 6: finish detailing vertical fully (tests, push notifications, admin)
+- Sprint 7: add `ServiceCategory` model, connect `Service` to a category, enable mechanic vertical
+- The `ServiceCategory` fix also resolves the test suite failures (see below)
 
 ---
 
-## 📋 Documentación Creada/Actualizada
+## Bugs found and fixed
 
-| Archivo | Descripción |
-|---------|-------------|
-| `API_GUIDE.md` | Guía completa de integración API |
-| `frontend/GENERATE_TYPES.md` | Instrucciones para generar tipos TS |
-| `AUDIT_REPORT.md` | Este documento |
+### Sprint 2
+
+| # | Severity | File | Description |
+|---|---|---|---|
+| 1 | Critical | `services/auth.service.ts` | Refresh token sent as JSON body → backend expects query param. Fixed. |
+| 2 | Critical | `services/auth.service.ts` | Social auth (`/auth/google`, `/auth/apple`) called via `apiClient` → 404. Fixed: use `authClient`. |
+| 3 | High | `routers/auth_router.py` | `service_address` field in UserUpdate pointed to a column that no longer exists on User. Fixed: removed from endpoint. |
+| 4 | Critical | `services/auth.py` | `get_current_user()` didn't eager-load `user_roles` → `is_client()` returned False for all users. Fixed: added refresh to load relations. |
+
+### Sprint 6 — security audit (April 9, 2026)
+
+| # | Severity | File | Description |
+|---|---|---|---|
+| 1 | Critical | `routers/webhook_router.py` | Bare `except Exception` intercepted system errors. Fixed: narrowed to `except (json.JSONDecodeError, UnicodeDecodeError)`. |
+| 2 | High | `services/payment_service.py` | `stripe.api_key` assigned inside each method call (4 methods). Fixed: moved to module level. |
+| 3 | High | `routers/auth_router.py` + `schemas/schemas.py` | Social provider detected by string heuristic in token. Fixed: explicit `provider` field in `VerifyRequest`. |
+| 4 | Medium | `routers/auth_router.py` | Role assignment via nonexistent attribute. Fixed: use ORM `UserRoleAssociation`. |
+| 5 | Medium | `core/config.py` | `STRIPE_SECRET_KEY` validator didn't reject invalid formats. Fixed: must start with `sk_test_`, `sk_live_`, or `rk_`. |
+| 6 | Low | `schemas/schemas.py` | 9 request schemas repeated the same `model_config`. Fixed: extracted to `_BaseRequestSchema`. |
+
+### Sprint 6 — WebSocket + ARRIVED state (April 11, 2026)
+
+| # | Severity | File | Description |
+|---|---|---|---|
+| 1 | High | `repositories/detailer_repository.py` | `update_location` did UPDATE on `User` table — fields `current_lat/lng/last_location_update` live on `DetailerProfile`. Fixed. |
+| 2 | High | `services/appointment_service.py` | RBAC check used `actor.role ==` (singular, nonexistent). Multi-role users got 403. Fixed: use `actor.has_role()`. |
+| 3 | Medium | `services/appointment_service.py` | `get_available_slots`: if service not found, `service_duration_minutes` was unbound → `UnboundLocalError`. Fixed: fallback to `SLOT_GRANULARITY_MINUTES`. |
+
+### Known positives (no changes needed)
+
+- JWT with explicit `type` claim — prevents token confusion attacks
+- bcrypt via passlib — correct
+- Timing-safe auth with `dummy_verify()`
+- Rate limiting on all auth endpoints
+- SQL injection protected via SQLAlchemy ORM
+- Stripe webhook HMAC-SHA256 verified
+- Soft deletes preserve audit trail
+- PII encrypted at rest with `EncryptedType`
+- 5 MB request body limit (bypassed for Stripe webhooks)
+- CORS configurable via env
 
 ---
 
-## ⚠️ Problemas Pendientes
+## New features by sprint
 
-### 1. Tests de Vehicles (7/17 pasando)
-- Los 10 tests restantes fallan por problemas en la lógica de los tests
-- No son bugs de producción, sino ajustes necesarios en los tests
+### Sprint 6 — WebSocket + ARRIVED state
 
-### 2. Tests de Appointments/Detailers/Matching (ERRORS)
-- **Error**: `IntegrityError: el valor nulo en la columna 'category' de la relación 'services' viola la restricción 'not-null'`
-- **Causa**: El modelo Service requiere un campo 'category' que no está siendo proporcionado por el seed
-- **Solución requerida**: Agregar campo 'category' al modelo Service y al seed
+| Component | Description |
+|---|---|
+| `AppointmentStatus.ARRIVED` | New state between CONFIRMED and IN_PROGRESS. `arrived_at` auto-stamped. Alembic migration included. |
+| `ws/connection_manager.py` | `ConnectionManager` in-memory: rooms by `appointment_id`, `asyncio.Lock`, broadcast with dead socket purge. Scales to Redis pub-sub without API changes. |
+| `ws/router.py` | `WS /ws/appointments/{id}?token=<jwt>`. Accepts `ping` / `location_update` (detailer only). Persists location via background task with own session. |
+| `auth.py: ws_get_current_user` | WS auth helper: returns `User\|None` instead of raising, for clean 4001/4003/4004 close codes. |
+| HTTP → WS broadcast | Status change and location update HTTP calls trigger `ConnectionManager.broadcast()` to the active room. |
+| `store/authStore.ts` | Zustand store: synchronous JWT for WS. `saveToken`/`clearAuthTokens` sync the store. `app.tsx` hydrates at boot. |
+| `hooks/useAppointmentSocket.ts` | Full WS hook: auto-connect, exponential backoff (1s→30s), heartbeat ping 30s, status and location callbacks. |
+| `DetailerHomeScreen` | "I've Arrived" button (CONFIRMED→ARRIVED), "Start Job" button (ARRIVED→IN_PROGRESS). GPS push every 5s via `expo-location` while job is active. |
+| `HomeScreen` | "DETAILER ARRIVED" banner with real-time updates via WS. |
 
 ---
 
-## 🔧 Cómo Ejecutar Tests
+## Test coverage
 
 ```bash
-# Entrar al entorno virtual
 cd backend
-.\venv\Scripts\Activate
-
-# Ejecutar tests de auth
-python -m pytest tests/test_auth.py -v
-
-# Ejecutar tests de vehicles
-python -m pytest tests/test_vehicles.py -v
-
-# Ejecutar todos los tests
-python -m pytest tests/ -v
+pytest -v                          # all tests
+pytest tests/test_auth.py -v       # auth (21 passing)
 ```
 
----
+### Auth (21/21 passing)
 
-## 📊 Cobertura de Tests
+```
+TestLogin::test_login_success                    PASSED
+TestLogin::test_login_invalid_password           PASSED
+TestLogin::test_login_nonexistent_user           PASSED
+TestLogin::test_login_inactive_user              PASSED
+TestLogin::test_login_missing_credentials        PASSED
+TestTokenRefresh::test_refresh_success           PASSED
+TestTokenRefresh::test_refresh_invalid_token     PASSED
+TestTokenRefresh::test_refresh_expired_token     PASSED
+TestTokenRefresh::test_refresh_missing_token     PASSED
+TestGetCurrentUser::test_me_authenticated        PASSED
+TestGetCurrentUser::test_me_unauthenticated      PASSED
+TestGetCurrentUser::test_me_invalid_token        PASSED
+TestUpdateProfile::test_update_profile_success   PASSED
+TestUpdateProfile::test_update_profile_partial   PASSED
+TestUpdateProfile::test_update_profile_unauth    PASSED
+TestGoogleLogin::test_google_login_new_user      PASSED
+TestGoogleLogin::test_google_login_missing_token PASSED
+TestPasswordReset::test_reset_existing_user      PASSED
+TestPasswordReset::test_reset_nonexistent_user   PASSED
+TestPasswordReset::test_reset_missing_email      PASSED
+TestRateLimiting::test_login_rate_limit          PASSED
+```
 
-| Área | Tests Creados | Estado |
-|------|---------------|--------|
-| Auth | 21 | ✅ 21 pasando |
-| Vehicles | 17 | ⚠️ 7 pasando |
-| Appointments | 18 | ❌ Error en setup |
-| Detailers | 18 | ❌ Error en setup |
-| Matching | 10 | ❌ Error en setup |
-| **Total** | **~84** | **28 pasando, 56 con problemas** |
+### Overall status
 
----
+| Module | Tests | Passing | Status | Root cause |
+|---|---|---|---|---|
+| Auth | 21 | 21 | ✅ | — |
+| Vehicles | 17 | 7 | ⚠️ | Test logic issues, not production bugs |
+| Appointments | 18 | 0 | ❌ | Missing `category` column in Service seed |
+| Detailers | 18 | 0 | ❌ | Same |
+| Matching | 10 | 0 | ❌ | Same |
+| WebSocket | 0 | — | 📋 | Not yet written |
+| **Total** | **84** | **28** | — | — |
 
-## 🔜 Siguiente Paso Recomendado
+### Root cause for failing test modules
 
-1. **Corregir modelo Service**: Agregar campo `category` al modelo y seed
-2. **Ajustar tests de vehicles**: Completar los 10 tests restantes
-3. **Corregir tests de appointments/detailers/matching**: Una vez corregido el modelo
+```
+IntegrityError: null value in column "category" of relation "services"
+violates not-null constraint
+```
 
----
+The `Service` model has a `category` column (NOT NULL) that is not populated by the test seed in `conftest.py`.
 
-## ✅ Objetivos Logrados
+**Fix path**:
+1. Create `ServiceCategory` model with fields: `id`, `name`, `icon`, `is_active`
+2. Add `category_id` FK to `Service` model
+3. Add Alembic migration
+4. Update `seed.py` and `conftest.py` to populate `ServiceCategory` rows first
+5. This also lays the foundation for Sprint 7 multiservice architecture
 
-1. **Validación de Endpoints**: Tests de auth confirmando funcionamiento correcto
-2. **Sincronización FB**: Corrección de URLs y formato de refresh token
-3. **Documentación**: OpenAPI en routers, API_GUIDE.md creado
-4. **Tests**: Infraestructura funcionando, 21 tests de auth pasando
-5. **Corrección de raíz**: Resuelto el problema de relaciones SQLAlchemy
-
----
-
-## 🔒 Auditoría de Seguridad — Sprint 6 (2026-04-09)
-
-### Bugs Corregidos
-
-| # | Severidad | Archivo | Descripción |
-| --- | --- | --- | --- |
-| 1 | Crítico | `routers/webhook_router.py` | `except Exception` → `except (json.JSONDecodeError, UnicodeDecodeError)` — bare exception interceptaba errores del sistema |
-| 2 | Alto | `services/payment_service.py` | `stripe.api_key` movido al nivel de módulo; antes se asignaba en cada llamada (4 métodos) |
-| 3 | Alto | `routers/auth_router.py` + `schemas/schemas.py` | Social provider detectado por heurística de string en token → campo explícito `provider` en `VerifyRequest` |
-| 4 | Medio | `routers/auth_router.py` | Role assignment via atributo inexistente → ORM correcto con `UserRoleAssociation` |
-| 5 | Medio | `core/config.py` | Validator `STRIPE_SECRET_KEY` rechaza claves con formato inválido (debe empezar con `sk_test_`, `sk_live_` o `rk_`) |
-| 6 | Bajo | `schemas/schemas.py` | Creada `_BaseRequestSchema` — 9 schemas de request repetían el mismo `model_config` |
-| 7 | Bajo | `routers/auth_router.py`, `routers/webhook_router.py` | Comentarios TODO convertidos a comentarios explicativos |
-
-### Hallazgos Positivos (no requerían cambios)
-
-- JWT con `type` claim explícito — previene confusión de tokens
-- Hashing bcrypt correcto con passlib
-- Timing-safe authentication (`dummy_verify()`)
-- Rate limiting en endpoints de auth (10/min identify/verify/token, 5/min refresh)
-- SQL injection protegido vía queries parametrizadas (SQLAlchemy ORM)
-- Verificación de firma Stripe webhook (HMAC-SHA256)
-- Soft deletes preservan audit trail
-- Encriptación PII en reposo (`EncryptedType` con `SECRET_KEY`)
-- Tamaño de request body limitado (5 MB)
-- CORS configurable vía env, no hardcoded
-
-### Cambios de Documentación
-
-- `AGENTS.md`: Sprint 6 marcado como "En Progreso", `provider` field documentado en auth, nota sobre `_BaseRequestSchema`
+**Vehicles 10 failing tests**: these are test logic issues, not production bugs. The endpoints work correctly.
 
 ---
 
-## 🔌 Sprint 6 — WebSocket + Estado ARRIVED (2026-04-11)
+## Files modified per sprint
 
-### Bugs Corregidos — Sprint 6
+### Sprint 2 (auth + vehicles)
 
-| # | Severidad | Archivo | Descripción |
-| --- | --- | --- | --- |
-| 1 | Alto | `repositories/detailer_repository.py` | `update_location` hacía UPDATE en tabla `User` — los campos `current_lat/lng/last_location_update` viven en `DetailerProfile`. Fix: apuntar al modelo correcto. |
-| 2 | Alto | `services/appointment_service.py` | RBAC multi-rol: usaba `actor.role ==` (atributo singular inexistente) en lugar de `actor.has_role()`. Los usuarios con múltiples roles obtenían 403 incorrectos. |
-| 3 | Medio | `services/appointment_service.py` | `get_available_slots`: si el servicio no se encontraba, `service_duration_minutes` quedaba sin asignar → `UnboundLocalError`. Fix: fallback a `SLOT_GRANULARITY_MINUTES`. |
+| File | Change |
+|---|---|
+| `app/services/auth.py` | Added eager loading of `user_roles` in `get_current_user()` |
+| `app/routers/auth_router.py` | Removed `service_address` from UserUpdate · Added `complete-profile` endpoint |
+| `app/routers/vehicle_router.py` | Full OpenAPI documentation |
+| `app/routers/addon_router.py` | Full OpenAPI documentation |
+| `tests/conftest.py` | Fixtures with RBAC, services, addons seed |
+| `tests/test_auth.py` | 21 tests — all passing |
+| `tests/test_vehicles.py` | 17 tests — 7 passing |
+| `pytest.ini` | pytest configuration |
+| `src/services/auth.service.ts` | Fixed refresh token format (query param) · Fixed social auth URL (authClient) |
 
-### Nuevas Funcionalidades Implementadas
+### Sprint 6 (security + WebSocket)
 
-| Componente | Descripción |
-| --- | --- |
-| `AppointmentStatus.ARRIVED` | Nuevo estado entre CONFIRMED e IN_PROGRESS. Timestamp `arrived_at` auto-stamped. Migración Alembic incluida. |
-| `backend/app/ws/connection_manager.py` | `ConnectionManager` in-memory: rooms por `appointment_id`, `asyncio.Lock`, broadcast con purga de sockets muertos. Escala a Redis pub/sub sin cambiar la API pública. |
-| `backend/app/ws/router.py` | Endpoint `WS /ws/appointments/{id}?token=<jwt>`. Acepta `ping`/`location_update` (solo detailer). Persiste ubicación en background task con sesión propia. |
-| `services/auth.py: ws_get_current_user` | Auth WS: retorna `User\|None` en lugar de raise, para cerrar limpiamente con códigos 4001/4003/4004. |
-| Broadcast HTTP→WS | Status change y location update HTTP disparan `ConnectionManager.broadcast()` al room activo. |
-| `frontend/src/store/authStore.ts` | Zustand store: token síncrono para WS. `saveToken`/`clearAuthTokens` sincronizan el store; `app.tsx` hidrata en boot. |
-| `frontend/src/hooks/useAppointmentSocket.ts` | Hook WS completo: auto-connect, backoff exponencial (1s→30s), heartbeat ping 30s, callbacks de estado y ubicación. |
-| `DetailerHomeScreen` | Botón "I've Arrived" (CONFIRMED→ARRIVED, púrpura), "Start Job" (ARRIVED→IN_PROGRESS). GPS push cada 5s con `expo-location` mientras hay job activo. |
-| `HomeScreen` | Banner "DETAILER ARRIVED" / "Your detailer is on site!" con updates en tiempo real via WS. |
+| File | Change |
+|---|---|
+| `routers/webhook_router.py` | Narrowed exception handler |
+| `services/payment_service.py` | Moved `stripe.api_key` to module level |
+| `routers/auth_router.py` | Explicit `provider` field · Correct RBAC association |
+| `schemas/schemas.py` | `_BaseRequestSchema` · explicit `provider` field |
+| `core/config.py` | Stripe key format validator |
+| `repositories/detailer_repository.py` | Fixed `update_location` — targets `DetailerProfile` not `User` |
+| `services/appointment_service.py` | Fixed RBAC check · Fixed `UnboundLocalError` in availability |
+| `app/ws/connection_manager.py` | New: WebSocket room manager |
+| `app/ws/router.py` | New: WS endpoint with JWT auth |
+| `services/auth.py` | Added `ws_get_current_user()` helper |
+| `store/authStore.ts` | New: Zustand store for sync JWT |
+| `hooks/useAppointmentSocket.ts` | New: WS hook with reconnect + heartbeat |
 
-### Estado de Tests Post-Sprint 6
+---
 
-| Área | Estado |
-| --- | --- |
-| Auth (21 tests) | ✅ Sin regresiones esperadas |
-| Appointments (status machine) | ✅ ARRIVED integrado en transiciones |
-| WebSocket | ⚠️ Sin tests automatizados aún (requiere `pytest-asyncio` + mock WS) |
+## Upcoming work
+
+### Sprint 6 remaining
+
+- Push notifications (Expo Notifications)
+- Admin dashboard endpoints
+- Fix 10 failing vehicle tests
+- Write WebSocket tests (`pytest-asyncio` + mock WS)
+
+### Sprint 7 — multiservice
+
+1. Create `ServiceCategory` model and migration
+2. Add `category_id` FK to `Service` (fixes test suite failures)
+3. Update seed to populate categories
+4. Frontend: category selection screen before matching
+5. Provider type field on `DetailerProfile` (detailer / mechanic / specialist)
+6. Category-specific onboarding fields (mechanics need certifications field)
+
+### How to run tests
+
+```bash
+cd backend
+source venv/bin/activate           # macOS/Linux
+.\venv\Scripts\Activate            # Windows
+
+pytest tests/test_auth.py -v       # auth suite
+pytest tests/test_vehicles.py -v   # vehicles suite
+pytest tests/ -v                   # all tests
+```

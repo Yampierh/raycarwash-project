@@ -1,137 +1,184 @@
-# RayCarwash
+# RayCarWash
 
-Mobile car detailing marketplace - Fort Wayne, IN
+Mobile vehicle services marketplace — Fort Wayne, IN.
 
-## Project Structure
+Connects clients with mobile service providers (detailers, mechanics, and more) who come to the client's location. Think Uber, but for car care.
+
+> **Current phase**: Detailing vertical — getting it 100% functional before expanding to multiservice.
+
+---
+
+## Project structure
 
 ```
 raycarwash-project/
-├── frontend/          # React Native (Expo) mobile app
-│   ├── src/
-│   │   ├── screens/   # App screens
-│   │   ├── services/  # API services
-│   │   ├── navigation/# Navigation config
-│   │   ├── hooks/     # Custom hooks
-│   │   ├── config/    # App configuration
-│   │   ├── theme/     # Theme/colors
-│   │   └── utils/     # Utilities
-│   └── package.json
+├── backend/                        # FastAPI · Python 3.11+ · PostgreSQL
+│   ├── main.py                     # App factory, router registration, lifespan hooks
+│   ├── requirements.txt
+│   └── app/
+│       ├── core/                   # config.py (Pydantic settings), limiter.py (slowapi)
+│       ├── db/                     # session.py, seed.py, detailer_seed.py
+│       ├── models/models.py        # All SQLAlchemy ORM models
+│       ├── schemas/schemas.py      # All Pydantic v2 schemas
+│       ├── repositories/           # Data access layer (8 repos)
+│       ├── services/               # Business logic layer
+│       ├── routers/                # FastAPI route handlers (10 routers)
+│       └── ws/                     # WebSocket connection manager + router
 │
-├── backend/           # FastAPI Python backend
-│   ├── app/
-│   │   ├── routers/   # API endpoints
-│   │   ├── services/  # Business logic
-│   │   ├── repositories/ # Data access
-│   │   ├── models/    # SQLAlchemy models
-│   │   ├── schemas/   # Pydantic schemas
-│   │   ├── core/      # Config & utilities
-│   │   └── db/        # Database & seeds
-│   ├── main.py        # App entry point
-│   └── requirements.txt
+├── frontend/                       # React Native · Expo · TypeScript
+│   └── src/
+│       ├── screens/                # 17 screen components
+│       ├── services/               # 11 API service files
+│       ├── hooks/                  # useAppointmentSocket
+│       ├── store/                  # authStore (Zustand)
+│       ├── navigation/             # RootStack, MainTabs, DetailerTabs
+│       └── theme/
 │
-└── package.json       # Root scripts for both projects
+├── docker-compose.yml
+├── AGENTS.md                       # Full technical context for AI agents
+├── API_GUIDE.md                    # REST + WebSocket reference
+└── AUDIT_REPORT.md                 # Bug log and test coverage status
 ```
+
+---
 
 ## Prerequisites
 
-- **Frontend**: Node.js 18+, npm
-- **Backend**: Python 3.11+, PostgreSQL, greenlet
+- **Node.js** 18+
+- **Python** 3.11+
+- **PostgreSQL** 14+
 
-## Quick Start
+---
 
-### 1. Install npm dependencies
+## Quick start
 
 ```bash
+# 1. Install npm dependencies (frontend)
 npm run install
-```
 
-### 2. Install Python dependencies
-
-```bash
+# 2. Create Python venv + install backend deps
 npm run install-deps
-```
 
-This will:
-- Create Python virtual environment
-- Install Python dependencies from requirements.txt
+# 3. Configure environment variables (see below)
 
-### 3. Configure environment variables
+# 4. Run database migrations
+cd backend && alembic upgrade head && cd ..
 
-Edit the following files:
-
-**Backend** (`backend/.env`):
-```env
-DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/raycarwash
-SECRET_KEY=your-secret-key-here
-DEBUG=true
-```
-
-**Frontend** (`frontend/.env.local`):
-```env
-EXPO_PUBLIC_API_URL=http://localhost:8000
-```
-
-> **Tip**: For mobile testing, use your computer's IP instead of localhost (e.g., `http://192.168.0.1:8000`)
-
-### 3. Start both projects
-
-```bash
+# 5. Start both projects
 npm run dev
 ```
 
-This opens:
-- **Backend**: http://localhost:8000
-- **Frontend**: http://localhost:8081 (Expo)
+| Service | URL |
+|---|---|
+| Backend API | http://localhost:8000 |
+| Swagger UI | http://localhost:8000/docs |
+| ReDoc | http://localhost:8000/redoc |
+| Expo (frontend) | http://localhost:8081 |
 
-### 4. Open API documentation
+---
 
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
+## Environment variables
 
-## Available Scripts
+**Backend** — `backend/.env`:
+```
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/raycarwash
+SECRET_KEY=your-32-char-secret-here
+DEBUG=true
+
+# Optional
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+SMTP_ENABLED=false
+GOOGLE_CLIENT_ID=
+APPLE_BUNDLE_ID=com.raycarwash.app
+```
+
+**Frontend** — `frontend/.env.local`:
+```
+EXPO_PUBLIC_API_URL=http://localhost:8000
+```
+
+> For physical device testing, replace `localhost` with your machine's LAN IP.
+
+---
+
+## Available scripts
 
 | Command | Description |
-|---------|-------------|
-| `npm run install` | Install npm dependencies (frontend + backend) |
-| `npm run install-deps` | Create Python venv and install dependencies |
+|---|---|
+| `npm run install` | Install npm deps (frontend) |
+| `npm run install-deps` | Create Python venv + install backend deps |
 | `npm run dev` | Start both backend and frontend in parallel |
-| `npm run dev:backend` | Start only the backend |
-| `npm run dev:frontend` | Start only the frontend |
+| `npm run dev:backend` | Backend only (FastAPI on port 8000) |
+| `npm run dev:frontend` | Frontend only (Expo on port 8081) |
 
-## Environment Variables
+---
 
-### Backend (.env)
+## Tech stack
 
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `DATABASE_URL` | PostgreSQL connection string | Yes |
-| `SECRET_KEY` | JWT secret (32+ chars) | Yes |
-| `DEBUG` | Enable debug mode | No |
-| `STRIPE_SECRET_KEY` | Stripe API key | No |
-
-### Frontend (.env.local)
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `EXPO_PUBLIC_API_URL` | Backend API URL | http://localhost:8000 |
-
-## Tech Stack
+### Backend
+- FastAPI (REST + WebSocket)
+- SQLAlchemy async (asyncpg)
+- PostgreSQL 14+
+- Pydantic v2
+- Alembic (migrations)
+- Stripe SDK v11 + Stripe Identity
+- WebAuthn (passkeys)
+- slowapi (rate limiting)
 
 ### Frontend
 - React Native (Expo)
 - React Navigation
-- Axios + WebSocket (native)
+- Axios + WebSocket
 - Zustand (auth store)
 - expo-secure-store
 
-### Backend
-- FastAPI (REST + WebSocket)
-- SQLAlchemy (async)
-- PostgreSQL (asyncpg)
-- Pydantic
-- Stripe SDK v11 + Stripe Identity
-- webauthn (passkeys)
+---
+
+## User flows
+
+### Client (8 steps to full profile)
+1. Splash — choose role
+2. Identifier-first (email or phone → new vs returning)
+3. Create account (name + password)
+4. Contact details (fill missing email or phone)
+5. Add vehicle (VIN lookup via NHTSA or manual)
+6. Payment method (Stripe)
+7. Preferences (notifications, search radius)
+8. Home — ready to book
+
+**Blocking steps**: vehicle (step 5) + payment (step 6). Everything else is optional.
+
+### Detailer (10 steps to full profile)
+1. Splash — choose role
+2. Identifier-first + create account
+3. Personal info + bio (public profile)
+4. Service zone (city + radius in miles)
+5. Services offered (toggle from catalog + optional custom price)
+6. Weekly availability (days + hours + buffer between jobs)
+7. Identity verification (Stripe Identity — may take minutes/hours)
+8. Bank account for payouts (Stripe Connect)
+9. Activate availability (toggle "accepting bookings")
+10. Dashboard — ready to receive jobs
+
+**Blocking steps**: identity verification (step 7) + bank account (step 8). Without both, detailer cannot receive payments.
+
+---
+
+## Sprint roadmap
+
+| Sprint | Status | Key features |
+|---|---|---|
+| 1 | ✅ Done | Project skeleton, DB setup |
+| 2 | ✅ Done | Auth (identifier-first), vehicles, reviews |
+| 3 | ✅ Done | Appointments, services, Stripe payments, state machine |
+| 4 | ✅ Done | Detailer discovery, webhooks, refund policy, timezone scheduling, rate limiting, social login |
+| 5 | ✅ Done | Addons, multi-vehicle bookings, smart matching, email service |
+| 6 | 🔄 In progress | Security hardening, push notifications, admin dashboard, test coverage |
+| 7 | 📋 Planned | Multiservice: ServiceCategory model, mechanic vertical, provider onboarding by type |
+
+---
 
 ## License
 
-Private - All rights reserved
+Private — All rights reserved.

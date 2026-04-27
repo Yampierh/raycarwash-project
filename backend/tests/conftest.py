@@ -12,6 +12,8 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from sqlalchemy import text
+
 from main import app
 from infrastructure.db.session import get_db
 from domains.auth.models import Role, UserRoleAssociation
@@ -49,6 +51,20 @@ async def test_db() -> AsyncGenerator[AsyncSession, None]:
     )
 
     async with engine.begin() as conn:
+        # Drop all ORM tables (handles FK ordering automatically)
+        await conn.run_sync(Base.metadata.drop_all)
+        # Drop any leftover enum types (drop_all leaves them behind in PostgreSQL)
+        await conn.execute(text("""
+            DO $$ DECLARE r RECORD;
+            BEGIN
+                FOR r IN SELECT typname FROM pg_type
+                         WHERE typtype = 'e'
+                           AND typnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'public')
+                LOOP
+                    EXECUTE 'DROP TYPE IF EXISTS ' || quote_ident(r.typname) || ' CASCADE';
+                END LOOP;
+            END $$;
+        """))
         await conn.run_sync(Base.metadata.create_all)
 
     async_session = async_sessionmaker(
@@ -83,11 +99,22 @@ async def db_session(test_db: AsyncSession) -> AsyncSession:
 @pytest.fixture
 async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     """Create async HTTP client for testing."""
+    from unittest.mock import AsyncMock, MagicMock
 
     async def override_get_db():
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
+
+    # Inject minimal app.state so endpoints that access state don't crash
+    mock_ws_manager = MagicMock()
+    mock_ws_manager.broadcast = AsyncMock()
+    mock_ws_manager.publish = AsyncMock()
+    mock_ws_manager.room_size = MagicMock(return_value=0)
+    app.state.ws_manager = mock_ws_manager
+    app.state.redis = AsyncMock()
+    app.state.assignment_events = {}
+    app.state.assignment_responses = {}
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -99,10 +126,21 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
 @pytest.fixture
 async def client_with_db(db_session: AsyncSession):
     """Client con override de DB."""
+    from unittest.mock import AsyncMock, MagicMock
+
     async def override_get_db():
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
+
+    mock_ws_manager = MagicMock()
+    mock_ws_manager.broadcast = AsyncMock()
+    mock_ws_manager.publish = AsyncMock()
+    mock_ws_manager.room_size = MagicMock(return_value=0)
+    app.state.ws_manager = mock_ws_manager
+    app.state.redis = AsyncMock()
+    app.state.assignment_events = {}
+    app.state.assignment_responses = {}
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -151,7 +189,14 @@ async def _create_user_with_role(
     if role_name == "client":
         db_session.add(ClientProfile(user_id=created_user.id))
     elif role_name == "detailer":
-        db_session.add(ProviderProfile(user_id=created_user.id))
+        db_session.add(ProviderProfile(
+            user_id=created_user.id,
+            bio="Test detailer",
+            years_of_experience=3,
+            service_radius_miles=25,
+            timezone="America/Indiana/Indianapolis",
+            is_accepting_bookings=True,
+        ))
 
     await db_session.commit()
 

@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from domains.appointments.models import Appointment, AppointmentStatus
-from domains.services_catalog.models import Service
+from domains.services_catalog.models import Service, ServiceCategory
 from domains.users.models import User
 from domains.vehicles.models import Vehicle
 
@@ -35,6 +35,15 @@ async def test_service(db_session: AsyncSession) -> Service:
         base_price_cents=2900,  # $29.00
         base_duration_minutes=45,
         is_active=True,
+        category=ServiceCategory.BASIC_WASH,
+        price_small=2900,
+        price_medium=3480,
+        price_large=4350,
+        price_xl=5800,
+        duration_small_minutes=45,
+        duration_medium_minutes=54,
+        duration_large_minutes=68,
+        duration_xl_minutes=90,
     )
     db_session.add(service)
     await db_session.commit()
@@ -69,27 +78,18 @@ async def test_appointment(
 ) -> Appointment:
     """Create a test appointment in PENDING status."""
     from domains.appointments.models import AppointmentVehicle
-    from domains.providers.models import ProviderProfile
-    
-    # Create detailer profile
-    provider_profile = ProviderProfile(
-        user_id=test_detailer.id,
-        bio="Test detailer",
-        years_of_experience=5,
-        service_radius_miles=25,
-        timezone="America/Indiana/Indianapolis",
-        is_accepting_bookings=True,
-    )
-    db_session.add(provider_profile)
-    await db_session.flush()
-    
+    from datetime import datetime, timedelta, timezone
+
+    scheduled = datetime(2027, 6, 15, 10, 0, 0, tzinfo=timezone.utc)
     # Create appointment
     appointment = Appointment(
         client_id=test_user.id,
         detailer_id=test_detailer.id,
         service_id=test_service.id,
         vehicle_id=test_vehicle.id,
-        scheduled_time="2025-12-20T10:00:00Z",
+        scheduled_time=scheduled,
+        estimated_end_time=scheduled + timedelta(minutes=45),
+        travel_buffer_end_time=scheduled + timedelta(minutes=75),
         service_address="123 Test St",
         service_latitude=41.0793,
         service_longitude=-85.1394,
@@ -131,18 +131,6 @@ class TestCreateAppointment:
         db_session: AsyncSession
     ):
         """Test crear cita exitosamente."""
-        # Setup detailer profile
-        from domains.providers.models import ProviderProfile
-        profile = ProviderProfile(
-            user_id=test_detailer.id,
-            bio="Test",
-            years_of_experience=5,
-            service_radius_miles=25,
-            timezone="America/Indiana/Indianapolis",
-            is_accepting_bookings=True,
-        )
-        db_session.add(profile)
-        await db_session.commit()
         
         headers = await get_auth_headers(
             client, "testclient@example.com", "Test1234!"
@@ -155,7 +143,7 @@ class TestCreateAppointment:
                 "detailer_id": str(test_detailer.id),
                 "vehicle_id": str(test_vehicle.id),
                 "service_id": str(test_service.id),
-                "scheduled_time": "2025-12-20T14:00:00Z",
+                "scheduled_time": "2027-06-15T14:00:00Z",
                 "service_address": "123 Test Street",
                 "service_latitude": 41.0793,
                 "service_longitude": -85.1394,
@@ -176,7 +164,7 @@ class TestCreateAppointment:
                 "detailer_id": str(uuid.uuid4()),
                 "vehicle_id": str(uuid.uuid4()),
                 "service_id": str(uuid.uuid4()),
-                "scheduled_time": "2025-12-20T10:00:00Z",
+                "scheduled_time": "2027-06-15T10:00:00Z",
                 "service_address": "Test St",
                 "service_latitude": 41.0793,
                 "service_longitude": -85.1394,
@@ -205,7 +193,7 @@ class TestCreateAppointment:
                 "detailer_id": str(uuid.uuid4()),
                 "vehicle_id": str(test_vehicle.id),
                 "service_id": str(test_service.id),
-                "scheduled_time": "2025-12-20T10:00:00Z",
+                "scheduled_time": "2027-06-15T10:00:00Z",
                 "service_address": "Test St",
                 "service_latitude": 41.0793,
                 "service_longitude": -85.1394,
@@ -246,18 +234,6 @@ class TestCreateAppointment:
         await db_session.commit()
         await db_session.refresh(other_vehicle)
         
-        # Setup detailer profile
-        from domains.providers.models import ProviderProfile
-        profile = ProviderProfile(
-            user_id=test_detailer.id,
-            bio="Test",
-            years_of_experience=5,
-            service_radius_miles=25,
-            timezone="America/Indiana/Indianapolis",
-            is_accepting_bookings=True,
-        )
-        db_session.add(profile)
-        await db_session.commit()
         
         headers = await get_auth_headers(
             client, "testclient@example.com", "Test1234!"
@@ -270,7 +246,7 @@ class TestCreateAppointment:
                 "detailer_id": str(test_detailer.id),
                 "vehicle_id": str(other_vehicle.id),
                 "service_id": str(test_service.id),
-                "scheduled_time": "2025-12-20T10:00:00Z",
+                "scheduled_time": "2027-06-15T10:00:00Z",
                 "service_address": "Test St",
                 "service_latitude": 41.0793,
                 "service_longitude": -85.1394,
@@ -543,21 +519,25 @@ class TestAppointmentStatus:
         test_appointment: Appointment,
         db_session: AsyncSession
     ):
-        """Test que completar requiere actual_price."""
+        """Completar sin actual_price usa estimated_price como fallback."""
         test_appointment.status = AppointmentStatus.IN_PROGRESS
         await db_session.commit()
-        
+
         headers = await get_auth_headers(
             client, "testdetailer@example.com", "Test1234!"
         )
-        
+
         response = await client.patch(
             f"/api/v1/appointments/{test_appointment.id}/status",
             headers=headers,
-            json={"status": "completed"},  # Sin actual_price
+            json={"status": "completed"},  # Sin actual_price — defaults to estimated_price
         )
-        
-        assert response.status_code == 422
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "completed"
+        # actual_price should default to estimated_price when not provided
+        assert data["actual_price"] == test_appointment.estimated_price
     
     @pytest.mark.asyncio
     async def test_status_cancel_by_client(
@@ -646,18 +626,6 @@ class TestMultiVehicleAppointment:
         db_session: AsyncSession
     ):
         """Test crear cita con múltiples vehículos."""
-        # Setup detailer profile
-        from domains.providers.models import ProviderProfile
-        profile = ProviderProfile(
-            user_id=test_detailer.id,
-            bio="Test",
-            years_of_experience=5,
-            service_radius_miles=25,
-            timezone="America/Indiana_Indianapolis",
-            is_accepting_bookings=True,
-        )
-        db_session.add(profile)
-        
         # Create second vehicle
         vehicle2 = Vehicle(
             owner_id=test_user.id,
@@ -679,7 +647,7 @@ class TestMultiVehicleAppointment:
             headers=headers,
             json={
                 "detailer_id": str(test_detailer.id),
-                "scheduled_time": "2025-12-20T14:00:00Z",
+                "scheduled_time": "2027-06-15T14:00:00Z",
                 "service_address": "123 Test Street",
                 "service_latitude": 41.0793,
                 "service_longitude": -85.1394,
