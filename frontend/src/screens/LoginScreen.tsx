@@ -1,14 +1,10 @@
-import { Ionicons } from "@expo/vector-icons";
 import * as AppleAuthentication from "expo-apple-authentication";
-import * as Google from "expo-auth-session/providers/google";
 import * as LocalAuthentication from "expo-local-authentication";
 import { LinearGradient } from "expo-linear-gradient";
-import * as WebBrowser from "expo-web-browser";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Animated,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -19,202 +15,134 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import AnimatedInput, { EyeToggle } from "../components/AnimatedInput";
-import { GOOGLE_CLIENT_IDS } from "../config/oauth";
-import { useAppNavigation } from "../hooks/useAppNavigation";
 import {
-  IdentifyResponse,
-  SocialAuthResponse,
-  identify,
   loginWithApple,
-  loginWithGoogle,
+  loginWithEmail,
   refreshAccessToken,
-  requestPasswordReset,
-  verify,
-  webAuthnAuthenticateBegin,
-  webAuthnAuthenticateComplete,
-  webAuthnRegisterBegin,
-  webAuthnRegisterComplete,
+  SocialAuthResponse,
 } from "../services/auth.service";
 import { Colors } from "../theme/colors";
 import { navigateAfterAuth } from "../utils/auth-redirect";
 import {
   getBiometricEnabled,
-  getPasskeyEnabled,
   getRefreshToken,
-  saveLastEmail,
   saveRefreshToken,
   saveToken,
-  setBiometricEnabled,
-  setPasskeyEnabled,
 } from "../utils/storage";
 
-// Lazy import to avoid hard crash on devices/builds without native passkey support
-let Passkey: typeof import("react-native-passkey").Passkey | null = null;
-try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  Passkey = require("react-native-passkey").Passkey;
-} catch {
-  // Not available (Expo Go, web, or unsupported OS) — passkey UI will be hidden
-}
-
-WebBrowser.maybeCompleteAuthSession();
-
-type FlowStep = "identifier" | "existing_password" | "new_user" | "social_only";
-
-function getPasswordStrength(pwd: string) {
-  if (!pwd) return { label: "", color: "#1E293B", bars: 0 };
-  const hasUpper = /[A-Z]/.test(pwd);
-  const hasNumber = /[0-9]/.test(pwd);
-  const hasSpecial = /[^A-Za-z0-9]/.test(pwd);
-  if (pwd.length >= 12 && hasUpper && hasNumber && hasSpecial)
-    return { label: "Strong", color: "#10B981", bars: 4 };
-  if (pwd.length >= 8 && (hasUpper || hasNumber))
-    return { label: "Good", color: "#3B82F6", bars: 3 };
-  if (pwd.length >= 6) return { label: "Fair", color: "#F59E0B", bars: 2 };
-  return { label: "Weak", color: "#EF4444", bars: 1 };
-}
-
-// ── Step Dots ─────────────────────────────────────────────────────────────────
-
-function StepDots({ current }: { current: 1 | 2 }) {
-  return (
-    <View style={styles.stepDots}>
-      <View style={[styles.dot, current === 1 && styles.dotActive]} />
-      <View style={[styles.dot, current === 2 && styles.dotActive]} />
-    </View>
-  );
-}
-
-// ── Main Screen ───────────────────────────────────────────────────────────────
-
-export default function LoginScreen() {
-  const navigation = useAppNavigation();
-
-  const [step, setStep] = useState<FlowStep>("identifier");
-  const [identifier, setIdentifier] = useState("");
-  const [identifierType, setIdentifierType] = useState<"email" | "phone">("email");
-  const [identifyData, setIdentifyData] = useState<IdentifyResponse | null>(null);
-
+export default function LoginScreen({ navigation }: any) {
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
-
-  // Detailer mode — same flow, different role assignment
-  const [isDetailerMode, setIsDetailerMode] = useState(false);
-
-  // Biometric state
-  const [biometricAvailable, setBiometricAvailable] = useState(false);
-  const [biometricEnabled, setBiometricEnabledState] = useState(false);
-
-  // Passkey state
-  const [passkeyAvailable, setPasskeyAvailable] = useState(false);
-  const [passkeyEnabled, setPasskeyEnabledState] = useState(false);
-  const [passkeyLoading, setPasskeyLoading] = useState(false);
-
+  const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
   const [loading, setLoading] = useState(false);
-  const [biometricLoading, setBiometricLoading] = useState(false);
-  const [socialLoading, setSocialLoading] = useState<"google" | "apple" | null>(null);
-  const [errors, setErrors] = useState<{
-    identifier?: string;
-    password?: string;
-    confirm?: string;
-    server?: string;
-  }>({});
-
-  // Slide animation
-  const slideAnim = useRef(new Animated.Value(0)).current;
-  const slideToNext = useCallback(() => {
-    slideAnim.setValue(320);
-    Animated.spring(slideAnim, {
-      toValue: 0,
-      useNativeDriver: true,
-      tension: 65,
-      friction: 11,
-    }).start();
-  }, []);
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
 
   useEffect(() => {
     checkBiometricAvailability();
-    checkPasskeyAvailability();
   }, []);
 
   const checkBiometricAvailability = async () => {
-    const hardware = await LocalAuthentication.hasHardwareAsync();
-    const enrolled = await LocalAuthentication.isEnrolledAsync();
-    const enabled = await getBiometricEnabled();
-    setBiometricAvailable(hardware && enrolled);
-    setBiometricEnabledState(enabled);
+    const hasHardware = await LocalAuthentication.hasHardwareAsync();
+    const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+    const isEnabled = await getBiometricEnabled();
+    const hasRefreshToken = !!(await getRefreshToken());
+    setBiometricAvailable(hasHardware && isEnrolled && isEnabled && hasRefreshToken);
   };
 
-  const checkPasskeyAvailability = async () => {
-    if (!Passkey) return;
-    try {
-      const supported = Passkey.isSupported();
-      const enabled = await getPasskeyEnabled();
-      setPasskeyAvailable(supported);
-      setPasskeyEnabledState(enabled);
-    } catch {
-      // Passkey not supported on this device/OS version
-    }
+  const validate = () => {
+    const e: typeof errors = {};
+    if (!email.trim()) e.email = "Email is required";
+    else if (!/\S+@\S+\.\S+/.test(email)) e.email = "Enter a valid email";
+    if (!password) e.password = "Password is required";
+    setErrors(e);
+    return Object.keys(e).length === 0;
   };
 
-  // ── Google OAuth ──────────────────────────────────────────────────────────────
-  const [googleRequest, googleResponse, googlePromptAsync] = Google.useAuthRequest({
-    androidClientId: GOOGLE_CLIENT_IDS.android,
-    iosClientId: GOOGLE_CLIENT_IDS.ios,
-    webClientId: GOOGLE_CLIENT_IDS.web,
-  });
-
-  useEffect(() => {
-    if (googleResponse?.type === "success") {
-      const code = googleResponse.params?.code;
-      const codeVerifier = googleRequest?.codeVerifier;
-      const redirectUri = googleRequest?.redirectUri;
-      if (code && codeVerifier && redirectUri) {
-        handleSocialLogin("google", code, codeVerifier, redirectUri);
+  const handleAfterLogin = useCallback(
+    async (accessToken: string, refreshToken: string | null, roles: string[]) => {
+      await saveToken(accessToken);
+      if (refreshToken) await saveRefreshToken(refreshToken);
+      const role = roles[0];
+      if (role === "detailer") {
+        navigation.reset({ index: 0, routes: [{ name: "DetailerMain" }] });
+      } else {
+        navigation.reset({ index: 0, routes: [{ name: "Main" }] });
       }
-    }
-  }, [googleResponse]);
+    },
+    [navigation],
+  );
 
-  const handleSocialLogin = async (
-    provider: "google" | "apple",
-    codeOrToken: string,
-    codeVerifier?: string,
-    redirectUri?: string,
-  ) => {
-    setSocialLoading(provider);
-    const verifier: string = codeVerifier ?? "";
-    const redirect: string = redirectUri ?? "";
-    let data: SocialAuthResponse;
-    
-    if (provider === "google") {
-      data = await loginWithGoogle({
-        code: codeOrToken,
-        code_verifier: verifier,
-        redirect_uri: redirect,
-      });
-    } else {
-      data = await loginWithApple(codeOrToken, "");
-    }
+  const handleLogin = async () => {
+    if (!validate()) return;
+    setLoading(true);
     try {
-      if (data.access_token) {
-        await saveToken(data.access_token);
+      const result = await loginWithEmail(email, password);
+      if (!result.onboarding_completed && result.onboarding_token) {
+        await saveToken(result.onboarding_token);
+        navigation.navigate("CompleteProfile");
+        return;
       }
-      if (data.refresh_token) {
-        await saveRefreshToken(data.refresh_token);
+      if (result.access_token) {
+        await handleAfterLogin(result.access_token, result.refresh_token, result.roles);
       }
-      await offerPasskeySetup();
-      await offerBiometricSetup();
-      await navigateAfterAuth(navigation);
     } catch (err: any) {
-      setErrors({ server: err.response?.data?.detail || "Social login failed." });
+      const status = err.response?.status;
+      if (status === 401 || status === 400) {
+        setErrors({ password: "Incorrect email or password." });
+      } else if (status === 429) {
+        Alert.alert(
+          "Too Many Attempts",
+          "Your account is temporarily locked. Please try again later.",
+        );
+      } else {
+        Alert.alert("Login Failed", "An unexpected error occurred. Please try again.");
+      }
     } finally {
-      setSocialLoading(null);
+      setLoading(false);
     }
   };
 
-  const handleApplePress = async () => {
+  const handleBiometric = async () => {
+    try {
+      const result = await LocalAuthentication.authenticateAsync({
+        promptMessage: "Sign in to RayCarwash",
+        fallbackLabel: "Use password",
+      });
+      if (!result.success) return;
+
+      const storedRefresh = await getRefreshToken();
+      if (!storedRefresh) {
+        Alert.alert("Session Expired", "Please sign in with your password.");
+        return;
+      }
+
+      setLoading(true);
+      const tokens = await refreshAccessToken(storedRefresh);
+      await saveToken(tokens.access_token);
+      await saveRefreshToken(tokens.refresh_token);
+      await navigateAfterAuth(navigation);
+    } catch {
+      Alert.alert("Biometric Failed", "Please sign in with your password.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSocialAuth = async (result: SocialAuthResponse) => {
+    if (result.onboarding_required && result.onboarding_token) {
+      await saveToken(result.onboarding_token);
+      navigation.navigate("CompleteProfile");
+    } else if (result.access_token) {
+      await handleAfterLogin(
+        result.access_token,
+        result.refresh_token ?? null,
+        result.active_role ? [result.active_role] : [],
+      );
+    }
+  };
+
+  const handleApple = async () => {
     try {
       const credential = await AppleAuthentication.signInAsync({
         requestedScopes: [
@@ -222,296 +150,37 @@ export default function LoginScreen() {
           AppleAuthentication.AppleAuthenticationScope.EMAIL,
         ],
       });
-      if (!credential.identityToken) throw new Error("No identity token");
       const fullName = [
         credential.fullName?.givenName,
         credential.fullName?.familyName,
       ]
         .filter(Boolean)
         .join(" ");
-      await handleSocialLogin("apple", credential.identityToken, fullName || undefined);
+      const result = await loginWithApple(
+        credential.identityToken!,
+        fullName || undefined,
+      );
+      await handleSocialAuth(result);
     } catch (err: any) {
-      if (err.code !== "ERR_REQUEST_CANCELED")
-        Alert.alert("Apple Sign-In", "Could not sign in with Apple.");
-    }
-  };
-
-  // ── Biometric login ───────────────────────────────────────────────────────────
-  const handleBiometricLogin = async () => {
-    setBiometricLoading(true);
-    try {
-      const result = await LocalAuthentication.authenticateAsync({
-        promptMessage: "Sign in to RayCarWash",
-        cancelLabel: "Cancel",
-        disableDeviceFallback: false,
-      });
-
-      if (!result.success) return;
-
-      // Use stored refresh token to get a fresh access token
-      const refreshToken = await getRefreshToken();
-      if (!refreshToken) {
-        Alert.alert("Session expired", "Please sign in with your password.");
-        return;
+      if (err.code !== "ERR_REQUEST_CANCELED") {
+        Alert.alert("Apple Sign In Failed", "Please try again.");
       }
-      const { access_token, refresh_token } = await refreshAccessToken(refreshToken);
-      await saveToken(access_token);
-      await saveRefreshToken(refresh_token);
-      await navigateAfterAuth(navigation);
-    } catch {
-      Alert.alert("Biometric Error", "Could not authenticate. Please use your password.");
-    } finally {
-      setBiometricLoading(false);
     }
   };
 
-  // ── Passkey login ─────────────────────────────────────────────────────────────
-  const handlePasskeyLogin = async () => {
-    if (!Passkey) return;
-    const id = identifier.trim();
-    if (!id || !/\S+@\S+\.\S+/.test(id)) {
-      Alert.alert("Passkey", "Enter your email first, then tap the passkey button.");
+  const handlePasskey = async () => {
+    if (!email.trim()) {
+      setErrors({ email: "Enter your email to use a passkey" });
       return;
     }
-    setPasskeyLoading(true);
-    try {
-      const { challenge_token, options } = await webAuthnAuthenticateBegin(id);
-      const assertion = await Passkey.get(options as any);
-      const { access_token, refresh_token } = await webAuthnAuthenticateComplete(
-        challenge_token,
-        assertion as any,
-      );
-      await saveToken(access_token);
-      await saveRefreshToken(refresh_token);
-      await navigateAfterAuth(navigation);
-    } catch (err: any) {
-      if (err?.error !== "UserCancelled") {
-        Alert.alert("Passkey Error", err.response?.data?.detail || "Passkey authentication failed.");
-      }
-    } finally {
-      setPasskeyLoading(false);
-    }
-  };
-
-  const offerPasskeySetup = async () => {
-    if (!Passkey || !passkeyAvailable || passkeyEnabled) return;
-    return new Promise<void>((resolve) => {
-      Alert.alert(
-        "Save a Passkey?",
-        "Sign in faster next time with Face ID or fingerprint — no password needed.",
-        [
-          { text: "Not now", style: "cancel", onPress: () => resolve() },
-          {
-            text: "Save Passkey",
-            onPress: async () => {
-              try {
-                const deviceName =
-                  Platform.OS === "ios" ? "iPhone" : "Android Device";
-                const { challenge_token, options } = await webAuthnRegisterBegin();
-                const attestation = await Passkey.create(options as any);
-                await webAuthnRegisterComplete(
-                  challenge_token,
-                  attestation as any,
-                  deviceName,
-                );
-                await setPasskeyEnabled(true);
-                setPasskeyEnabledState(true);
-              } catch {
-                // User cancelled or registration failed — silently skip
-              }
-              resolve();
-            },
-          },
-        ],
-      );
-    });
-  };
-
-  const offerBiometricSetup = async () => {
-    if (!biometricAvailable || biometricEnabled) return;
-    const types = await LocalAuthentication.supportedAuthenticationTypesAsync();
-    const hasFaceId = types.includes(
-      LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION,
+    // Passkey authentication requires react-native-passkey or a FIDO2 native module.
+    // Backend endpoints are ready:
+    //   POST /auth/webauthn/authenticate/begin  { email }
+    //   POST /auth/webauthn/authenticate/complete  { challenge_token, credential }
+    Alert.alert(
+      "Passkeys",
+      "Passkey support requires a native FIDO2 module. Coming soon.",
     );
-    const label = hasFaceId ? "Face ID" : "fingerprint";
-
-    return new Promise<void>((resolve) => {
-      Alert.alert(
-        `Enable ${hasFaceId ? "Face ID" : "Biometric"} login?`,
-        `Sign in faster next time using your ${label}.`,
-        [
-          {
-            text: "Not now",
-            style: "cancel",
-            onPress: () => resolve(),
-          },
-          {
-            text: "Enable",
-            onPress: async () => {
-              await setBiometricEnabled(true);
-              setBiometricEnabledState(true);
-              resolve();
-            },
-          },
-        ],
-      );
-    });
-  };
-
-  // ── Step 1: Identify ──────────────────────────────────────────────────────────
-  const handleIdentify = async () => {
-    const id = identifier.trim();
-    if (!id) {
-      setErrors({
-        identifier:
-          identifierType === "email" ? "Email is required" : "Phone is required",
-      });
-      return;
-    }
-    if (identifierType === "email" && !/\S+@\S+\.\S+/.test(id)) {
-      setErrors({ identifier: "Enter a valid email address" });
-      return;
-    }
-
-    setLoading(true);
-    setErrors({});
-    try {
-      const result = await identify(id, identifierType);
-      setIdentifyData(result);
-
-      let next: FlowStep;
-      if (result.is_new_user) {
-        next = "new_user";
-      } else if (result.auth_methods.includes("password")) {
-        next = "existing_password";
-      } else {
-        next = "social_only";
-      }
-      setStep(next);
-      slideToNext();
-    } catch (err: any) {
-      const msg =
-        err.response?.data?.detail || "Could not verify. Please try again.";
-      setErrors({ server: msg });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // ── Step 2a: Login existing user ──────────────────────────────────────────────
-  const handleLogin = async () => {
-    if (!password) {
-      setErrors({ password: "Password is required" });
-      return;
-    }
-    setLoading(true);
-    setErrors({});
-    try {
-      const result = await verify(identifier.trim(), identifierType, { password });
-      await handleVerifyResult(result);
-    } catch {
-      setErrors({ password: "Incorrect password. Please try again." });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // ── Step 2b: Register new user ────────────────────────────────────────────────
-  const handleCreateAccount = async () => {
-    const e: typeof errors = {};
-    if (!password) e.password = "Password is required";
-    else if (password.length < 8) e.password = "Password must be at least 8 characters";
-    if (!confirmPassword) e.confirm = "Please confirm your password";
-    else if (password !== confirmPassword) e.confirm = "Passwords do not match";
-    if (Object.keys(e).length) {
-      setErrors(e);
-      return;
-    }
-
-    setLoading(true);
-    setErrors({});
-    try {
-      const result = await verify(identifier.trim(), identifierType, { password });
-      await handleVerifyResult(result);
-    } catch (err: any) {
-      const detail = err.response?.data?.detail;
-      const msg = typeof detail === "string" ? detail : "Could not create account.";
-      setErrors({ server: msg });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleVerifyResult = async (result: Awaited<ReturnType<typeof verify>>) => {
-    if (result.access_token) {
-      await saveToken(result.access_token);
-      if (result.refresh_token) await saveRefreshToken(result.refresh_token);
-      await saveLastEmail(identifier.trim().toLowerCase());
-    }
-
-    if (result.needs_profile_completion && result.temp_token) {
-      navigation.navigate("CompleteProfile", {
-        tempToken: result.temp_token,
-        role: isDetailerMode ? "detailer" : result.assigned_role,
-        identifier: identifier.trim(),
-        identifierType,
-      });
-      return;
-    }
-
-    await offerPasskeySetup();
-    await offerBiometricSetup();
-
-    if (result.next_step === "detailer_onboarding" || isDetailerMode) {
-      navigation.reset({ index: 0, routes: [{ name: "DetailerOnboarding" }] });
-      return;
-    }
-    await navigateAfterAuth(navigation);
-  };
-
-  const handleForgotPassword = () => {
-    const id = identifier.trim();
-    if (!id || !/\S+@\S+\.\S+/.test(id)) {
-      Alert.alert("Reset Password", "Please go back and enter your email first.");
-      return;
-    }
-    Alert.alert("Reset Password", `Send a reset link to ${id}?`, [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Send",
-        onPress: async () => {
-          try {
-            await requestPasswordReset(id);
-            Alert.alert("Email Sent", "Check your inbox for the reset link.");
-          } catch {
-            Alert.alert("Error", "Could not send reset email.");
-          }
-        },
-      },
-    ]);
-  };
-
-  const toggleDetailerMode = () => {
-    setIsDetailerMode((v) => !v);
-  };
-
-  const goBack = () => {
-    setStep("identifier");
-    setPassword("");
-    setConfirmPassword("");
-    setErrors({});
-  };
-
-  const isAnyLoading = loading || biometricLoading || passkeyLoading || socialLoading !== null;
-  const currentStep: 1 | 2 = step === "identifier" ? 1 : 2;
-  const pwStrength = useMemo(() => getPasswordStrength(password), [password]);
-  const showBiometric = biometricAvailable && biometricEnabled && step === "identifier";
-  const showPasskey = passkeyAvailable && passkeyEnabled && step === "identifier";
-
-  const getBiometricIcon = () => {
-    // iOS Face ID vs Touch ID vs Android fingerprint
-    if (Platform.OS === "ios") return "scan-outline";
-    return "finger-print-outline";
   };
 
   return (
@@ -525,424 +194,124 @@ export default function LoginScreen() {
           style={{ flex: 1 }}
           behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
-          {/* Header */}
-          <View style={styles.header}>
-            {step !== "identifier" ? (
-              <TouchableOpacity onPress={goBack} style={styles.backBtn}>
-                <Ionicons name="chevron-back" size={22} color="white" />
-              </TouchableOpacity>
-            ) : (
-              <View style={{ width: 40 }} />
-            )}
-            <StepDots current={currentStep} />
-            <View style={{ width: 40 }} />
-          </View>
-
           <ScrollView
             contentContainerStyle={styles.scroll}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
-            {/* Logo + detailer mode badge — step 1 only */}
-            {step === "identifier" && (
-              <View style={styles.logoContainer}>
-                <View style={styles.logoCircle}>
-                  <Text style={styles.logoText}>R</Text>
-                </View>
-                <Text style={styles.appName}>RAYCARWASH</Text>
-                {isDetailerMode ? (
-                  <View style={styles.proBadge}>
-                    <Ionicons name="car-sport-outline" size={12} color={Colors.primary} />
-                    <Text style={styles.proBadgeText}>DETAILER PRO MODE</Text>
-                  </View>
-                ) : (
-                  <Text style={styles.tagline}>Premium Mobile Detailing</Text>
-                )}
-              </View>
+            {/* Logo / headline */}
+            <View style={styles.headerSection}>
+              <Text style={styles.brand}>RayCarwash</Text>
+              <Text style={styles.tagline}>Premium mobile detailing, on demand</Text>
+            </View>
+
+            {/* Biometric quick-login (only shown after first login with biometrics enabled) */}
+            {biometricAvailable && (
+              <TouchableOpacity
+                style={styles.biometricBtn}
+                onPress={handleBiometric}
+                disabled={loading}
+              >
+                <Text style={styles.biometricBtnText}>
+                  Sign in with Face ID / Touch ID
+                </Text>
+              </TouchableOpacity>
             )}
 
-            <Animated.View style={{ transform: [{ translateX: slideAnim }] }}>
-              {/* ── STEP 1: Identifier ── */}
-              {step === "identifier" && (
-                <>
-                  {/* Email input */}
-                  <View style={styles.fieldGroup}>
-                    <Text style={styles.label}>
-                      {identifierType === "email" ? "EMAIL ADDRESS" : "PHONE NUMBER"}
-                    </Text>
-                    <AnimatedInput
-                      value={identifier}
-                      onChangeText={(t) => {
-                        setIdentifier(t);
-                        setErrors({});
-                        const clean = t.replace(/[\s\-\(\)]/g, "");
-                        if (/^\+?\d{8,}$/.test(clean)) setIdentifierType("phone");
-                        else setIdentifierType("email");
-                      }}
-                      placeholder={
-                        identifierType === "email"
-                          ? "you@example.com"
-                          : "+1 555 000 0000"
-                      }
-                      icon={
-                        identifierType === "email" ? "mail-outline" : "call-outline"
-                      }
-                      keyboardType={
-                        identifierType === "email" ? "email-address" : "phone-pad"
-                      }
-                      returnKeyType="go"
-                      onSubmitEditing={handleIdentify}
-                      error={!!errors.identifier}
-                    />
-                    {errors.identifier && (
-                      <Text style={styles.errorText}>{errors.identifier}</Text>
-                    )}
-                    {errors.server && (
-                      <Text style={styles.serverError}>{errors.server}</Text>
-                    )}
-                  </View>
-
-                  <TouchableOpacity
-                    style={[styles.primaryBtn, isAnyLoading && styles.btnDisabled]}
-                    onPress={handleIdentify}
-                    disabled={isAnyLoading}
-                  >
-                    {loading ? (
-                      <ActivityIndicator color="#fff" />
-                    ) : (
-                      <Text style={styles.primaryBtnText}>CONTINUE</Text>
-                    )}
-                  </TouchableOpacity>
-
-                  {/* Divider */}
-                  <View style={styles.divider}>
-                    <View style={styles.dividerLine} />
-                    <Text style={styles.dividerText}>or continue with</Text>
-                    <View style={styles.dividerLine} />
-                  </View>
-
-                  {/* Social buttons — full-width, stacked */}
-                  <View style={styles.socialStack}>
-                    {/* Google */}
-                    <TouchableOpacity
-                      style={[styles.googleBtn, isAnyLoading && styles.btnDisabled]}
-                      onPress={() => googlePromptAsync()}
-                      disabled={isAnyLoading}
-                      activeOpacity={0.85}
-                    >
-                      {socialLoading === "google" ? (
-                        <ActivityIndicator size="small" color="#1a1a1a" />
-                      ) : (
-                        <>
-                          <Ionicons name="logo-google" size={20} color="#000000" style={styles.socialIcon} />
-                          <Text style={styles.googleBtnText}>Continue with Google</Text>
-                        </>
-                      )}
-                    </TouchableOpacity>
-
-                    {/* Apple (iOS only) */}
-                    {Platform.OS === "ios" && (
-                      <TouchableOpacity
-                        style={[styles.appleFullBtn, isAnyLoading && styles.btnDisabled]}
-                        onPress={handleApplePress}
-                        disabled={isAnyLoading}
-                        activeOpacity={0.85}
-                      >
-                        {socialLoading === "apple" ? (
-                          <ActivityIndicator size="small" color="#fff" />
-                        ) : (
-                          <>
-                            <Ionicons name="logo-apple" size={20} color="#fff" style={styles.socialIcon} />
-                            <Text style={styles.appleFullBtnText}>Continue with Apple</Text>
-                          </>
-                        )}
-                      </TouchableOpacity>
-                    )}
-
-                    {/* Quick-access row: Biometric + Passkey (conditional) */}
-                    {(showBiometric || showPasskey) && (
-                      <View style={styles.quickRow}>
-                        {showBiometric && (
-                          <TouchableOpacity
-                            style={[styles.quickBtn, isAnyLoading && styles.btnDisabled]}
-                            onPress={handleBiometricLogin}
-                            disabled={isAnyLoading}
-                            activeOpacity={0.8}
-                          >
-                            {biometricLoading ? (
-                              <ActivityIndicator size="small" color={Colors.primary} />
-                            ) : (
-                              <>
-                                <Ionicons
-                                  name={getBiometricIcon()}
-                                  size={20}
-                                  color={Colors.primary}
-                                />
-                                <Text style={styles.quickBtnText}>
-                                  {Platform.OS === "ios" ? "Face ID" : "Biometric"}
-                                </Text>
-                              </>
-                            )}
-                          </TouchableOpacity>
-                        )}
-                        {showPasskey && (
-                          <TouchableOpacity
-                            style={[styles.quickBtn, isAnyLoading && styles.btnDisabled]}
-                            onPress={handlePasskeyLogin}
-                            disabled={isAnyLoading}
-                            activeOpacity={0.8}
-                          >
-                            {passkeyLoading ? (
-                              <ActivityIndicator size="small" color={Colors.primary} />
-                            ) : (
-                              <>
-                                <Ionicons name="key-outline" size={20} color={Colors.primary} />
-                                <Text style={styles.quickBtnText}>Passkey</Text>
-                              </>
-                            )}
-                          </TouchableOpacity>
-                        )}
-                      </View>
-                    )}
-                  </View>
-
-                  {/* Detailer mode toggle */}
-                  <TouchableOpacity
-                    style={styles.detailerLink}
-                    onPress={toggleDetailerMode}
-                  >
-                    {isDetailerMode ? (
-                      <Text style={styles.detailerLinkText}>
-                        <Text style={styles.linkAccent}>← Back to Client mode</Text>
-                      </Text>
-                    ) : (
-                      <Text style={styles.detailerLinkText}>
-                        Joining as a professional detailer?{" "}
-                        <Text style={styles.linkAccent}>Register as Pro →</Text>
-                      </Text>
-                    )}
-                  </TouchableOpacity>
-                </>
+            {/* Email */}
+            <View style={styles.fieldGroup}>
+              <AnimatedInput
+                value={email}
+                onChangeText={(v) => {
+                  setEmail(v);
+                  setErrors((e) => ({ ...e, email: undefined }));
+                }}
+                placeholder="Email address"
+                icon="mail-outline"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoComplete="email"
+                returnKeyType="next"
+                error={!!errors.email}
+              />
+              {!!errors.email && (
+                <Text style={styles.errorText}>{errors.email}</Text>
               )}
+            </View>
 
-              {/* ── STEP 2a: Existing user — enter password ── */}
-              {step === "existing_password" && (
-                <>
-                  <Text style={styles.stepTitle}>Welcome back</Text>
-                  <Text style={styles.stepSubtitle}>{identifier.trim()}</Text>
-
-                  <View style={styles.fieldGroup}>
-                    <View style={styles.labelRow}>
-                      <Text style={styles.label}>PASSWORD</Text>
-                      <TouchableOpacity onPress={handleForgotPassword}>
-                        <Text style={styles.forgotText}>Forgot password?</Text>
-                      </TouchableOpacity>
-                    </View>
-                    <AnimatedInput
-                      value={password}
-                      onChangeText={(t) => {
-                        setPassword(t);
-                        setErrors({});
-                      }}
-                      placeholder="••••••••"
-                      icon="lock-closed-outline"
-                      secureTextEntry={!showPassword}
-                      returnKeyType="done"
-                      onSubmitEditing={handleLogin}
-                      error={!!errors.password}
-                      autoFocus
-                      rightElement={
-                        <EyeToggle
-                          visible={showPassword}
-                          onPress={() => setShowPassword((v) => !v)}
-                        />
-                      }
-                    />
-                    {errors.password && (
-                      <Text style={styles.errorText}>{errors.password}</Text>
-                    )}
-                    {errors.server && (
-                      <Text style={styles.serverError}>{errors.server}</Text>
-                    )}
-                  </View>
-
-                  <TouchableOpacity
-                    style={[styles.primaryBtn, isAnyLoading && styles.btnDisabled]}
-                    onPress={handleLogin}
-                    disabled={isAnyLoading}
-                  >
-                    {loading ? (
-                      <ActivityIndicator color="#fff" />
-                    ) : (
-                      <Text style={styles.primaryBtnText}>SIGN IN</Text>
-                    )}
-                  </TouchableOpacity>
-                </>
+            {/* Password */}
+            <View style={styles.fieldGroup}>
+              <AnimatedInput
+                value={password}
+                onChangeText={(v) => {
+                  setPassword(v);
+                  setErrors((e) => ({ ...e, password: undefined }));
+                }}
+                placeholder="Password"
+                icon="lock-closed-outline"
+                secureTextEntry={!showPassword}
+                rightElement={
+                  <EyeToggle
+                    visible={showPassword}
+                    onPress={() => setShowPassword((v) => !v)}
+                  />
+                }
+                returnKeyType="done"
+                onSubmitEditing={handleLogin}
+                error={!!errors.password}
+              />
+              {!!errors.password && (
+                <Text style={styles.errorText}>{errors.password}</Text>
               )}
+            </View>
 
-              {/* ── STEP 2b: New user — create password ── */}
-              {step === "new_user" && (
-                <>
-                  <Text style={styles.stepTitle}>
-                    {isDetailerMode ? "Join as Pro" : "Create your account"}
-                  </Text>
-                  <Text style={styles.stepSubtitle}>{identifier.trim()}</Text>
+            {/* Forgot password */}
+            <TouchableOpacity
+              style={styles.forgotBtn}
+              onPress={() => navigation.navigate("ForgotPassword")}
+            >
+              <Text style={styles.forgotText}>Forgot password?</Text>
+            </TouchableOpacity>
 
-                  <View style={styles.fieldGroup}>
-                    <Text style={styles.label}>CREATE PASSWORD</Text>
-                    <AnimatedInput
-                      value={password}
-                      onChangeText={(t) => {
-                        setPassword(t);
-                        setErrors({});
-                      }}
-                      placeholder="Min 8 characters"
-                      icon="lock-closed-outline"
-                      secureTextEntry={!showPassword}
-                      returnKeyType="next"
-                      error={!!errors.password}
-                      autoFocus
-                      rightElement={
-                        <EyeToggle
-                          visible={showPassword}
-                          onPress={() => setShowPassword((v) => !v)}
-                        />
-                      }
-                    />
-                    {errors.password && (
-                      <Text style={styles.errorText}>{errors.password}</Text>
-                    )}
-                    {password.length > 0 && (
-                      <View style={styles.strengthContainer}>
-                        <View style={styles.strengthBars}>
-                          {[1, 2, 3, 4].map((i) => (
-                            <View
-                              key={i}
-                              style={[
-                                styles.strengthBar,
-                                {
-                                  backgroundColor:
-                                    i <= pwStrength.bars ? pwStrength.color : "#1E293B",
-                                },
-                              ]}
-                            />
-                          ))}
-                        </View>
-                        <Text
-                          style={[styles.strengthLabel, { color: pwStrength.color }]}
-                        >
-                          {pwStrength.label}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-
-                  <View style={styles.fieldGroup}>
-                    <Text style={styles.label}>CONFIRM PASSWORD</Text>
-                    <AnimatedInput
-                      value={confirmPassword}
-                      onChangeText={(t) => {
-                        setConfirmPassword(t);
-                        setErrors({});
-                      }}
-                      placeholder="Repeat your password"
-                      icon="shield-checkmark-outline"
-                      secureTextEntry={!showConfirm}
-                      returnKeyType="done"
-                      onSubmitEditing={handleCreateAccount}
-                      error={!!errors.confirm}
-                      rightElement={
-                        <EyeToggle
-                          visible={showConfirm}
-                          onPress={() => setShowConfirm((v) => !v)}
-                        />
-                      }
-                    />
-                    {errors.confirm && (
-                      <Text style={styles.errorText}>{errors.confirm}</Text>
-                    )}
-                    {errors.server && (
-                      <Text style={styles.serverError}>{errors.server}</Text>
-                    )}
-                  </View>
-
-                  <TouchableOpacity
-                    style={[styles.primaryBtn, isAnyLoading && styles.btnDisabled]}
-                    onPress={handleCreateAccount}
-                    disabled={isAnyLoading}
-                  >
-                    {loading ? (
-                      <ActivityIndicator color="#fff" />
-                    ) : (
-                      <Text style={styles.primaryBtnText}>
-                        {isDetailerMode ? "JOIN AS PRO" : "CREATE ACCOUNT"}
-                      </Text>
-                    )}
-                  </TouchableOpacity>
-                </>
+            {/* Log In button */}
+            <TouchableOpacity
+              style={[styles.primaryBtn, loading && styles.btnDisabled]}
+              onPress={handleLogin}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.primaryBtnText}>LOG IN</Text>
               )}
+            </TouchableOpacity>
 
-              {/* ── STEP 2c: Social-only existing user ── */}
-              {step === "social_only" && (
-                <>
-                  <Text style={styles.stepTitle}>Continue with social</Text>
-                  <Text style={styles.stepSubtitle}>
-                    Your account uses{" "}
-                    {identifyData?.auth_methods.includes("google") ? "Google" : "Apple"}{" "}
-                    sign-in
-                  </Text>
+            {/* Divider */}
+            <View style={styles.dividerRow}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>or continue with</Text>
+              <View style={styles.dividerLine} />
+            </View>
 
-                  <View style={[styles.socialRow, { marginTop: 24 }]}>
-                    {identifyData?.auth_methods.includes("google") && (
-                      <TouchableOpacity
-                        style={[styles.socialBtn, isAnyLoading && styles.btnDisabled]}
-                        onPress={() => googlePromptAsync()}
-                        disabled={isAnyLoading}
-                      >
-                        {socialLoading === "google" ? (
-                          <ActivityIndicator size="small" color="#fff" />
-                        ) : (
-                          <>
-                            <Ionicons name="logo-google" size={18} color="#fff" />
-                            <Text style={styles.socialBtnText}>
-                              Continue with Google
-                            </Text>
-                          </>
-                        )}
-                      </TouchableOpacity>
-                    )}
-                    {identifyData?.auth_methods.includes("apple") &&
-                      Platform.OS === "ios" && (
-                        <TouchableOpacity
-                          style={[
-                            styles.socialBtn,
-                            styles.appleBtn,
-                            isAnyLoading && styles.btnDisabled,
-                          ]}
-                          onPress={handleApplePress}
-                          disabled={isAnyLoading}
-                        >
-                          {socialLoading === "apple" ? (
-                            <ActivityIndicator size="small" color="#000" />
-                          ) : (
-                            <>
-                              <Ionicons name="logo-apple" size={18} color="#000" />
-                              <Text style={styles.appleBtnText}>Continue with Apple</Text>
-                            </>
-                          )}
-                        </TouchableOpacity>
-                      )}
-                  </View>
-                  {errors.server && (
-                    <Text style={[styles.serverError, { marginTop: 16 }]}>
-                      {errors.server}
-                    </Text>
-                  )}
-                </>
-              )}
-            </Animated.View>
+            {/* Social + Passkey */}
+            <View style={styles.altAuthRow}>
+              <TouchableOpacity style={styles.altBtn} onPress={handleApple}>
+                <Text style={styles.altBtnText}> Apple</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.altBtn} onPress={handlePasskey}>
+                <Text style={styles.altBtnText}>🔑 Passkey</Text>
+              </TouchableOpacity>
+            </View>
 
-            <View style={{ height: 40 }} />
+            {/* Sign up link */}
+            <View style={styles.footer}>
+              <Text style={styles.footerText}>Don't have an account? </Text>
+              <TouchableOpacity onPress={() => navigation.navigate("Register")}>
+                <Text style={styles.footerLink}>Sign Up</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={{ height: 30 }} />
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
@@ -952,99 +321,33 @@ export default function LoginScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 4,
-  },
-  backBtn: { backgroundColor: "#161E2E", padding: 8, borderRadius: 12 },
-  stepDots: { flexDirection: "row", gap: 6, alignItems: "center" },
-  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#1E293B" },
-  dotActive: { width: 20, height: 6, borderRadius: 3, backgroundColor: Colors.primary },
-  scroll: { flexGrow: 1, paddingHorizontal: 24, paddingTop: 8, paddingBottom: 20 },
-  logoContainer: { alignItems: "center", marginBottom: 32 },
-  logoCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    borderWidth: 2,
-    borderColor: Colors.primary,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "rgba(59,130,246,0.08)",
-  },
-  logoText: { color: Colors.primary, fontSize: 40, fontWeight: "bold" },
-  appName: {
-    color: "#fff",
-    fontSize: 26,
-    fontWeight: "bold",
-    marginTop: 14,
-    letterSpacing: 3,
-  },
-  tagline: { color: "#475569", fontSize: 12, marginTop: 5, letterSpacing: 1 },
-  proBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    marginTop: 8,
-    backgroundColor: "rgba(59,130,246,0.12)",
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "rgba(59,130,246,0.3)",
-  },
-  proBadgeText: {
-    color: Colors.primary,
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 1.5,
-  },
-  stepTitle: {
-    color: "#fff",
-    fontSize: 24,
-    fontWeight: "bold",
-    marginBottom: 6,
-    marginTop: 8,
-  },
-  stepSubtitle: { color: "#64748B", fontSize: 14, marginBottom: 28 },
-  fieldGroup: { marginBottom: 16 },
-  labelRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  label: {
-    color: "#94A3B8",
-    fontSize: 11,
-    fontWeight: "800",
+  scroll: { paddingHorizontal: 24, paddingTop: 40, paddingBottom: 20 },
+  headerSection: { alignItems: "center", marginBottom: 40 },
+  brand: {
+    color: "#FFFFFF",
+    fontSize: 32,
+    fontWeight: "900",
     letterSpacing: 1,
-    marginBottom: 8,
   },
-  forgotText: { color: Colors.primary, fontSize: 12, fontWeight: "600" },
-  errorText: { color: "#EF4444", fontSize: 11, marginTop: 5, marginLeft: 4 },
-  serverError: {
-    color: "#EF4444",
-    fontSize: 13,
-    textAlign: "center",
-    marginTop: 12,
-    backgroundColor: "rgba(239,68,68,0.1)",
-    padding: 12,
-    borderRadius: 8,
-  },
-  strengthContainer: {
-    flexDirection: "row",
+  tagline: { color: "#475569", fontSize: 14, marginTop: 6 },
+  biometricBtn: {
+    backgroundColor: "rgba(59,130,246,0.12)",
+    borderWidth: 1,
+    borderColor: Colors.primary,
+    borderRadius: 14,
+    padding: 14,
     alignItems: "center",
-    gap: 10,
-    marginTop: 8,
+    marginBottom: 24,
   },
-  strengthBars: { flexDirection: "row", gap: 4, flex: 1 },
-  strengthBar: { flex: 1, height: 3, borderRadius: 2 },
-  strengthLabel: { fontSize: 11, fontWeight: "700", width: 44, textAlign: "right" },
+  biometricBtnText: {
+    color: Colors.primary,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  fieldGroup: { marginBottom: 14 },
+  errorText: { color: "#EF4444", fontSize: 11, marginTop: 5, marginLeft: 4 },
+  forgotBtn: { alignSelf: "flex-end", marginBottom: 20 },
+  forgotText: { color: Colors.primary, fontSize: 13 },
   primaryBtn: {
     backgroundColor: Colors.primary,
     padding: 17,
@@ -1057,74 +360,36 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   btnDisabled: { opacity: 0.5 },
-  primaryBtnText: { color: "#fff", fontWeight: "800", fontSize: 15, letterSpacing: 2 },
-  divider: {
+  primaryBtnText: {
+    color: "#fff",
+    fontWeight: "800",
+    fontSize: 15,
+    letterSpacing: 1.5,
+  },
+  dividerRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginVertical: 20,
+    marginVertical: 24,
     gap: 12,
   },
   dividerLine: { flex: 1, height: 1, backgroundColor: "#1E293B" },
-  dividerText: { color: "#334155", fontSize: 12 },
-  // ── Step 1: full-width social stack ──────────────────────────────────────────
-  socialStack: { gap: 10 },
-  googleBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#fff",
-    borderRadius: 14,
-    padding: 15,
-    gap: 10,
-  },
-  googleBtnText: { color: "#1a1a1a", fontWeight: "600", fontSize: 15 },
-  appleFullBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#000",
-    borderRadius: 14,
-    padding: 15,
-    gap: 10,
-    borderWidth: 1,
-    borderColor: "#333",
-  },
-  appleFullBtnText: { color: "#fff", fontWeight: "600", fontSize: 15 },
-  socialIcon: { marginRight: 2 },
-  quickRow: { flexDirection: "row", gap: 10 },
-  quickBtn: {
+  dividerText: { color: "#475569", fontSize: 12 },
+  altAuthRow: { flexDirection: "row", gap: 12, marginBottom: 32 },
+  altBtn: {
     flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 7,
-    backgroundColor: "#0D1421",
-    borderRadius: 14,
-    padding: 13,
+    backgroundColor: "#111827",
     borderWidth: 1,
-    borderColor: "rgba(59,130,246,0.25)",
-  },
-  quickBtnText: { color: Colors.primary, fontWeight: "600", fontSize: 13 },
-
-  // ── Step 2c: social-only row (compact, existing style) ────────────────────────
-  socialRow: { flexDirection: "row", gap: 10 },
-  socialBtn: {
-    flex: 1,
-    flexDirection: "row",
+    borderColor: "#1E293B",
+    borderRadius: 12,
+    padding: 14,
     alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    backgroundColor: "#161E2E",
-    padding: 13,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#262F3F",
   },
-  socialBtnText: { color: "#fff", fontWeight: "600", fontSize: 13 },
-  appleBtn: { backgroundColor: "#fff" },
-  appleBtnText: { color: "#000", fontWeight: "600", fontSize: 13 },
-
-  detailerLink: { marginTop: 24, alignItems: "center" },
-  detailerLinkText: { color: "#475569", fontSize: 14, textAlign: "center" },
-  linkAccent: { color: Colors.primary, fontWeight: "700" },
+  altBtnText: { color: "#CBD5E1", fontSize: 14, fontWeight: "600" },
+  footer: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  footerText: { color: "#475569", fontSize: 14 },
+  footerLink: { color: Colors.primary, fontSize: 14, fontWeight: "700" },
 });

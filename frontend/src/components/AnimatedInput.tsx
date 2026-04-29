@@ -11,6 +11,7 @@ export interface AnimatedInputProps {
   secureTextEntry?: boolean;
   keyboardType?: "email-address" | "phone-pad" | "default";
   autoCapitalize?: "none" | "words" | "sentences";
+  autoComplete?: "email" | "password" | "tel" | "name" | "off";
   returnKeyType?: "next" | "done" | "go";
   onSubmitEditing?: () => void;
   error?: boolean;
@@ -31,6 +32,7 @@ export default function AnimatedInput({
   secureTextEntry = false,
   keyboardType = "default",
   autoCapitalize = "none",
+  autoComplete,
   returnKeyType,
   onSubmitEditing,
   error,
@@ -101,6 +103,7 @@ export default function AnimatedInput({
         secureTextEntry={secureTextEntry}
         keyboardType={keyboardType}
         autoCapitalize={autoCapitalize}
+        autoComplete={autoComplete}
         returnKeyType={returnKeyType}
         onSubmitEditing={onSubmitEditing}
         onFocus={handleFocus}

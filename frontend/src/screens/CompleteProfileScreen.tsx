@@ -14,17 +14,13 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import AnimatedInput from "../components/AnimatedInput";
-import { VerifyResponse, completeProfile } from "../services/auth.service";
+import { completeProfile, VerifyResponse } from "../services/auth.service";
 import { Colors } from "../theme/colors";
 import { navigateAfterAuth } from "../utils/auth-redirect";
 import { saveRefreshToken, saveToken } from "../utils/storage";
 
-export default function CompleteProfileScreen({ navigation, route }: any) {
-  const { tempToken, role: initialRole, identifierType } = route.params || {};
-
-  const [selectedRole, setSelectedRole] = useState<"client" | "detailer" | null>(
-    initialRole === "detailer" ? "detailer" : initialRole === "client" ? "client" : null,
-  );
+export default function CompleteProfileScreen({ navigation }: any) {
+  const [selectedRole, setSelectedRole] = useState<"client" | "detailer" | null>(null);
   const [form, setForm] = useState({ full_name: "", phone_number: "" });
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -50,7 +46,6 @@ export default function CompleteProfileScreen({ navigation, route }: any) {
 
   const handleComplete = async () => {
     if (!validate()) return;
-
     setLoading(true);
     try {
       const result: VerifyResponse = await completeProfile({
@@ -74,14 +69,12 @@ export default function CompleteProfileScreen({ navigation, route }: any) {
       const msg =
         typeof detail === "string"
           ? detail
-          : "Could not complete profile. Please try again.";
+          : detail?.message ?? "Could not complete profile. Please try again.";
       Alert.alert("Error", msg);
     } finally {
       setLoading(false);
     }
   };
-
-  const showRoleSelector = !initialRole;
 
   return (
     <View style={styles.container}>
@@ -96,9 +89,7 @@ export default function CompleteProfileScreen({ navigation, route }: any) {
         >
           <View style={styles.header}>
             <View style={{ width: 40 }} />
-            <Text style={styles.headerTitle}>
-              {selectedRole === "detailer" ? "Complete Profile" : "Almost There!"}
-            </Text>
+            <Text style={styles.headerTitle}>Almost There!</Text>
             <View style={{ width: 40 }} />
           </View>
 
@@ -113,84 +104,76 @@ export default function CompleteProfileScreen({ navigation, route }: any) {
                 : "Complete your profile to get started"}
             </Text>
 
-            {/* Role selector — only when role not pre-determined */}
-            {showRoleSelector && (
-              <View style={styles.fieldGroup}>
-                <Text style={styles.label}>I AM A</Text>
-                <View style={styles.roleRow}>
-                  <TouchableOpacity
+            {/* Role selector */}
+            <View style={styles.fieldGroup}>
+              <Text style={styles.label}>I AM A</Text>
+              <View style={styles.roleRow}>
+                <TouchableOpacity
+                  style={[styles.roleBtn, selectedRole === "client" && styles.roleBtnActive]}
+                  onPress={() => {
+                    setSelectedRole("client");
+                    setErrors((e) => ({ ...e, role: undefined }));
+                  }}
+                  activeOpacity={0.75}
+                >
+                  <Ionicons
+                    name="person-outline"
+                    size={22}
+                    color={selectedRole === "client" ? Colors.primary : "#475569"}
+                  />
+                  <Text
                     style={[
-                      styles.roleBtn,
-                      selectedRole === "client" && styles.roleBtnActive,
+                      styles.roleBtnText,
+                      selectedRole === "client" && styles.roleBtnTextActive,
                     ]}
-                    onPress={() => {
-                      setSelectedRole("client");
-                      setErrors((e) => ({ ...e, role: undefined }));
-                    }}
-                    activeOpacity={0.75}
                   >
-                    <Ionicons
-                      name="person-outline"
-                      size={22}
-                      color={selectedRole === "client" ? Colors.primary : "#475569"}
-                    />
-                    <Text
-                      style={[
-                        styles.roleBtnText,
-                        selectedRole === "client" && styles.roleBtnTextActive,
-                      ]}
-                    >
-                      Client
-                    </Text>
-                    <Text
-                      style={[
-                        styles.roleBtnDesc,
-                        selectedRole === "client" && styles.roleBtnDescActive,
-                      ]}
-                    >
-                      Book car wash services
-                    </Text>
-                  </TouchableOpacity>
+                    Client
+                  </Text>
+                  <Text
+                    style={[
+                      styles.roleBtnDesc,
+                      selectedRole === "client" && styles.roleBtnDescActive,
+                    ]}
+                  >
+                    Book car wash services
+                  </Text>
+                </TouchableOpacity>
 
-                  <TouchableOpacity
+                <TouchableOpacity
+                  style={[styles.roleBtn, selectedRole === "detailer" && styles.roleBtnActive]}
+                  onPress={() => {
+                    setSelectedRole("detailer");
+                    setErrors((e) => ({ ...e, role: undefined }));
+                  }}
+                  activeOpacity={0.75}
+                >
+                  <Ionicons
+                    name="car-sport-outline"
+                    size={22}
+                    color={selectedRole === "detailer" ? Colors.primary : "#475569"}
+                  />
+                  <Text
                     style={[
-                      styles.roleBtn,
-                      selectedRole === "detailer" && styles.roleBtnActive,
+                      styles.roleBtnText,
+                      selectedRole === "detailer" && styles.roleBtnTextActive,
                     ]}
-                    onPress={() => {
-                      setSelectedRole("detailer");
-                      setErrors((e) => ({ ...e, role: undefined }));
-                    }}
-                    activeOpacity={0.75}
                   >
-                    <Ionicons
-                      name="car-sport-outline"
-                      size={22}
-                      color={selectedRole === "detailer" ? Colors.primary : "#475569"}
-                    />
-                    <Text
-                      style={[
-                        styles.roleBtnText,
-                        selectedRole === "detailer" && styles.roleBtnTextActive,
-                      ]}
-                    >
-                      Detailer Pro
-                    </Text>
-                    <Text
-                      style={[
-                        styles.roleBtnDesc,
-                        selectedRole === "detailer" && styles.roleBtnDescActive,
-                      ]}
-                    >
-                      Offer detailing services
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-                {errors.role && (
-                  <Text style={styles.errorText}>{errors.role}</Text>
-                )}
+                    Detailer Pro
+                  </Text>
+                  <Text
+                    style={[
+                      styles.roleBtnDesc,
+                      selectedRole === "detailer" && styles.roleBtnDescActive,
+                    ]}
+                  >
+                    Offer detailing services
+                  </Text>
+                </TouchableOpacity>
               </View>
-            )}
+              {errors.role && (
+                <Text style={styles.errorText}>{errors.role}</Text>
+              )}
+            </View>
 
             {/* Full Name */}
             <View style={styles.fieldGroup}>
@@ -209,36 +192,20 @@ export default function CompleteProfileScreen({ navigation, route }: any) {
               )}
             </View>
 
-            {/* Phone — only when identifier was email */}
-            {identifierType === "email" && (
-              <View style={styles.fieldGroup}>
-                <View style={styles.labelRow}>
-                  <Text style={styles.label}>PHONE NUMBER</Text>
-                  <Text style={styles.optionalLabel}>Optional</Text>
-                </View>
-                <AnimatedInput
-                  value={form.phone_number}
-                  onChangeText={update("phone_number")}
-                  placeholder="+1 555 123 4567"
-                  icon="call-outline"
-                  keyboardType="phone-pad"
-                  returnKeyType="done"
-                />
+            {/* Phone — optional */}
+            <View style={styles.fieldGroup}>
+              <View style={styles.labelRow}>
+                <Text style={styles.label}>PHONE NUMBER</Text>
+                <Text style={styles.optionalLabel}>Optional</Text>
               </View>
-            )}
-
-            {/* Identifier info badge */}
-            <View style={styles.identifierRow}>
-              <Ionicons
-                name={identifierType === "email" ? "mail-outline" : "call-outline"}
-                size={16}
-                color="#64748B"
+              <AnimatedInput
+                value={form.phone_number}
+                onChangeText={update("phone_number")}
+                placeholder="+1 555 123 4567"
+                icon="call-outline"
+                keyboardType="phone-pad"
+                returnKeyType="done"
               />
-              <Text style={styles.identifierLabel}>
-                {identifierType === "email"
-                  ? "You'll sign in with email"
-                  : "You'll sign in with phone"}
-              </Text>
             </View>
 
             {/* Terms */}
@@ -339,11 +306,7 @@ const styles = StyleSheet.create({
     borderColor: Colors.primary,
     backgroundColor: "rgba(59,130,246,0.08)",
   },
-  roleBtnText: {
-    color: "#64748B",
-    fontSize: 14,
-    fontWeight: "700",
-  },
+  roleBtnText: { color: "#64748B", fontSize: 14, fontWeight: "700" },
   roleBtnTextActive: { color: Colors.primary },
   roleBtnDesc: {
     color: "#334155",
@@ -352,16 +315,6 @@ const styles = StyleSheet.create({
     lineHeight: 15,
   },
   roleBtnDescActive: { color: "#475569" },
-  identifierRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: "#161E2E",
-    padding: 12,
-    borderRadius: 10,
-    marginBottom: 16,
-  },
-  identifierLabel: { color: "#64748B", fontSize: 13 },
   termsRow: {
     flexDirection: "row",
     alignItems: "flex-start",

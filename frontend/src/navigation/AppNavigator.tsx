@@ -4,7 +4,6 @@ import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import React from "react";
 
-// Client screens
 import AddVehicleScreen from "../screens/AddVehicleScreen";
 import BookingScreen from "../screens/BookingScreen";
 import BookingSummaryScreen from "../screens/BookingSummaryScreen";
@@ -15,13 +14,12 @@ import DetailerProfileScreen from "../screens/DetailerProfileScreen";
 import DetailerSelectionScreen from "../screens/DetailerSelectionScreen";
 import DetailerServicesScreen from "../screens/DetailerServicesScreen";
 import EditProfileScreen from "../screens/EditProfileScreen";
+import ForgotPasswordScreen from "../screens/ForgotPasswordScreen";
 import HomeScreen from "../screens/HomeScreen";
-import FareEstimateScreen from "../screens/FareEstimateScreen";
-import ConfirmBookingScreen from "../screens/ConfirmBookingScreen";
-import SearchingScreen from "../screens/SearchingScreen";
 import LoadingScreen from "../screens/LoadingScreen";
 import LoginScreen from "../screens/LoginScreen";
 import ProfileScreen from "../screens/ProfileScreen";
+import RegisterScreen from "../screens/RegisterScreen";
 import ScheduleScreen from "../screens/ScheduleScreen";
 import SelectVehiclesScreen from "../screens/SelectVehiclesScreen";
 import VehicleDetailScreen from "../screens/VehicleDetailScreen";
@@ -33,7 +31,6 @@ import { RootStackParamList } from "./types";
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator();
 
-// Client tab navigator
 function TabNavigator() {
   return (
     <Tab.Navigator
@@ -80,7 +77,6 @@ function TabNavigator() {
   );
 }
 
-// Detailer tab navigator
 function DetailerTabNavigator() {
   return (
     <Tab.Navigator
@@ -120,7 +116,6 @@ function DetailerTabNavigator() {
   );
 }
 
-// Root stack navigator
 export default function AppNavigator() {
   return (
     <NavigationContainer ref={navigationRef}>
@@ -128,34 +123,32 @@ export default function AppNavigator() {
         initialRouteName="Loading"
         screenOptions={{ headerShown: false }}
       >
-        {/* Splash / loading */}
+        {/* Splash */}
         <Stack.Screen name="Loading" component={LoadingScreen} />
 
-        {/* Flujo de Autenticación */}
+        {/* Auth flow */}
         <Stack.Screen name="Login" component={LoginScreen} />
+        <Stack.Screen name="Register" component={RegisterScreen} />
+        <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
         <Stack.Screen name="CompleteProfile" component={CompleteProfileScreen} />
 
         {/* Client tabs */}
         <Stack.Screen name="Main" component={TabNavigator} />
-        {/* Detailer tabs */}
+
+        {/* Detailer tabs + onboarding */}
         <Stack.Screen name="DetailerMain" component={DetailerTabNavigator} />
         <Stack.Screen name="DetailerOnboarding" component={DetailerOnboardingScreen} />
         <Stack.Screen name="DetailerServices" component={DetailerServicesScreen} />
-        {/* Shared overlay screens (client booking flow + profile) */}
+
+        {/* Shared overlay screens */}
         <Stack.Screen name="AddVehicle" component={AddVehicleScreen} />
         <Stack.Screen name="VehicleDetail" component={VehicleDetailScreen} />
         <Stack.Screen name="SelectVehicles" component={SelectVehiclesScreen} />
-        <Stack.Screen name="Schedule" component={ScheduleScreen} />
-        <Stack.Screen
-          name="DetailerSelection"
-          component={DetailerSelectionScreen}
-        />
-        <Stack.Screen name="BookingSummary" component={BookingSummaryScreen} />
         <Stack.Screen name="Booking" component={BookingScreen} />
-        {/* v2 ride flow */}
-        <Stack.Screen name="FareEstimate" component={FareEstimateScreen} />
-        <Stack.Screen name="ConfirmBooking" component={ConfirmBookingScreen} />
-        <Stack.Screen name="Searching" component={SearchingScreen} />
+        <Stack.Screen name="Schedule" component={ScheduleScreen} />
+        <Stack.Screen name="DetailerSelection" component={DetailerSelectionScreen} />
+        <Stack.Screen name="BookingSummary" component={BookingSummaryScreen} />
+        <Stack.Screen name="EditProfile" component={EditProfileScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );
