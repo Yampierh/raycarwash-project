@@ -412,7 +412,7 @@ class TestCompleteProfile:
 
         response = await client.put(
             "/auth/complete-profile",
-            json={"full_name": "Jane Client", "phone_number": "+12605550100", "role": "client"},
+            json={"full_name": "Jane Client", "phone_number": "+12605550100"},
             headers={"Authorization": f"Bearer {onboarding_token}"},
         )
         assert response.status_code == 200
@@ -423,7 +423,7 @@ class TestCompleteProfile:
 
     @pytest.mark.asyncio
     async def test_complete_profile_detailer_flow(self, client: AsyncClient):
-        """Registro → complete-profile detailer → next_step=detailer_onboarding."""
+        """Registro → complete-profile con service_type=detailer → next_step=detailer_onboarding."""
         reg = await client.post(
             "/auth/register",
             json={"email": "complete2@example.com", "password": "Secure1234!"},
@@ -432,35 +432,33 @@ class TestCompleteProfile:
 
         response = await client.put(
             "/auth/complete-profile",
-            json={"full_name": "Jane Detailer", "role": "detailer"},
+            json={"full_name": "Jane Detailer", "service_type": "detailer"},
             headers={"Authorization": f"Bearer {onboarding_token}"},
         )
         assert response.status_code == 200
         data = response.json()
         assert data["next_step"] == "detailer_onboarding"
+        assert data["assigned_role"] == "detailer"
         assert data["access_token"] is not None
 
     @pytest.mark.asyncio
-    async def test_complete_profile_accumulates_roles(
+    async def test_complete_profile_assigns_detailer_via_service_type(
         self, client: AsyncClient, test_user: User
     ):
-        """
-        Usuario client que completa perfil como detailer acumula ambos roles.
-        No pierde el rol client.
-        """
+        """service_type=detailer → backend asigna rol detailer e ignora cualquier campo role."""
         from domains.auth.service import AuthService
 
         onboarding_token = AuthService.create_onboarding_token(test_user.id)
 
         response = await client.put(
             "/auth/complete-profile",
-            json={"full_name": "Test Client", "role": "detailer"},
+            json={"full_name": "Test Provider", "service_type": "detailer"},
             headers={"Authorization": f"Bearer {onboarding_token}"},
         )
         assert response.status_code == 200
         data = response.json()
-        # El rol asignado es detailer
         assert data["assigned_role"] == "detailer"
+        assert data["next_step"] == "detailer_onboarding"
 
     @pytest.mark.asyncio
     async def test_complete_profile_accepts_regular_access_token(self, client: AsyncClient, test_user: User):
@@ -473,7 +471,7 @@ class TestCompleteProfile:
         access_token = await get_access_token(client, "testclient@example.com")
         response = await client.put(
             "/auth/complete-profile",
-            json={"full_name": "Test Client", "role": "client"},
+            json={"full_name": "Test Client"},
             headers={"Authorization": f"Bearer {access_token}"},
         )
         assert response.status_code == 200
@@ -486,9 +484,26 @@ class TestCompleteProfile:
         """Sin token → 401."""
         response = await client.put(
             "/auth/complete-profile",
-            json={"full_name": "John Doe", "role": "client"},
+            json={"full_name": "John Doe"},
         )
         assert response.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_complete_profile_invalid_service_type_returns_422(self, client: AsyncClient):
+        """service_type fuera de VALID_SERVICE_TYPES → 422 (frontend no puede asignar rol arbitrario)."""
+        reg = await client.post(
+            "/auth/register",
+            json={"email": "security_test@example.com", "password": "Secure1234!"},
+        )
+        onboarding_token = reg.json()["onboarding_token"]
+
+        for invalid_type in ("admin", "mechanic", "role", "detailer_pro"):
+            response = await client.put(
+                "/auth/complete-profile",
+                json={"full_name": "Attacker", "service_type": invalid_type},
+                headers={"Authorization": f"Bearer {onboarding_token}"},
+            )
+            assert response.status_code == 422, f"Expected 422 for service_type={invalid_type!r}"
 
     @pytest.mark.asyncio
     async def test_complete_profile_marks_onboarding_completed(

@@ -141,13 +141,13 @@ export const requestPasswordReset = async (email: string): Promise<void> => {
 
 /**
  * Complete user profile after registration.
- * Backend: PUT /auth/complete-profile  { full_name, role, phone_number? }
- * Requires onboarding_token stored as Bearer in SecureStore before calling.
+ * Backend assigns role based on service_type — frontend never controls role.
+ * service_type=undefined → "client"; service_type="detailer" → "detailer"
  */
 export const completeProfile = async (payload: {
   full_name: string;
   phone_number?: string;
-  role: string;
+  service_type?: string;
 }): Promise<VerifyResponse> => {
   const response = await authClient.put<VerifyResponse>("/complete-profile", payload);
   return response.data;

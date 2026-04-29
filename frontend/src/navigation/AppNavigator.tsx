@@ -8,6 +8,7 @@ import AddVehicleScreen from "../screens/AddVehicleScreen";
 import BookingScreen from "../screens/BookingScreen";
 import BookingSummaryScreen from "../screens/BookingSummaryScreen";
 import CompleteProfileScreen from "../screens/CompleteProfileScreen";
+import ProviderTypeScreen from "../screens/ProviderTypeScreen";
 import DetailerHomeScreen from "../screens/DetailerHomeScreen";
 import DetailerOnboardingScreen from "../screens/DetailerOnboardingScreen";
 import DetailerProfileScreen from "../screens/DetailerProfileScreen";
@@ -131,6 +132,7 @@ export default function AppNavigator() {
         <Stack.Screen name="Register" component={RegisterScreen} />
         <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
         <Stack.Screen name="CompleteProfile" component={CompleteProfileScreen} />
+        <Stack.Screen name="ProviderType" component={ProviderTypeScreen} />
 
         {/* Client tabs */}
         <Stack.Screen name="Main" component={TabNavigator} />

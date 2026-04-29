@@ -70,15 +70,34 @@ POST /auth/register { email, password }
   → User created (onboarding_completed=False, no role)
   → Returns: { onboarding_token }
 
-PUT /auth/complete-profile { full_name, role, phone_number? }
+PUT /auth/complete-profile { full_name, phone_number?, service_type? }
   Bearer: onboarding_token
-  → Role assigned, profile created, onboarding_completed=True
-  → Returns: { access_token, refresh_token }
+  → Backend assigns role based on service_type (frontend never controls role):
+      service_type=null/omitted  → role="client"  → next_step="app"
+      service_type="detailer"    → role="detailer" → next_step="detailer_onboarding"
+  → Invalid service_type → 422 Unprocessable Entity
+  → Profile created (ClientProfile or ProviderProfile), onboarding_completed=True
+  → Returns: { access_token, refresh_token, next_step, assigned_role }
 
 GET /auth/me
   Bearer: access_token
   → Full access to all endpoints
 ```
+
+**Provider registration flow (UI):**
+
+```
+RegisterScreen → [Join as Provider] → ProviderTypeScreen
+  → user selects service type (currently: "detailer")
+  → navigate to CompleteProfile with service_type param
+  → PUT /auth/complete-profile { service_type: "detailer" }
+  → DetailerOnboarding
+```
+
+**Security invariant:** The `service_type` field is validated against an allowlist
+(`VALID_SERVICE_TYPES` in `schemas.py`). Sending `service_type: "admin"` or any unlisted
+value returns 422. The legacy `role` field is not present in the DTO — extra fields are
+silently ignored by Pydantic.
 
 ### Login (Existing User)
 

@@ -32,6 +32,7 @@ export default function RegisterScreen({ navigation }: any) {
   const [showConfirm, setShowConfirm] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
+  const [isProviderPath, setIsProviderPath] = useState(false);
 
   const update = (field: keyof typeof form) => (value: string) => {
     setForm((f) => ({ ...f, [field]: value }));
@@ -57,7 +58,11 @@ export default function RegisterScreen({ navigation }: any) {
       const result = await registerWithEmail(form.email, form.password);
       if (result.onboarding_token) {
         await saveToken(result.onboarding_token);
-        navigation.navigate("CompleteProfile");
+        if (isProviderPath) {
+          navigation.navigate("ProviderType");
+        } else {
+          navigation.navigate("CompleteProfile");
+        }
       }
     } catch (err: any) {
       const detail = err.response?.data?.detail;
@@ -78,7 +83,11 @@ export default function RegisterScreen({ navigation }: any) {
   const handleSocialAuth = async (result: SocialAuthResponse) => {
     if (result.onboarding_required && result.onboarding_token) {
       await saveToken(result.onboarding_token);
-      navigation.navigate("CompleteProfile");
+      if (isProviderPath) {
+        navigation.navigate("ProviderType");
+      } else {
+        navigation.navigate("CompleteProfile");
+      }
     } else if (result.access_token) {
       await saveToken(result.access_token);
       if (result.refresh_token) await saveRefreshToken(result.refresh_token);
@@ -251,6 +260,17 @@ export default function RegisterScreen({ navigation }: any) {
               </TouchableOpacity>
             </View>
 
+            {/* Provider path toggle */}
+            <TouchableOpacity
+              style={styles.providerToggle}
+              onPress={() => setIsProviderPath((v) => !v)}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.providerToggleText, isProviderPath && styles.providerToggleActive]}>
+                {isProviderPath ? "✓ Joining as Service Provider →" : "Become a Service Provider →"}
+              </Text>
+            </TouchableOpacity>
+
             <View style={{ height: 30 }} />
           </ScrollView>
         </KeyboardAvoidingView>
@@ -323,4 +343,17 @@ const styles = StyleSheet.create({
   },
   footerText: { color: "#475569", fontSize: 14 },
   footerLink: { color: Colors.primary, fontSize: 14, fontWeight: "700" },
+  providerToggle: {
+    alignItems: "center",
+    marginTop: 20,
+    paddingVertical: 8,
+  },
+  providerToggleText: {
+    color: "#475569",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  providerToggleActive: {
+    color: Colors.primary,
+  },
 });

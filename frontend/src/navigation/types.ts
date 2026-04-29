@@ -21,7 +21,8 @@ export type RootStackParamList = {
   Login: undefined;
   Register: undefined;
   ForgotPassword: undefined;
-  CompleteProfile: undefined;
+  CompleteProfile: { service_type?: string };
+  ProviderType: undefined;
 
   // Client tabs
   Main: undefined;

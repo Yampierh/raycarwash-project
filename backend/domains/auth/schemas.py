@@ -98,10 +98,27 @@ class VerifyResponse(_BaseSchema):
     assigned_role: str | None = None
 
 
+VALID_SERVICE_TYPES: frozenset[str] = frozenset({"detailer"})
+
+SERVICE_TYPE_TO_ROLE: dict[str, str] = {
+    "detailer": "detailer",
+}
+
+
 class CompleteProfileRequest(BaseModel):
     full_name: str
     phone_number: str | None = None
-    role: str = Field(default="client")
+    service_type: str | None = None
+
+    @field_validator("service_type")
+    @classmethod
+    def validate_service_type(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        v = v.strip().lower()
+        if v not in VALID_SERVICE_TYPES:
+            raise ValueError(f"Invalid service_type. Valid options: {sorted(VALID_SERVICE_TYPES)}")
+        return v
 
 
 class TokenData(_BaseSchema):

@@ -543,25 +543,32 @@ async def complete_user_profile(
         from app.core.security import update_user_phone_hash
         update_user_phone_hash(user, body.phone_number, settings.PHONE_LOOKUP_KEY)
 
-    role_result = await db.execute(
-        select(Role).where(Role.name == body.role)
-    )
+    from domains.auth.schemas import SERVICE_TYPE_TO_ROLE
+
+    _next_step_map = {"client": "app", "detailer": "detailer_onboarding"}
+
+    # Determine role from service_type — backend is the authority, never trust frontend role claims
+    if body.service_type:
+        effective_role = SERVICE_TYPE_TO_ROLE[body.service_type]
+    else:
+        effective_role = "client"
+
+    role_result = await db.execute(select(Role).where(Role.name == effective_role))
     role = role_result.scalar_one_or_none()
-    effective_role = body.role if role else (user.primary_role or "client")
 
     if role:
-        # Accumulate roles: only add if user doesn't already have it
+        # Idempotent: only add role association if not already present
         already_has_role = any(ur.role_id == role.id for ur in user.user_roles)
         if not already_has_role:
             db.add(UserRoleAssociation(user_id=user.id, role_id=role.id))
 
-        # Create the profile for the chosen role if it doesn't exist yet
-        if body.role == "client" and not user.client_profile:
-            db.add(ClientProfile(user_id=user.id))
-        elif body.role == "detailer" and not user.provider_profile:
-            db.add(ProviderProfile(user_id=user.id))
+    # Idempotent: create profile only if it doesn't exist yet
+    if effective_role == "client" and not user.client_profile:
+        db.add(ClientProfile(user_id=user.id))
+    elif effective_role == "detailer" and not user.provider_profile:
+        db.add(ProviderProfile(user_id=user.id))
 
-    # Mark onboarding as complete — this is the single source of truth
+    # Mark onboarding as complete — single source of truth
     user.onboarding_status = "completed"
 
     await db.flush()
@@ -569,7 +576,7 @@ async def complete_user_profile(
     access_token  = AuthService.create_access_token(user.id, effective_role, token_version=getattr(user, "token_version", 1))
     refresh_token = await AuthService.create_refresh_token(user.id, effective_role, db)
 
-    next_step = "detailer_onboarding" if effective_role == "detailer" else "app"
+    next_step = _next_step_map.get(effective_role, "app")
 
     await db.commit()
 
