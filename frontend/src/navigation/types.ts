@@ -1,10 +1,6 @@
 import type { UserProfile as BaseUserProfile } from "../services/user.service";
 import type { Vehicle } from "../services/vehicle.service";
 
-/**
- * Role constants for convenience.
- * Note: Backend now uses roles as an array (e.g., ["client"], ["detailer"])
- */
 export const UserRole = {
   CLIENT: "client",
   DETAILER: "detailer",
@@ -13,9 +9,6 @@ export const UserRole = {
 
 export type UserRoleType = (typeof UserRole)[keyof typeof UserRole];
 
-/**
- * Extendemos la interfaz del perfil para usar roles como array
- */
 export interface UserProfile extends BaseUserProfile {
   roles: string[];
 }
@@ -26,59 +19,53 @@ export type RootStackParamList = {
 
   // Auth flow
   Login: undefined;
-  CompleteProfile: {
-    tempToken: string;
-    role?: string;
-    identifier: string;
-    identifierType: string;
-  };
+  Register: undefined;
+  ForgotPassword: undefined;
+  CompleteProfile: undefined;
 
-  // Flujo Principal de Clientes
+  // Client tabs
   Main: undefined;
 
-  // Flujo Principal de Detailers
+  // Detailer tabs
   DetailerMain: undefined;
 
-  // Pantallas de Proceso (Comunes o específicas)
+  // Shared booking flow (client)
   AddVehicle: undefined;
   VehicleDetail: { vehicle: Vehicle };
   SelectVehicles: undefined;
   Booking: { selectedVehicles: Vehicle[] };
   Schedule: {
-    selections: Record<string, any>;
+    selections: Record<string, unknown>;
     selectedVehicles: Vehicle[];
     total: number;
   };
   DetailerSelection: {
-    selections: Record<string, any>;
+    selections: Record<string, unknown>;
     selectedVehicles: Vehicle[];
     total: number;
     date: string | null;
   };
   BookingSummary: {
-    selections: Record<string, any>;
+    selections: Record<string, unknown>;
     selectedVehicles: Vehicle[];
     total: number;
     detailerId: string;
     detailerName: string;
-    scheduledTime: string; // ISO 8601 UTC
+    scheduledTime: string;
     serviceAddress: string;
     lat: number;
     lng: number;
   };
   EditProfile: { user: UserProfile; focusAddress?: boolean };
-  // Detailer routes
+
+  // Detailer onboarding / services
   DetailerOnboarding: undefined;
   DetailerServices: undefined;
-  // Client tabs
+
+  // Tab screen names (nested inside Main / DetailerMain)
   Home: undefined;
   Vehicles: undefined;
   Profile: undefined;
-  // Detailer tabs (nested inside DetailerMain)
   DetailerHome: undefined;
   DetailerProfile: undefined;
-  // v2 ride flow
-  FareEstimate: undefined;
-  ConfirmBooking: { fare_token: string };
-  Searching: { appointment_id: string };
 };
