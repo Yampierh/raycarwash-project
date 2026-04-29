@@ -90,10 +90,19 @@ export default function LoginScreen({ navigation }: any) {
       const status = err.response?.status;
       if (status === 401 || status === 400) {
         setErrors({ password: "Incorrect email or password." });
+        Alert.alert(
+          "Login Failed",
+          "Incorrect email or password. Don't have an account? Tap Sign Up.",
+        );
       } else if (status === 429) {
         Alert.alert(
           "Too Many Attempts",
           "Your account is temporarily locked. Please try again later.",
+        );
+      } else if (!err.response) {
+        Alert.alert(
+          "Connection Error",
+          "Cannot reach the server. Make sure your device is on the same Wi-Fi as the backend.",
         );
       } else {
         Alert.alert("Login Failed", "An unexpected error occurred. Please try again.");

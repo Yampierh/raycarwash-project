@@ -43,8 +43,17 @@ export default function RegisterScreen({ navigation }: any) {
     const e: Record<string, string> = {};
     if (!form.email.trim()) e.email = "Email is required";
     else if (!/\S+@\S+\.\S+/.test(form.email)) e.email = "Enter a valid email";
-    if (!form.password) e.password = "Password is required";
-    else if (form.password.length < 8) e.password = "At least 8 characters";
+    if (!form.password) {
+      e.password = "Password is required";
+    } else if (form.password.length < 8) {
+      e.password = "At least 8 characters";
+    } else if (!/[A-Z]/.test(form.password)) {
+      e.password = "Must include an uppercase letter";
+    } else if (!/[0-9]/.test(form.password)) {
+      e.password = "Must include a number";
+    } else if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(form.password)) {
+      e.password = "Must include a special character (!@#$%^&* etc.)";
+    }
     if (form.password !== form.confirmPassword)
       e.confirmPassword = "Passwords do not match";
     setErrors(e);
@@ -65,12 +74,16 @@ export default function RegisterScreen({ navigation }: any) {
         }
       }
     } catch (err: any) {
+      const status = err.response?.status;
       const detail = err.response?.data?.detail;
+      // Pydantic 422 detail is an array of {msg} objects
       const msg =
         typeof detail === "string"
           ? detail
-          : detail?.message ?? "Registration failed. Please try again.";
-      if (err.response?.status === 409) {
+          : Array.isArray(detail)
+          ? detail.map((d: any) => d.msg?.replace(/^Value error, /, "")).join(". ")
+          : "Registration failed. Please try again.";
+      if (status === 409) {
         setErrors({ email: "An account with this email already exists." });
       } else {
         Alert.alert("Registration Failed", msg);
@@ -177,7 +190,7 @@ export default function RegisterScreen({ navigation }: any) {
               <AnimatedInput
                 value={form.password}
                 onChangeText={update("password")}
-                placeholder="Password (min 8 characters)"
+                placeholder="Password (8+ chars, uppercase, number, symbol)"
                 icon="lock-closed-outline"
                 secureTextEntry={!showPassword}
                 rightElement={
