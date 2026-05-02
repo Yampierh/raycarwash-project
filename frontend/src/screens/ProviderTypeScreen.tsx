@@ -139,6 +139,13 @@ export default function ProviderTypeScreen({ navigation }: any) {
           >
             <Text style={styles.continueBtnText}>CONTINUE</Text>
           </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.clientSkipBtn}
+            onPress={() => navigation.navigate("CompleteProfile")}
+          >
+            <Text style={styles.clientSkipText}>Continue as client instead</Text>
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
     </View>
@@ -232,5 +239,15 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     fontSize: 15,
     letterSpacing: 1.5,
+  },
+  clientSkipBtn: {
+    alignItems: "center",
+    paddingVertical: 14,
+    marginTop: 4,
+  },
+  clientSkipText: {
+    color: "#475569",
+    fontSize: 13,
+    fontWeight: "600",
   },
 });

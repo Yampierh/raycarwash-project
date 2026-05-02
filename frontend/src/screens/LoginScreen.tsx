@@ -26,6 +26,7 @@ import { navigateAfterAuth } from "../utils/auth-redirect";
 import {
   getBiometricEnabled,
   getRefreshToken,
+  saveOnboardingToken,
   saveRefreshToken,
   saveToken,
 } from "../utils/storage";
@@ -60,15 +61,10 @@ export default function LoginScreen({ navigation }: any) {
   };
 
   const handleAfterLogin = useCallback(
-    async (accessToken: string, refreshToken: string | null, roles: string[]) => {
+    async (accessToken: string, refreshToken: string | null) => {
       await saveToken(accessToken);
       if (refreshToken) await saveRefreshToken(refreshToken);
-      const role = roles[0];
-      if (role === "detailer") {
-        navigation.reset({ index: 0, routes: [{ name: "DetailerMain" }] });
-      } else {
-        navigation.reset({ index: 0, routes: [{ name: "Main" }] });
-      }
+      await navigateAfterAuth(navigation);
     },
     [navigation],
   );
@@ -79,12 +75,12 @@ export default function LoginScreen({ navigation }: any) {
     try {
       const result = await loginWithEmail(email, password);
       if (!result.onboarding_completed && result.onboarding_token) {
-        await saveToken(result.onboarding_token);
-        navigation.navigate("CompleteProfile");
+        await saveOnboardingToken(result.onboarding_token);
+        navigation.navigate("ProviderType");
         return;
       }
       if (result.access_token) {
-        await handleAfterLogin(result.access_token, result.refresh_token, result.roles);
+        await handleAfterLogin(result.access_token, result.refresh_token);
       }
     } catch (err: any) {
       const status = err.response?.status;
@@ -140,14 +136,10 @@ export default function LoginScreen({ navigation }: any) {
 
   const handleSocialAuth = async (result: SocialAuthResponse) => {
     if (result.onboarding_required && result.onboarding_token) {
-      await saveToken(result.onboarding_token);
-      navigation.navigate("CompleteProfile");
+      await saveOnboardingToken(result.onboarding_token);
+      navigation.navigate("ProviderType");
     } else if (result.access_token) {
-      await handleAfterLogin(
-        result.access_token,
-        result.refresh_token ?? null,
-        result.active_role ? [result.active_role] : [],
-      );
+      await handleAfterLogin(result.access_token, result.refresh_token ?? null);
     }
   };
 

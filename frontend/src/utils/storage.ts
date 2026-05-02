@@ -3,6 +3,7 @@ import { useAuthStore } from "../store/authStore";
 
 const TOKEN_KEY = "raycarwash_jwt_token";
 const REFRESH_TOKEN_KEY = "raycarwash_refresh_token";
+const ONBOARDING_TOKEN_KEY = "raycarwash_onboarding_token";
 
 /** Decode the `role` claim from a JWT payload (no signature check needed on client). */
 function _extractRoles(token: string): string[] {
@@ -46,10 +47,26 @@ export const removeRefreshToken = async (): Promise<void> => {
   await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
 };
 
+// --- Onboarding token (short-lived JWT, scope=onboarding) ---
+// Kept under a separate key from the access token to avoid the LoadingScreen
+// confusing the two on app reopen during onboarding.
+
+export const saveOnboardingToken = async (token: string): Promise<void> => {
+  await SecureStore.setItemAsync(ONBOARDING_TOKEN_KEY, token);
+};
+
+export const getOnboardingToken = async (): Promise<string | null> => {
+  return await SecureStore.getItemAsync(ONBOARDING_TOKEN_KEY);
+};
+
+export const removeOnboardingToken = async (): Promise<void> => {
+  await SecureStore.deleteItemAsync(ONBOARDING_TOKEN_KEY);
+};
+
 // --- Clear all auth data ---
 
 export const clearAuthTokens = async (): Promise<void> => {
-  await Promise.all([removeToken(), removeRefreshToken()]);
+  await Promise.all([removeToken(), removeRefreshToken(), removeOnboardingToken()]);
   useAuthStore.getState().clear();
 };
 

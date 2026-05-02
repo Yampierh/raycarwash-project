@@ -443,12 +443,12 @@ class TestCompleteProfile:
 
     @pytest.mark.asyncio
     async def test_complete_profile_assigns_detailer_via_service_type(
-        self, client: AsyncClient, test_user: User
+        self, client: AsyncClient, incomplete_user: User
     ):
         """service_type=detailer → backend asigna rol detailer e ignora cualquier campo role."""
         from domains.auth.service import AuthService
 
-        onboarding_token = AuthService.create_onboarding_token(test_user.id)
+        onboarding_token = AuthService.create_onboarding_token(incomplete_user.id)
 
         response = await client.put(
             "/auth/complete-profile",
@@ -461,23 +461,25 @@ class TestCompleteProfile:
         assert data["next_step"] == "detailer_onboarding"
 
     @pytest.mark.asyncio
-    async def test_complete_profile_accepts_regular_access_token(self, client: AsyncClient, test_user: User):
+    async def test_complete_profile_rejects_after_onboarding_completed(
+        self, client: AsyncClient, test_user: User
+    ):
         """
-        A regular access_token is accepted on /auth/complete-profile.
-        This supports the use case where a fully-onboarded user adds a second role
-        (e.g., a client who also wants to become a detailer).
-        The endpoint only accumulates roles — it never removes existing ones.
+        Security: once onboarding_status == "completed", /auth/complete-profile
+        must reject role-changing calls (403). This prevents a logged-in client
+        from escalating to a privileged role (e.g. detailer) without going
+        through the verified upgrade flow (Stripe Identity / background check).
         """
         access_token = await get_access_token(client, "testclient@example.com")
+
+        # Attempt to add detailer role using a regular access token.
         response = await client.put(
             "/auth/complete-profile",
-            json={"full_name": "Test Client"},
+            json={"full_name": "Test Client", "service_type": "detailer"},
             headers={"Authorization": f"Bearer {access_token}"},
         )
-        assert response.status_code == 200
-        data = response.json()
-        assert data["access_token"] is not None
-        assert data["assigned_role"] == "client"
+        assert response.status_code == 403
+        assert "already completed" in response.json()["detail"].lower()
 
     @pytest.mark.asyncio
     async def test_complete_profile_without_token_fails(self, client: AsyncClient):

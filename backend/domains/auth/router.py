@@ -521,9 +521,10 @@ async def complete_user_profile(
 ) -> VerifyResponse:
     """
     Sets full_name, phone_number, and role after account creation.
-    Accepts both onboarding_token (new users) and regular access_token (role additions).
-    Roles accumulate — switching from client to detailer preserves the client role.
-    Sets onboarding_completed=True, then returns a full access + refresh token pair.
+    One-time endpoint: only callable while onboarding_status != "completed".
+    Once onboarding is finished, role changes must go through a dedicated
+    verified upgrade flow (Stripe Identity / background check).
+    Returns a full access + refresh token pair on success.
     """
     user = current_user
     if not user or not user.is_active or user.is_deleted:
@@ -535,6 +536,15 @@ async def complete_user_profile(
     # Explicitly refresh profiles to avoid stale identity-map state from the
     # same SQLAlchemy session (common in tests and after prior refreshes).
     await db.refresh(user, attribute_names=["client_profile", "provider_profile", "user_roles"])
+
+    # Reject role escalation: once onboarding is complete, the user already has
+    # a primary role. Adding a privileged role (e.g. detailer) here would bypass
+    # the verified upgrade flow.
+    if user.onboarding_status == "completed":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Profile already completed. Role changes require a separate verification flow.",
+        )
 
     if body.full_name:
         user.full_name = body.full_name

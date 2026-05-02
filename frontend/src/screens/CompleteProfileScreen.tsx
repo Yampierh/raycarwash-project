@@ -17,7 +17,7 @@ import AnimatedInput from "../components/AnimatedInput";
 import { completeProfile, VerifyResponse } from "../services/auth.service";
 import { Colors } from "../theme/colors";
 import { navigateAfterAuth } from "../utils/auth-redirect";
-import { saveRefreshToken, saveToken } from "../utils/storage";
+import { removeOnboardingToken, saveRefreshToken, saveToken } from "../utils/storage";
 
 const ALLOWED_SERVICE_TYPES = ["detailer"] as const;
 
@@ -60,6 +60,7 @@ export default function CompleteProfileScreen({ navigation, route }: any) {
       if (result.access_token) {
         await saveToken(result.access_token);
         if (result.refresh_token) await saveRefreshToken(result.refresh_token);
+        await removeOnboardingToken();
       }
 
       await navigateAfterAuth(navigation);

@@ -10,6 +10,7 @@ import { navigateAfterAuth } from "../utils/auth-redirect";
 import {
   getBiometricEnabled,
   getLastEmail,
+  getOnboardingToken,
   getPasskeyEnabled,
   getRefreshToken,
   getToken,
@@ -76,9 +77,18 @@ export default function LoadingScreen() {
 
     try {
       const accessToken = await getToken();
+      const onboardingToken = await getOnboardingToken();
 
-      if (!accessToken) {
+      if (!accessToken && !onboardingToken) {
         goToLogin();
+        return;
+      }
+
+      // Resume mid-onboarding: user registered but never completed profile.
+      // Send them back to ProviderType so they can pick a service type
+      // (or "Continue as client") and finish onboarding without re-logging in.
+      if (!accessToken && onboardingToken) {
+        navigation.reset({ index: 0, routes: [{ name: "ProviderType" }] });
         return;
       }
 

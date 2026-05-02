@@ -3,6 +3,7 @@ import { APP_CONFIG } from "../config/app.config";
 import { navigationRef } from "../navigation/navigationRef";
 import {
   clearAuthTokens,
+  getOnboardingToken,
   getRefreshToken,
   getToken,
   saveRefreshToken,
@@ -31,8 +32,11 @@ export const apiClient = axios.create({
   timeout: 10000,
 });
 
-// 2. Función lógica para inyectar Token (Reutilizable)
-const injectToken = async (config: InternalAxiosRequestConfig) => {
+// 2. Inyección de token
+// apiClient (resto de la API): SOLO access token. Nunca onboarding scope.
+// authClient (/auth/*): access token con fallback a onboarding token, para que
+// PUT /auth/complete-profile pueda llamarse durante el onboarding.
+const injectAccessToken = async (config: InternalAxiosRequestConfig) => {
   const token = await getToken();
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
@@ -40,12 +44,18 @@ const injectToken = async (config: InternalAxiosRequestConfig) => {
   return config;
 };
 
-// 3. Aplicar interceptor de petición a AMBAS instancias
-// Importante: authClient lo necesita para el endpoint /me
-authClient.interceptors.request.use(injectToken, (error) =>
+const injectAuthToken = async (config: InternalAxiosRequestConfig) => {
+  const token = (await getToken()) ?? (await getOnboardingToken());
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+};
+
+authClient.interceptors.request.use(injectAuthToken, (error) =>
   Promise.reject(error),
 );
-apiClient.interceptors.request.use(injectToken, (error) =>
+apiClient.interceptors.request.use(injectAccessToken, (error) =>
   Promise.reject(error),
 );
 

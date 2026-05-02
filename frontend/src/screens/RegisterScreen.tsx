@@ -20,7 +20,8 @@ import {
   SocialAuthResponse,
 } from "../services/auth.service";
 import { Colors } from "../theme/colors";
-import { saveRefreshToken, saveToken } from "../utils/storage";
+import { navigateAfterAuth } from "../utils/auth-redirect";
+import { saveOnboardingToken, saveRefreshToken, saveToken } from "../utils/storage";
 
 export default function RegisterScreen({ navigation }: any) {
   const [form, setForm] = useState({
@@ -66,7 +67,7 @@ export default function RegisterScreen({ navigation }: any) {
     try {
       const result = await registerWithEmail(form.email, form.password);
       if (result.onboarding_token) {
-        await saveToken(result.onboarding_token);
+        await saveOnboardingToken(result.onboarding_token);
         if (isProviderPath) {
           navigation.navigate("ProviderType");
         } else {
@@ -85,6 +86,13 @@ export default function RegisterScreen({ navigation }: any) {
           : "Registration failed. Please try again.";
       if (status === 409) {
         setErrors({ email: "An account with this email already exists." });
+        const alertMsg = isProviderPath
+          ? "Your account was already created. Log in to finish setting up your provider profile."
+          : "An account with this email already exists.";
+        Alert.alert("Account Already Exists", alertMsg, [
+          { text: "Log In", onPress: () => navigation.navigate("Login") },
+          { text: "OK", style: "cancel" },
+        ]);
       } else {
         Alert.alert("Registration Failed", msg);
       }
@@ -95,7 +103,7 @@ export default function RegisterScreen({ navigation }: any) {
 
   const handleSocialAuth = async (result: SocialAuthResponse) => {
     if (result.onboarding_required && result.onboarding_token) {
-      await saveToken(result.onboarding_token);
+      await saveOnboardingToken(result.onboarding_token);
       if (isProviderPath) {
         navigation.navigate("ProviderType");
       } else {
@@ -104,11 +112,7 @@ export default function RegisterScreen({ navigation }: any) {
     } else if (result.access_token) {
       await saveToken(result.access_token);
       if (result.refresh_token) await saveRefreshToken(result.refresh_token);
-      const role = result.active_role;
-      navigation.reset({
-        index: 0,
-        routes: [{ name: role === "detailer" ? "DetailerMain" : "Main" }],
-      });
+      await navigateAfterAuth(navigation);
     }
   };
 
