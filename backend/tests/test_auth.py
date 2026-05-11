@@ -1,7 +1,9 @@
 # backend/tests/test_auth.py
 import uuid as uuid_module
 
-import jose.jwt as jwt
+import jwt
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.serialization import load_pem_private_key
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -845,30 +847,44 @@ class TestPasswordResetSingleUse:
 # ============================================
 class TestKeyIsolation:
     """
-    Verify that JWT_SECRET_KEY and ENCRYPTION_KEY are independent.
-    A token signed with a different key must not decode successfully.
+    Verify that JWT keys and encryption keys are independent.
+    A token signed with a different RSA key must not decode successfully.
     """
 
     def test_jwt_signed_with_wrong_key_is_rejected(self):
-        """Token forged with a different signing key must raise on decode."""
-        settings = get_settings()
-        payload = {"sub": str(uuid_module.uuid4()), "type": "access"}
-        forged = jwt.encode(payload, "wrong-key-" + "x" * 32, algorithm="HS256")
-        with pytest.raises(Exception):
-            jwt.decode(forged, settings.JWT_SECRET_KEY, algorithms=["HS256"])
+        """Token forged with a different RSA key must raise on decode."""
+        from domains.auth.service import _get_public_key
 
-    def test_jwt_secret_key_differs_from_encryption_key(self):
-        """JWT_SECRET_KEY and ENCRYPTION_KEY must be distinct values."""
+        wrong_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        payload = {"sub": str(uuid_module.uuid4()), "type": "access", "aud": "raycarwash-api"}
+        forged = jwt.encode(payload, wrong_key, algorithm="RS256")
+        with pytest.raises(Exception):
+            jwt.decode(forged, _get_public_key(), algorithms=["RS256"], audience="raycarwash-api")
+
+    def test_jwt_private_key_is_configured(self):
+        """JWT_PRIVATE_KEY must be set and be a valid RSA PEM key."""
         settings = get_settings()
-        assert settings.JWT_SECRET_KEY != settings.ENCRYPTION_KEY, (
-            "JWT_SECRET_KEY and ENCRYPTION_KEY must not share the same value. "
-            "Each key must be independently generated."
+        assert settings.JWT_PRIVATE_KEY.strip().startswith("-----BEGIN"), (
+            "JWT_PRIVATE_KEY must be a PEM-encoded RSA private key."
         )
 
-    def test_jwt_secret_key_differs_from_phone_lookup_key(self):
-        """JWT_SECRET_KEY and PHONE_LOOKUP_KEY must be distinct values."""
+    def test_jwt_public_key_is_configured(self):
+        """JWT_PUBLIC_KEY must be set and be a valid RSA PEM public key."""
         settings = get_settings()
-        assert settings.JWT_SECRET_KEY != settings.PHONE_LOOKUP_KEY
+        assert settings.JWT_PUBLIC_KEY.strip().startswith("-----BEGIN"), (
+            "JWT_PUBLIC_KEY must be a PEM-encoded RSA public key."
+        )
+
+    def test_jwt_keys_differ_from_encryption_key(self):
+        """JWT keys and ENCRYPTION_KEY must be distinct."""
+        settings = get_settings()
+        assert settings.JWT_PRIVATE_KEY != settings.ENCRYPTION_KEY
+        assert settings.JWT_PUBLIC_KEY != settings.ENCRYPTION_KEY
+
+    def test_jwt_keys_differ_from_phone_lookup_key(self):
+        """JWT keys and PHONE_LOOKUP_KEY must be distinct."""
+        settings = get_settings()
+        assert settings.JWT_PRIVATE_KEY != settings.PHONE_LOOKUP_KEY
 
 
 # ============================================
@@ -883,7 +899,8 @@ class TestOnboardingTokenSecurity:
     @pytest.mark.asyncio
     async def test_onboarding_token_payload_type_is_onboarding(self, client: AsyncClient):
         """Onboarding token must carry type='onboarding', not type='access'."""
-        settings = get_settings()
+        from domains.auth.service import _get_public_key
+
         reg = await client.post(
             "/auth/register",
             json={"email": "typecheck@example.com", "password": "Secure1234!"},
@@ -891,7 +908,7 @@ class TestOnboardingTokenSecurity:
         assert reg.status_code == 201
         token = reg.json()["onboarding_token"]
 
-        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=["HS256"])
+        payload = jwt.decode(token, _get_public_key(), algorithms=["RS256"], options={"verify_aud": False})
         assert payload["type"] == "onboarding", (
             f"Expected type='onboarding', got type='{payload['type']}'. "
             "Onboarding tokens must use a dedicated type to prevent cross-type misuse."
@@ -900,13 +917,14 @@ class TestOnboardingTokenSecurity:
     @pytest.mark.asyncio
     async def test_onboarding_token_payload_has_no_role_claim(self, client: AsyncClient):
         """Onboarding token must not carry a role claim (user has no role yet)."""
-        settings = get_settings()
+        from domains.auth.service import _get_public_key
+
         reg = await client.post(
             "/auth/register",
             json={"email": "norole@example.com", "password": "Secure1234!"},
         )
         token = reg.json()["onboarding_token"]
-        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=["HS256"])
+        payload = jwt.decode(token, _get_public_key(), algorithms=["RS256"], options={"verify_aud": False})
         assert "role" not in payload or payload.get("role") is None
 
     @pytest.mark.asyncio
@@ -929,11 +947,12 @@ class TestOnboardingTokenSecurity:
         a valid access token for role additions."""
         # This verifies that /auth/complete-profile is accessible with a full token
         # (for role additions) but NOT with a forged onboarding token from another user.
-        settings = get_settings()
+        from domains.auth.service import _get_private_key
+
         forged = jwt.encode(
             {"sub": str(uuid_module.uuid4()), "type": "onboarding"},
-            settings.JWT_SECRET_KEY,
-            algorithm="HS256",
+            _get_private_key(),
+            algorithm="RS256",
         )
         resp = await client.put(
             "/auth/complete-profile",
@@ -1050,22 +1069,21 @@ class TestTokenVersionRevocation:
         still be accepted for backward compatibility — only tokens with a
         mismatched 'v' are rejected.
         """
-        from app.core.config import get_settings
+        from domains.auth.service import _get_private_key
 
-        settings = get_settings()
-
-        # Forge a legacy token with no "v" claim
+        # Forge a legacy token with no "v" claim using current RS256 key
         legacy_token = jwt.encode(
             {
                 "sub":  str(test_user.id),
                 "role": test_user.primary_role or "client",
                 "type": "access",
-                # No "v" claim — simulates pre-migration token
+                "aud":  "raycarwash-api",
+                # No "v" claim — simulates pre-token_version token
                 "iat":  1000000000,
                 "exp":  9999999999,
             },
-            settings.JWT_SECRET_KEY,
-            algorithm="HS256",
+            _get_private_key(),
+            algorithm="RS256",
         )
 
         resp = await client.get("/auth/me", headers={"Authorization": f"Bearer {legacy_token}"})

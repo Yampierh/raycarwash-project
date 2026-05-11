@@ -57,25 +57,36 @@ class Settings(BaseSettings):
     DB_POOL_RECYCLE: int = Field(default=1800)
 
     # ---------------------------------------------------------------- #
-#  Security / JWT + Encryption                                            #
+    #  Security / JWT + Encryption                                     #
     # ---------------------------------------------------------------- #
-    # SECURITY FIX (2026-04-24): Split single SECRET_KEY into three separate keys.
-    # Before: Single SECRET_KEY used for BOTH JWT signing AND PII encryption.
-    # Risk: If JWT signing key is compromised, all encrypted PII (full_name, phone_number) is exposed.
-    #       If you rotate JWT key, all PII becomes unreadable until re-encryption.
+    # JWT signing uses RS256 (asymmetric). Private key signs tokens; public key
+    # verifies. The public key is exposed at /.well-known/jwks.json so any
+    # internal service can verify tokens without sharing the private key.
     #
-    # After: Three independent keys:
-    #   - JWT_SECRET_KEY: Used ONLY for JWT signing (HS256). Rotate on suspicion of compromise.
-    #   - ENCRYPTION_KEY: Used ONLY for PII encryption via EncryptedType. Rotates independently.
-    #   - PHONE_LOOKUP_KEY: HMAC key for phone hashing. Prevents rainbow table attacks.
+    # Generate key pair:
+    #   openssl genrsa -out jwt_private.pem 2048
+    #   openssl rsa -in jwt_private.pem -pubout -out jwt_public.pem
+    # Store PEM content in .env (use \n for newlines):
+    #   JWT_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"
+    #   JWT_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----"
     #
-    # IMPORTANT: This is a breaking change. Update .env with three new keys.
-    # Generate: openssl rand -hex 32 (JWT), openssl rand -base64 32 (ENCRYPTION), openssl rand -hex 32 (PHONE)
-    #
-    JWT_SECRET_KEY: str = Field(
+    # Independent keys:
+    #   - JWT_PRIVATE_KEY / JWT_PUBLIC_KEY: RS256 JWT signing. Rotate independently.
+    #   - ENCRYPTION_KEY: PII encryption via EncryptedType. Rotates independently.
+    #   - PHONE_LOOKUP_KEY: HMAC key for phone hashing. Rotates independently.
+    JWT_PRIVATE_KEY: str = Field(
         ...,
-        min_length=32,
-        description="256-bit hex. JWT signing key. Generate: openssl rand -hex 32",
+        description=(
+            "PEM-encoded RSA-2048 private key for JWT signing (RS256). "
+            "Generate: openssl genrsa 2048 | openssl pkcs8 -topk8 -nocrypt"
+        ),
+    )
+    JWT_PUBLIC_KEY: str = Field(
+        ...,
+        description=(
+            "PEM-encoded RSA-2048 public key. "
+            "Derive from private key: openssl rsa -in jwt_private.pem -pubout"
+        ),
     )
     ENCRYPTION_KEY: str = Field(
         ...,
@@ -93,7 +104,7 @@ class Settings(BaseSettings):
         min_length=32,
         description="HMAC key for phone number hashing. Generate: openssl rand -hex 32",
     )
-    JWT_ALGORITHM: str             = Field(default="HS256")
+    JWT_ALGORITHM: str             = Field(default="RS256")
     ACCESS_TOKEN_EXPIRE_MINUTES: int  = Field(default=30,  ge=5)
     REFRESH_TOKEN_EXPIRE_DAYS: int    = Field(default=7,   ge=1)
 
@@ -320,13 +331,19 @@ class Settings(BaseSettings):
     #  CORS                                                             #
     # ---------------------------------------------------------------- #
     ALLOWED_ORIGINS: list[str] = Field(
-        default=["http://localhost:3000", "http://localhost:8081"],
-        description="Expo dev server runs on 8081 by default.",
+        default=["http://localhost:3000", "http://localhost:8081", "http://localhost:3001"],
+        description="Expo dev server (8081), Next.js admin dashboard (3000/3001).",
     )
 
     # ---------------------------------------------------------------- #
     #  Validators                                                       #
     # ---------------------------------------------------------------- #
+    @field_validator("JWT_PRIVATE_KEY", "JWT_PUBLIC_KEY", mode="before")
+    @classmethod
+    def normalize_pem_newlines(cls, v: str) -> str:
+        """Allow \\n literals in .env so PEM keys fit on one line."""
+        return v.replace("\\n", "\n")
+
     @field_validator("DATABASE_URL", mode="before")
     @classmethod
     def validate_async_driver(cls, value: str) -> str:

@@ -16,7 +16,9 @@ raycarwash-project/
 │   ├── main.py                     # Composition root — lifespan, middleware, health check
 │   ├── api/router.py               # Single aggregation of all domain routers
 │   ├── domains/                    # Domain-Driven Design (DDD-lite)
-│   │   ├── auth/                   # JWT, OAuth2 social, WebAuthn passkeys, lockout
+│   │   ├── auth/                   # JWT (RS256), OAuth2 social, WebAuthn passkeys, lockout
+│   │   │   └── routers/            # Split: core, social, webauthn, sessions, password, email
+│   │   ├── admin/                  # Admin dashboard API — users, roles, permissions CRUD
 │   │   ├── users/                  # Registration, profiles, onboarding
 │   │   ├── providers/              # Detailer profiles, Stripe Identity verification
 │   │   ├── vehicles/               # Vehicle CRUD, NHTSA VIN lookup
@@ -40,18 +42,23 @@ raycarwash-project/
 │   │   ├── ledger_seal_worker.py   # Daily ledger SHA-256 seal
 │   │   └── token_cleanup_worker.py # Expired token GC
 │   ├── events/bus.py               # In-process async event bus
-│   └── app/                        # Legacy infrastructure (config, seed, security)
+│   └── app/                        # Stable infrastructure (config, seed, security)
 │       ├── core/                   # config.py, security.py, limiter.py
-│       └── db/                     # seed.py, seed_rbac.py, detailer_seed.py
+│       └── db/                     # seed.py, seed_rbac.py (roles + permissions), detailer_seed.py
 │
 ├── frontend/                       # React Native · Expo · TypeScript
 │   └── src/
-│       ├── screens/                # 17 screen components
-│       ├── services/               # 11 API service files
+│       ├── screens/                # 21 screen components
+│       ├── services/               # API service files
 │       ├── hooks/                  # useAppointmentSocket
 │       ├── store/                  # authStore (Zustand)
 │       ├── navigation/             # RootStack, MainTabs, DetailerTabs
 │       └── theme/
+│
+├── web/                            # Next.js 15 · TypeScript · Tailwind — Admin dashboard
+│   └── app/
+│       ├── login/                  # Admin login page
+│       └── dashboard/              # Overview · Users · Roles · Permissions
 │
 ├── docker-compose.yml
 ├── AGENTS.md                       # Full technical context for AI agents
@@ -85,6 +92,9 @@ cd backend && alembic upgrade head && cd ..
 
 # 5. Start both projects
 npm run dev
+
+# 6. (Optional) Start admin dashboard
+cd web && npm install && npm run dev
 ```
 
 | Service | URL |
@@ -93,6 +103,7 @@ npm run dev
 | Swagger UI | http://localhost:8000/docs |
 | ReDoc | http://localhost:8000/redoc |
 | Expo (frontend) | http://localhost:8081 |
+| Admin dashboard | http://localhost:3000 |
 
 ---
 
@@ -101,20 +112,35 @@ npm run dev
 **Backend** — `backend/.env`:
 ```
 DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/raycarwash
-SECRET_KEY=your-32-char-secret-here
+
+# JWT signing — RS256 asymmetric key pair (replaces old JWT_SECRET_KEY)
+# Generate: openssl genrsa -out jwt_private.pem 2048 && openssl rsa -in jwt_private.pem -pubout -out jwt_public.pem
+# Store as single-line with \n: JWT_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"
+JWT_PRIVATE_KEY=<PEM-encoded RSA-2048 private key>
+JWT_PUBLIC_KEY=<PEM-encoded RSA-2048 public key>
+
+ENCRYPTION_KEY=your-32-char-encryption-key-here   # PII encryption (separate from JWT)
+PHONE_LOOKUP_KEY=your-32-char-lookup-key-here      # Phone hash for dedup
 DEBUG=true
 
-# Optional
+# Optional integrations
 STRIPE_SECRET_KEY=sk_test_...
 STRIPE_WEBHOOK_SECRET=whsec_...
 SMTP_ENABLED=false
 GOOGLE_CLIENT_ID=
 APPLE_BUNDLE_ID=com.raycarwash.app
+REDIS_URL=redis://localhost:6379
+REQUIRE_EMAIL_VERIFICATION=false
 ```
 
 **Frontend** — `frontend/.env.local`:
 ```
 EXPO_PUBLIC_API_URL=http://localhost:8000
+```
+
+**Admin dashboard** — `web/.env.local`:
+```
+NEXT_PUBLIC_API_URL=http://localhost:8000
 ```
 
 > For physical device testing, replace `localhost` with your machine's LAN IP.
@@ -130,6 +156,7 @@ EXPO_PUBLIC_API_URL=http://localhost:8000
 | `npm run dev` | Start both backend and frontend in parallel |
 | `npm run dev:backend` | Backend only (FastAPI on port 8000) |
 | `npm run dev:frontend` | Frontend only (Expo on port 8081) |
+| `cd web && npm run dev` | Admin dashboard (Next.js on port 3000) |
 
 ---
 
@@ -147,12 +174,19 @@ EXPO_PUBLIC_API_URL=http://localhost:8000
 - H3 (Uber's geospatial indexing library)
 - Redis / fakeredis (Pub/Sub + location caching)
 
-### Frontend
+### Frontend (mobile)
+
 - React Native (Expo)
 - React Navigation
 - Axios + WebSocket
 - Zustand (auth store)
 - expo-secure-store
+
+### Admin dashboard
+
+- Next.js 15 (App Router)
+- TypeScript + Tailwind CSS
+- TanStack Table (server-side pagination)
 
 ---
 
@@ -171,31 +205,29 @@ The backend was refactored from a monolithic `app/` structure into a Domain-Driv
 
 ## User flows
 
-### Client (8 steps to full profile)
-1. Splash — choose role
-2. Identifier-first (email or phone → new vs returning)
-3. Create account (name + password)
-4. Contact details (fill missing email or phone)
-5. Add vehicle (VIN lookup via NHTSA or manual)
-6. Payment method (Stripe)
-7. Preferences (notifications, search radius)
-8. Home — ready to book
+### Client
 
-**Blocking steps**: vehicle (step 5) + payment (step 6). Everything else is optional.
+1. Register (email + password)
+2. Complete profile (name + phone) → assigned `client` role
+3. Add vehicle (VIN lookup via NHTSA or manual)
+4. Payment method (Stripe)
+5. Home — ready to book
 
-### Detailer (10 steps to full profile)
-1. Splash — choose role
-2. Identifier-first + create account
-3. Personal info + bio (public profile)
-4. Service zone (city + radius in miles)
-5. Services offered (toggle from catalog + optional custom price)
-6. Weekly availability (days + hours + buffer between jobs)
-7. Identity verification (Stripe Identity — may take minutes/hours)
-8. Bank account for payouts (Stripe Connect)
-9. Activate availability (toggle "accepting bookings")
-10. Dashboard — ready to receive jobs
+**Blocking steps**: vehicle + payment. Everything else is optional.
 
-**Blocking steps**: identity verification (step 7) + bank account (step 8). Without both, detailer cannot receive payments.
+### Detailer
+
+1. Register + toggle "Become a Service Provider"
+2. Select service type (Detailer — Mechanic/Wash coming Sprint 7)
+3. Complete profile (name + phone) → assigned `detailer` role
+4. DetailerOnboarding wizard:
+   a. Personal info (legal name, DOB, address)
+   b. Identity verification (Stripe Identity — may take minutes/hours)
+   c. Consent + background check
+   d. Confirmation
+5. Dashboard — ready to receive jobs
+
+**Blocking steps**: identity verification (step 4b). Cannot receive payments without KYC approval.
 
 ---
 
@@ -208,15 +240,16 @@ The backend was refactored from a monolithic `app/` structure into a Domain-Driv
 | 3 | ✅ Done | Appointments, services, Stripe payments, state machine |
 | 4 | ✅ Done | Detailer discovery, webhooks, refund policy, timezone scheduling, rate limiting, social login |
 | 5 | ✅ Done | Addons, multi-vehicle bookings, smart matching, email service |
-| 6 | ✅ Done | DDD-lite refactor, structured logging + request ID, WebAuthn passkeys, Stripe Identity, H3 geospatial, auto-assignment engine, append-only ledger, WebSocket real-time tracking |
-| 7 | 📋 Planned | Push notifications (RAMEN/Fireball), admin dashboard, full test coverage, multiservice: mechanic vertical |
+| 6 | ✅ Done | DDD-lite refactor, WebAuthn passkeys, Stripe Identity, H3 geospatial, auto-assignment, WebSocket real-time |
+| 7 | ✅ Done | Auth hardening: RS256 JWT, stateful email/WebAuthn tokens, lazy loading fix, auth router split, admin domain + dashboard |
+| 8 | 📋 Planned | Push notifications, TOTP/2FA, full test coverage, multiservice: mechanic vertical |
 
 ---
 
 ## Test status
 
 ```text
-tests/test_auth.py         69/69  ✅ all pass
+tests/test_auth.py         70/70  ✅ all pass  (includes role-escalation security test)
 tests/test_appointments.py 19/19  ✅ all pass
 tests/test_detailers.py    ~pass  (profile fixture edge cases pending)
 tests/test_matching.py     ~pass  (H3 index requires real Redis for spatial tests)

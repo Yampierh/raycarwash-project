@@ -23,8 +23,9 @@ pydantic-settings==2.6.1
 # ---- Security ----
 passlib[bcrypt]==1.7.4
 bcrypt==4.0.1             # bcrypt password hashing
-python-jose[cryptography]==3.3.0   # JWT encode/decode
-python-multipart==0.0.20           # OAuth2 form body parsing
+PyJWT>=2.8                # JWT encode/decode (replaces python-jose which is unmaintained)
+cryptography>=42          # RSA key handling for RS256 JWT signing
+python-multipart==0.0.20  # OAuth2 form body parsing
 
 # ---- Rate Limiting ----
 slowapi==0.1.9                     # FastAPI rate limiter (wraps limits library)

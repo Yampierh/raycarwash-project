@@ -1,0 +1,341 @@
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from infrastructure.db.session import get_db
+from domains.admin.repository import AdminRepository
+from domains.admin.schemas import (
+    AdminStats,
+    AdminUserRead,
+    AdminUserUpdate,
+    AdminUsersListResponse,
+    PermissionCreate,
+    PermissionRead,
+    RoleCreate,
+    RolePermissionAssign,
+    RoleRead,
+    RoleUpdate,
+    UserRoleAssign,
+)
+from domains.auth.service import require_role
+from domains.users.models import User
+
+router = APIRouter(prefix="/api/v1/admin", tags=["Admin"])
+
+
+# ── Stats ──────────────────────────────────────────────────────────── #
+
+@router.get(
+    "/stats",
+    response_model=AdminStats,
+    summary="Platform overview statistics",
+)
+async def get_stats(
+    _: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> AdminStats:
+    data = await AdminRepository(db).get_stats()
+    return AdminStats(**data)
+
+
+# ── Users ──────────────────────────────────────────────────────────── #
+
+@router.get(
+    "/users",
+    response_model=AdminUsersListResponse,
+    summary="List all users (paginated)",
+)
+async def list_users(
+    page: int = Query(default=1, ge=1),
+    per_page: int = Query(default=20, ge=1, le=100),
+    search: str | None = Query(default=None, description="Filter by email"),
+    role: str | None = Query(default=None, description="Filter by role name"),
+    _: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> AdminUsersListResponse:
+    users, total = await AdminRepository(db).list_users(
+        page=page, per_page=per_page, search=search, role_filter=role
+    )
+    return AdminUsersListResponse(
+        users=[_user_to_read(u) for u in users],
+        total=total,
+        page=page,
+        per_page=per_page,
+    )
+
+
+@router.get(
+    "/users/{user_id}",
+    response_model=AdminUserRead,
+    summary="Get user detail with roles and permissions",
+)
+async def get_user(
+    user_id: uuid.UUID,
+    _: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> AdminUserRead:
+    user = await AdminRepository(db).get_user_with_roles(user_id)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    return _user_to_read(user)
+
+
+@router.patch(
+    "/users/{user_id}",
+    response_model=AdminUserRead,
+    summary="Update user status (active/inactive)",
+)
+async def update_user(
+    user_id: uuid.UUID,
+    body: AdminUserUpdate,
+    admin: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> AdminUserRead:
+    repo = AdminRepository(db)
+    if body.is_active is not None:
+        ok = await repo.set_user_active(user_id, body.is_active)
+        if not ok:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    await db.commit()
+    user = await repo.get_user_with_roles(user_id)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    return _user_to_read(user)
+
+
+@router.get(
+    "/users/{user_id}/roles",
+    response_model=list[RoleRead],
+    summary="List roles assigned to a user",
+)
+async def get_user_roles(
+    user_id: uuid.UUID,
+    _: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> list[RoleRead]:
+    user = await AdminRepository(db).get_user_with_roles(user_id)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    return [RoleRead.model_validate(ur.role) for ur in user.user_roles]
+
+
+@router.post(
+    "/users/{user_id}/roles",
+    response_model=RoleRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Assign a role to a user",
+)
+async def assign_role_to_user(
+    user_id: uuid.UUID,
+    body: UserRoleAssign,
+    admin: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> RoleRead:
+    repo = AdminRepository(db)
+    role = await repo.get_role_by_id(body.role_id)
+    if role is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Role not found.")
+    await repo.assign_role_to_user(user_id, body.role_id, assigned_by=admin.id)
+    await db.commit()
+    return RoleRead.model_validate(role)
+
+
+@router.delete(
+    "/users/{user_id}/roles/{role_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Revoke a role from a user",
+)
+async def revoke_role_from_user(
+    user_id: uuid.UUID,
+    role_id: uuid.UUID,
+    _: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    ok = await AdminRepository(db).revoke_role_from_user(user_id, role_id)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Role assignment not found.")
+    await db.commit()
+
+
+# ── Roles ──────────────────────────────────────────────────────────── #
+
+@router.get(
+    "/roles",
+    response_model=list[RoleRead],
+    summary="List all roles with their permissions",
+)
+async def list_roles(
+    _: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> list[RoleRead]:
+    roles = await AdminRepository(db).list_roles()
+    return [RoleRead.model_validate(r) for r in roles]
+
+
+@router.post(
+    "/roles",
+    response_model=RoleRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a new role",
+)
+async def create_role(
+    body: RoleCreate,
+    _: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> RoleRead:
+    repo = AdminRepository(db)
+    existing = await repo.get_role_by_name(body.name)
+    if existing:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Role '{body.name}' already exists.")
+    role = await repo.create_role(body.name, body.description)
+    await db.commit()
+    await db.refresh(role)
+    return RoleRead.model_validate(role)
+
+
+@router.patch(
+    "/roles/{role_id}",
+    response_model=RoleRead,
+    summary="Update a role (non-system only)",
+)
+async def update_role(
+    role_id: uuid.UUID,
+    body: RoleUpdate,
+    _: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> RoleRead:
+    fields = {k: v for k, v in body.model_dump().items() if v is not None}
+    role = await AdminRepository(db).update_role(role_id, fields)
+    if role is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Role not found or is a system role (cannot be modified).",
+        )
+    await db.commit()
+    return RoleRead.model_validate(role)
+
+
+@router.delete(
+    "/roles/{role_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a role (non-system only)",
+)
+async def delete_role(
+    role_id: uuid.UUID,
+    _: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    try:
+        ok = await AdminRepository(db).delete_role(role_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Role not found.")
+    await db.commit()
+
+
+@router.post(
+    "/roles/{role_id}/permissions",
+    status_code=status.HTTP_201_CREATED,
+    summary="Assign a permission to a role",
+)
+async def assign_permission_to_role(
+    role_id: uuid.UUID,
+    body: RolePermissionAssign,
+    _: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    repo = AdminRepository(db)
+    perm = await repo.get_permission_by_id(body.permission_id)
+    if perm is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Permission not found.")
+    await repo.assign_permission_to_role(role_id, body.permission_id)
+    await db.commit()
+    return {"message": "Permission assigned."}
+
+
+@router.delete(
+    "/roles/{role_id}/permissions/{permission_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Revoke a permission from a role",
+)
+async def revoke_permission_from_role(
+    role_id: uuid.UUID,
+    permission_id: uuid.UUID,
+    _: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    ok = await AdminRepository(db).revoke_permission_from_role(role_id, permission_id)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Permission assignment not found.")
+    await db.commit()
+
+
+# ── Permissions ────────────────────────────────────────────────────── #
+
+@router.get(
+    "/permissions",
+    response_model=list[PermissionRead],
+    summary="List all permissions",
+)
+async def list_permissions(
+    _: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> list[PermissionRead]:
+    perms = await AdminRepository(db).list_permissions()
+    return [PermissionRead.model_validate(p) for p in perms]
+
+
+@router.post(
+    "/permissions",
+    response_model=PermissionRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a new permission",
+)
+async def create_permission(
+    body: PermissionCreate,
+    _: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> PermissionRead:
+    perm = await AdminRepository(db).create_permission(
+        name=body.name,
+        resource=body.resource,
+        action=body.action,
+        description=body.description,
+    )
+    await db.commit()
+    return PermissionRead.model_validate(perm)
+
+
+@router.delete(
+    "/permissions/{permission_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a permission (removes it from all roles)",
+)
+async def delete_permission(
+    permission_id: uuid.UUID,
+    _: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    ok = await AdminRepository(db).delete_permission(permission_id)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Permission not found.")
+    await db.commit()
+
+
+# ── Helpers ────────────────────────────────────────────────────────── #
+
+def _user_to_read(user: User) -> AdminUserRead:
+    return AdminUserRead(
+        id=user.id,
+        email=user.email,
+        full_name=user.full_name,
+        is_active=user.is_active,
+        is_verified=user.is_verified,
+        onboarding_status=user.onboarding_status,
+        roles=user.roles,
+        permissions=list(user.get_all_permissions()),
+        created_at=user.created_at,
+        updated_at=user.updated_at,
+    )

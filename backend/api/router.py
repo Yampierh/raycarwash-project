@@ -7,7 +7,7 @@ This file is the single source of truth for which routers are active.
 from fastapi import APIRouter
 
 # All routers now imported directly from domains/ ↓
-from domains.auth.router             import router as auth_router
+from domains.auth.routers            import auth_router
 from domains.auth.wellknown_router   import router as wellknown_router
 from domains.appointments.router     import router as appointment_router
 from domains.payments.router         import router as payment_router
@@ -22,6 +22,7 @@ from domains.matching.router         import router as matching_router
 from domains.providers.router        import router as detailer_router
 from domains.providers.verification_router import router as verification_router
 from domains.users.router            import router as user_router
+from domains.admin.router            import router as admin_router
 
 api_router = APIRouter()
 
@@ -72,3 +73,6 @@ api_router.include_router(review_router)
 
 # Users — /api/v1/users/*
 api_router.include_router(user_router)
+
+# Admin dashboard — /api/v1/admin/*
+api_router.include_router(admin_router)

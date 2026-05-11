@@ -78,6 +78,8 @@ class User(TimestampMixin, Base):
     stripe_customer_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
 
     # Relationships — all cross-domain references use string names
+    # user_roles and profiles use selectin (required on every authenticated request).
+    # All other relationships use lazy="select" so they are only loaded when accessed.
     user_roles: Mapped[list[UserRoleAssociation]] = relationship(
         "UserRoleAssociation",
         foreign_keys="UserRoleAssociation.user_id",
@@ -98,30 +100,30 @@ class User(TimestampMixin, Base):
         uselist=False, lazy="selectin", cascade="all, delete-orphan",
     )
     vehicles: Mapped[list[Vehicle]] = relationship(
-        "Vehicle", back_populates="owner", lazy="selectin",
+        "Vehicle", back_populates="owner", lazy="select",
     )
     client_appointments: Mapped[list[Appointment]] = relationship(
         "Appointment", foreign_keys="Appointment.client_id",
-        back_populates="client", lazy="selectin",
+        back_populates="client", lazy="select",
     )
     detailer_appointments: Mapped[list[Appointment]] = relationship(
         "Appointment", foreign_keys="Appointment.detailer_id",
-        back_populates="detailer", lazy="selectin",
+        back_populates="detailer", lazy="select",
     )
     reviews_given: Mapped[list[Review]] = relationship(
         "Review", foreign_keys="Review.reviewer_id",
-        back_populates="reviewer", lazy="selectin",
+        back_populates="reviewer", lazy="select",
     )
     audit_logs: Mapped[list[AuditLog]] = relationship(
-        "AuditLog", back_populates="actor", lazy="selectin",
+        "AuditLog", back_populates="actor", lazy="select",
     )
     webauthn_credentials: Mapped[list[WebAuthnCredential]] = relationship(
         "WebAuthnCredential", back_populates="user",
-        lazy="selectin", cascade="all, delete-orphan",
+        lazy="select", cascade="all, delete-orphan",
     )
     auth_providers: Mapped[list[AuthProvider]] = relationship(
         "AuthProvider", back_populates="user",
-        lazy="selectin", cascade="all, delete-orphan",
+        lazy="select", cascade="all, delete-orphan",
     )
 
     def has_permission(self, permission_name: str) -> bool:

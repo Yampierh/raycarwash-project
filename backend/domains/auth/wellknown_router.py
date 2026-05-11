@@ -18,12 +18,37 @@
 
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
+from jwt.algorithms import RSAAlgorithm
 
 from app.core.config import get_settings
 
 router = APIRouter(tags=["Domain Verification"])
+
+
+@router.get("/.well-known/jwks.json", include_in_schema=False)
+async def jwks() -> JSONResponse:
+    """
+    Expose the RSA public key as a JSON Web Key Set (JWKS).
+
+    Any service that receives our JWTs can fetch this endpoint to verify
+    signatures without needing access to the private key.
+    """
+    from domains.auth.service import _get_public_key
+
+    pub_key = _get_public_key()
+    jwk = json.loads(RSAAlgorithm.to_jwk(pub_key))
+    jwk["use"] = "sig"
+    jwk["alg"] = "RS256"
+    jwk["kid"] = "raycarwash-jwt-v1"
+
+    return JSONResponse(
+        content={"keys": [jwk]},
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
 
 
 @router.get(

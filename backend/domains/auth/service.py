@@ -1,18 +1,3 @@
-# app/services/auth.py
-#
-# Authentication service: JWT lifecycle, password hashing, OAuth2, WebAuthn.
-#
-# Token architecture:
-#   access_token  — short-lived JWT (30 min). Stateless; verified by signature only.
-#   refresh_token — long-lived opaque random string (7 days). Stateful; stored as
-#                   SHA-256 hash in refresh_tokens table. Single-use with rotation
-#                   and theft detection (family revocation on reuse).
-#   onboarding_token — access token with scope="onboarding". Issued after registration
-#                      before role selection. Only accepted by /auth/complete-profile.
-#
-# RBAC: roles stored as strings in JWT ("role" claim). get_current_user() loads
-# user_roles from DB on every request for authoritative RBAC checks.
-
 from __future__ import annotations
 
 import hashlib
@@ -20,12 +5,18 @@ import logging
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 from typing import Annotated
 
 import httpx
+import jwt
+from cryptography.hazmat.primitives.serialization import (
+    load_pem_private_key,
+    load_pem_public_key,
+)
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from jose import JWTError, jwt
+from jwt.exceptions import InvalidTokenError as JWTError
 from passlib.context import CryptContext
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,14 +37,27 @@ _TOKEN_TYPE_ACCESS       = "access"
 _TOKEN_TYPE_REFRESH      = "refresh"
 _TOKEN_TYPE_RESET        = "password_reset"
 _TOKEN_TYPE_REGISTRATION = "registration"
-_TOKEN_TYPE_ONBOARDING   = "onboarding"   # scope-limited: only /onboarding/* endpoints
+_TOKEN_TYPE_ONBOARDING   = "onboarding"
 _TOKEN_TYPE_WEBAUTHN_REG   = "webauthn_registration"
 _TOKEN_TYPE_WEBAUTHN_AUTH  = "webauthn_authentication"
 _TOKEN_TYPE_EMAIL_VERIFY   = "email_verification"
 
-# Expose constants for use in routers without breaking encapsulation
 TOKEN_TYPE_WEBAUTHN_REG  = _TOKEN_TYPE_WEBAUTHN_REG
 TOKEN_TYPE_WEBAUTHN_AUTH = _TOKEN_TYPE_WEBAUTHN_AUTH
+
+
+@lru_cache(maxsize=1)
+def _get_private_key():
+    """Cached RSA private key object — loaded once from settings."""
+    s = get_settings()
+    return load_pem_private_key(s.JWT_PRIVATE_KEY.encode(), password=None)
+
+
+@lru_cache(maxsize=1)
+def _get_public_key():
+    """Cached RSA public key object — loaded once from settings."""
+    s = get_settings()
+    return load_pem_public_key(s.JWT_PUBLIC_KEY.encode())
 
 
 class AuthService:
@@ -69,17 +73,6 @@ class AuthService:
         return _pwd_context.verify(plain_password, hashed_password)
 
     # ---- Token creation -------------------------------------------- #
-    # DONE (2026-04-25): token_version ("v"), iss, aud, jti claims added.
-    #   "v"   — increment user.token_version to instantly invalidate all sessions.
-    #   "iss" — settings.APP_BASE_URL; prevents staging tokens in prod.
-    #   "aud" — "raycarwash-api"; decoded with verify_aud=False + manual check
-    #            for backward compat with tokens issued before this change.
-    #   "jti" — uuid per token; future revocation blacklist hook.
-    #
-    # TODO: LATER - Switch from HS256 to RS256 for JWT signing:
-    #       - Generate RSA key pair
-    #       - Expose GET /.well-known/jwks.json
-    #       - Microservices verify with public key, private key never shared
 
     @staticmethod
     def _build_token(
@@ -92,19 +85,17 @@ class AuthService:
         now    = datetime.now(timezone.utc)
         expire = now + expires_delta
         payload = {
-            # RFC 7519 standard claims
-            "iss": settings.APP_BASE_URL,   # issuer — prevents cross-env token reuse
-            "aud": "raycarwash-api",         # audience — rejects tokens for other services
-            "jti": str(uuid.uuid4()),        # unique token ID — enables future revocation blacklist
+            "iss": settings.APP_BASE_URL,
+            "aud": "raycarwash-api",
+            "jti": str(uuid.uuid4()),
             "sub": str(subject),
             "iat": int(now.timestamp()),
             "exp": int(expire.timestamp()),
-            # App-specific claims
             "role": role_name,
             "type": token_type,
             "v":    token_version,
         }
-        return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+        return jwt.encode(payload, _get_private_key(), algorithm="RS256")
 
     @staticmethod
     def create_access_token(
@@ -151,27 +142,22 @@ class AuthService:
     @staticmethod
     def decode_token(token: str, expected_type: str = _TOKEN_TYPE_ACCESS) -> dict:
         """
-        Decode and verify a JWT. Raises JWTError on any validation failure.
+        Decode and verify a JWT signed with RS256.
 
         Validates:
-          - Signature (JWT_SECRET_KEY, JWT_ALGORITHM)
+          - Signature (RSA public key)
           - Expiry (exp claim)
           - Audience (aud == "raycarwash-api")
           - Token type (type claim must match expected_type)
 
-        Audience validation is skipped for tokens without an "aud" claim so
-        that tokens issued before this change (which lack "aud") remain valid.
+        Raises JWTError on any validation failure.
         """
         payload = jwt.decode(
             token,
-            settings.JWT_SECRET_KEY,
-            algorithms=[settings.JWT_ALGORITHM],
-            options={"verify_aud": False},  # we check aud manually below
+            _get_public_key(),
+            algorithms=["RS256"],
+            audience="raycarwash-api",
         )
-        # Validate audience if present (backward-compat: skip if absent)
-        aud = payload.get("aud")
-        if aud is not None and aud != "raycarwash-api":
-            raise JWTError(f"Invalid audience: expected 'raycarwash-api', got '{aud}'.")
         if payload.get("type") != expected_type:
             raise JWTError(
                 f"Wrong token type: expected '{expected_type}', "
@@ -189,23 +175,17 @@ class AuthService:
     ) -> str:
         """
         Create a single-use password reset token and store its hash in DB.
-        
-        FIX: Now uses database-backed single-use tokens instead of stateless JWT.
         The raw token is returned to the user; only the hash is stored.
         """
         from domains.auth.password_reset_token_repository import PasswordResetTokenRepository
-        
+
         raw = secrets.token_urlsafe(32)
         expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
-        
-        # Invalidate any existing unused tokens for this user
-        # (only one active reset at a time)
+
         repo = PasswordResetTokenRepository(db)
         await repo.invalidate_all_for_user(user_id)
-        
-        # Create new token
         await repo.create(user_id=user_id, raw_token=raw, expires_at=expires_at)
-        
+
         return raw
 
     @staticmethod
@@ -215,27 +195,21 @@ class AuthService:
     ) -> uuid.UUID | None:
         """
         Verify a password reset token and return user_id if valid.
-        
-        FIX: Single-use guarantee - token is consumed (marked as used) on verification.
-        Returns user_id on success, None if invalid/used/expired.
+        Single-use — token is consumed on verification.
         """
         from domains.auth.password_reset_token_repository import PasswordResetTokenRepository
-        
+
         repo = PasswordResetTokenRepository(db)
         token = await repo.consume(raw_token)
-        
+
         if token is None:
             return None
-        
+
         return token.user_id
 
     @staticmethod
     def create_registration_token(user_id: uuid.UUID, role_name: str) -> str:
-        """
-        Temporary token for completing profile after registration.
-        Type = 'registration'. Valid for 30 minutes.
-        Used in the Identifier-First auth flow.
-        """
+        """Temporary token for completing profile after registration. Valid 30 min."""
         return AuthService._build_token(
             subject=user_id,
             role_name=role_name,
@@ -243,39 +217,7 @@ class AuthService:
             expires_delta=timedelta(minutes=30),
         )
 
-    @staticmethod
-    def create_webauthn_challenge_token(
-        user_id: uuid.UUID,
-        challenge_b64: str,
-        ctype: str,
-    ) -> str:
-        """
-        Embed a WebAuthn challenge in a short-lived signed JWT (5 min).
-
-        This keeps challenge storage stateless — no extra DB table needed.
-        The challenge bytes are base64url-encoded so they survive JSON serialization.
-
-        Args:
-            user_id:      UUID of the user who initiated the ceremony.
-            challenge_b64: base64url-encoded random challenge bytes (32 bytes → 43 chars).
-            ctype:         "webauthn_registration" or "webauthn_authentication".
-
-        Returns:
-            A signed JWT that the client echoes back in the /complete request.
-        """
-        if ctype not in (_TOKEN_TYPE_WEBAUTHN_REG, _TOKEN_TYPE_WEBAUTHN_AUTH):
-            raise ValueError(f"Invalid webauthn ctype: {ctype!r}")
-
-        now    = datetime.now(timezone.utc)
-        expire = now + timedelta(minutes=settings.WEBAUTHN_CHALLENGE_EXPIRE_MINUTES)
-        payload = {
-            "sub":       str(user_id),
-            "challenge": challenge_b64,
-            "type":      ctype,
-            "iat":       int(now.timestamp()),
-            "exp":       int(expire.timestamp()),
-        }
-        return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+    # ---- WebAuthn challenge tokens (kept for reference during Redis migration) #
 
     @staticmethod
     def decode_webauthn_challenge_token(
@@ -283,17 +225,16 @@ class AuthService:
     ) -> tuple[uuid.UUID, bytes]:
         """
         Decode a WebAuthn challenge JWT and return (user_id, challenge_bytes).
-
-        Raises:
-            HTTPException 401 if the token is invalid, expired, or wrong type.
+        Raises HTTPException 401 if the token is invalid, expired, or wrong type.
         """
         from webauthn.helpers import base64url_to_bytes
 
         try:
             payload = jwt.decode(
                 token,
-                settings.JWT_SECRET_KEY,
-                algorithms=[settings.JWT_ALGORITHM],
+                _get_public_key(),
+                algorithms=["RS256"],
+                options={"verify_aud": False},
             )
         except JWTError as exc:
             raise HTTPException(
@@ -322,134 +263,63 @@ class AuthService:
 
     @staticmethod
     def generate_unusable_password() -> str:
-        """
-        Returns a bcrypt hash of a cryptographically random secret.
-        Social-login users are assigned this hash so the password
-        field stays non-null but the hash can never be guessed or used.
-        """
+        """Bcrypt hash of a random secret — for social-only accounts."""
         return _pwd_context.hash(secrets.token_hex(32))
 
     @staticmethod
     def create_onboarding_token(user_id: uuid.UUID) -> str:
         """
-        Scope-limited token (30 min) issued to users who authenticated via a
-        social provider but have no roles assigned yet.
-
-        SECURITY FIX (2026-04-24): Changed from type="access" + scope="onboarding"
-        to dedicated type="onboarding".
-        
-        Before: Payload was {"type": "access", "scope": "onboarding", ...}
-        Risk: Middleware checking only type=="access" would accept onboarding tokens.
-        
-        After: Payload is {"type": "onboarding", ...}
-        Security: Type discriminator now properly rejects onboarding tokens
-        unless allow_onboarding_scope=True is passed to get_current_user().
-        
-        get_current_user() accepts this type when allow_onboarding_scope=True.
+        Scope-limited token (30 min) issued after social auth before role selection.
+        type="onboarding" — rejected by all endpoints except /auth/complete-profile.
         """
         now    = datetime.now(timezone.utc)
         expire = now + timedelta(minutes=30)
         payload = {
             "sub":   str(user_id),
-            "type":  _TOKEN_TYPE_ONBOARDING,  # Dedicated type - not "access"!
+            "type":  _TOKEN_TYPE_ONBOARDING,
             "iat":   int(now.timestamp()),
             "exp":   int(expire.timestamp()),
         }
-        return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+        return jwt.encode(payload, _get_private_key(), algorithm="RS256")
 
     @staticmethod
-    def create_email_verification_token(user_id: uuid.UUID) -> str:
+    async def create_email_verification_token(
+        user_id: uuid.UUID,
+        db: AsyncSession,
+    ) -> str:
         """
-        Stateless JWT for email address verification.
-        type="email_verification", 24-hour expiry.
-        Sent as a link: /auth/email/verify?token=<token>
+        Create a single-use email verification token stored in DB.
+        Returns the raw token to embed in the verification link.
         """
-        now    = datetime.now(timezone.utc)
-        expire = now + timedelta(hours=settings.EMAIL_VERIFICATION_EXPIRE_HOURS)
-        payload = {
-            "sub":  str(user_id),
-            "type": _TOKEN_TYPE_EMAIL_VERIFY,
-            "iat":  int(now.timestamp()),
-            "exp":  int(expire.timestamp()),
-        }
-        return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+        from domains.auth.email_verification_token_repository import EmailVerificationTokenRepository
+
+        raw = secrets.token_urlsafe(32)
+        expires_at = datetime.now(timezone.utc) + timedelta(hours=settings.EMAIL_VERIFICATION_EXPIRE_HOURS)
+
+        repo = EmailVerificationTokenRepository(db)
+        await repo.invalidate_all_for_user(user_id)
+        await repo.create(user_id=user_id, raw_token=raw, expires_at=expires_at)
+
+        return raw
 
     @staticmethod
-    def decode_email_verification_token(token: str) -> uuid.UUID | None:
-        """
-        Decode and validate an email verification token.
-        Returns user_id on success, None if invalid or expired.
-        """
-        try:
-            payload = jwt.decode(
-                token,
-                settings.JWT_SECRET_KEY,
-                algorithms=[settings.JWT_ALGORITHM],
-                options={"verify_aud": False},
-            )
-            if payload.get("type") != _TOKEN_TYPE_EMAIL_VERIFY:
-                return None
-            return uuid.UUID(payload["sub"])
-        except (JWTError, ValueError, KeyError):
-            return None
-
-    @staticmethod
-    async def rotate_refresh_token(
+    async def verify_email_verification_token(
         raw_token: str,
         db: AsyncSession,
-    ) -> tuple[str, str]:
+    ) -> uuid.UUID | None:
         """
-        Single-use refresh token rotation with theft detection.
-
-        Returns (new_access_token, new_refresh_token) on success.
-        Raises HTTPException 401 on any failure.
-        Raises HTTPException 401 + revokes entire family if reuse is detected.
+        Consume an email verification token and return user_id if valid.
+        Returns None if token is invalid, used, or expired.
         """
-        repo = RefreshTokenRepository(db)
-        token_row = await repo.get_by_raw(raw_token)
+        from domains.auth.email_verification_token_repository import EmailVerificationTokenRepository
 
-        credentials_exception = HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Refresh token is invalid or has expired.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        repo = EmailVerificationTokenRepository(db)
+        token = await repo.consume(raw_token)
 
-        if token_row is None:
-            raise credentials_exception
+        if token is None:
+            return None
 
-        # Theft detection: token already consumed or explicitly revoked
-        if token_row.used_at is not None or token_row.revoked:
-            await repo.revoke_family(token_row.family_id)
-            logger.warning(
-                "Refresh token reuse detected — family revoked | user_id=%s family=%s",
-                token_row.user_id,
-                token_row.family_id,
-            )
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Session invalidated. Please log in again.",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-
-        if token_row.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
-            raise credentials_exception
-
-        # Consume this token and issue a new pair
-        await repo.mark_used(token_row.id)
-
-        user_repo = UserRepository(db)
-        user = await user_repo.get_by_id(token_row.user_id)
-        if user is None or not user.is_active or user.is_deleted:
-            raise credentials_exception
-
-        new_access  = AuthService.create_access_token(user.id, user.primary_role or "client", token_version=getattr(user, "token_version", 1))
-        new_refresh = await AuthService.create_refresh_token(
-            user.id,
-            user.primary_role or "client",
-            db,
-            family_id=token_row.family_id,
-        )
-        return new_access, new_refresh
+        return token.user_id
 
     @staticmethod
     async def exchange_google_code(
@@ -461,12 +331,7 @@ class AuthService:
         Exchange a PKCE authorization code for Google tokens and extract
         the user's identity from the returned id_token.
 
-        No client_secret is required — PKCE replaces it for public clients
-        (mobile apps where the secret cannot be kept confidential).
-
-        Returns:
-            {"uid": str, "email": str, "name": str | None}
-
+        Returns: {"uid": str, "email": str, "name": str | None}
         Raises ValueError on any verification failure.
         """
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -492,7 +357,6 @@ class AuthService:
         if not id_token_str:
             raise ValueError("Google response did not include an id_token.")
 
-        # Verify id_token signature with Google's public keys
         async with httpx.AsyncClient(timeout=10.0) as client:
             certs_resp = await client.get("https://www.googleapis.com/oauth2/v3/certs")
         certs_resp.raise_for_status()
@@ -504,15 +368,17 @@ class AuthService:
             raise ValueError(f"Cannot parse Google id_token header: {exc}") from exc
 
         kid = header.get("kid")
-        key = next((k for k in jwks.get("keys", []) if k.get("kid") == kid), None)
-        if key is None:
+        key_data = next((k for k in jwks.get("keys", []) if k.get("kid") == kid), None)
+        if key_data is None:
             raise ValueError("No Google public key matches the token's 'kid'.")
 
         try:
+            from jwt.algorithms import RSAAlgorithm
+            google_public_key = RSAAlgorithm.from_jwk(key_data)
             options = {"verify_aud": bool(settings.GOOGLE_CLIENT_ID)}
             payload = jwt.decode(
                 id_token_str,
-                key,
+                google_public_key,
                 algorithms=["RS256"],
                 audience=settings.GOOGLE_CLIENT_ID or None,
                 options=options,
@@ -537,19 +403,7 @@ class AuthService:
     async def verify_apple_token(identity_token: str, bundle_id: str) -> dict:
         """
         Verify an Apple Sign In identity_token (RS256 JWT signed by Apple).
-
-        Steps:
-          1. Extract the 'kid' from the token header.
-          2. Fetch Apple's public JWKS from appleid.apple.com.
-          3. Decode + verify the JWT using the matching key.
-
-        Returns the decoded payload which includes:
-          - sub   : Apple's stable user ID (use as apple_id)
-          - email : user's email (only present on first sign-in)
-          - iss   : https://appleid.apple.com
-          - aud   : your app's bundle ID
-
-        Raises ValueError on any verification failure.
+        Returns the decoded payload. Raises ValueError on any verification failure.
         """
         try:
             header = jwt.get_unverified_header(identity_token)
@@ -568,16 +422,17 @@ class AuthService:
                 raise ValueError(f"Could not fetch Apple JWKS: {exc}") from exc
 
         jwks = resp.json()
-        key = next((k for k in jwks.get("keys", []) if k.get("kid") == kid), None)
-        if key is None:
+        key_data = next((k for k in jwks.get("keys", []) if k.get("kid") == kid), None)
+        if key_data is None:
             raise ValueError("No Apple public key matches the token's 'kid'. Token may be stale.")
 
         try:
-            # python-jose accepts a JWK dict directly as the key parameter.
+            from jwt.algorithms import RSAAlgorithm
+            apple_public_key = RSAAlgorithm.from_jwk(key_data)
             options = {"verify_aud": bool(bundle_id)}
             payload = jwt.decode(
                 identity_token,
-                key,
+                apple_public_key,
                 algorithms=["RS256"],
                 audience=bundle_id or None,
                 issuer="https://appleid.apple.com",
@@ -593,9 +448,8 @@ class AuthService:
 
     # ---- Authentication -------------------------------------------- #
 
-    # Lockout configuration — tune via settings if needed.
-    _LOCKOUT_THRESHOLD  = 5         # failed attempts before lockout
-    _LOCKOUT_MINUTES    = 15        # lockout window in minutes
+    _LOCKOUT_THRESHOLD  = 5
+    _LOCKOUT_MINUTES    = 15
 
     @staticmethod
     async def authenticate_user(
@@ -611,7 +465,7 @@ class AuthService:
           - Brute-force protection: 5 consecutive failures → 15-min lockout.
           - Lockout resets automatically when locked_until expires.
           - Successful login resets failed_login_attempts to 0.
-        Returns User on success, None on any failure (caller logs the event).
+        Returns User on success, None on any failure.
         """
         user_repo = UserRepository(db)
         user = await user_repo.get_by_email(email)
@@ -624,15 +478,11 @@ class AuthService:
             _pwd_context.dummy_verify()
             return None
 
-        # ---- Email verification gate ----
         if settings.REQUIRE_EMAIL_VERIFICATION and not user.is_verified:
             _pwd_context.dummy_verify()
-            logger.info(
-                "Login blocked — email not verified | user=%s", user.id
-            )
+            logger.info("Login blocked — email not verified | user=%s", user.id)
             return None
 
-        # ---- Lockout check ----
         if user.is_locked:
             _pwd_context.dummy_verify()
             logger.warning(
@@ -642,7 +492,6 @@ class AuthService:
             return None
 
         if not AuthService.verify_password(password, user.password_hash):
-            # Increment failure counter; lock if threshold reached.
             user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
             if user.failed_login_attempts >= AuthService._LOCKOUT_THRESHOLD:
                 user.locked_until = (
@@ -656,13 +505,68 @@ class AuthService:
             await db.commit()
             return None
 
-        # ---- Successful authentication ----
         if user.failed_login_attempts:
             user.failed_login_attempts = 0
             user.locked_until = None
             await db.flush()
 
         return user
+
+    @staticmethod
+    async def rotate_refresh_token(
+        raw_token: str,
+        db: AsyncSession,
+    ) -> tuple[str, str]:
+        """
+        Single-use refresh token rotation with theft detection.
+
+        Returns (new_access_token, new_refresh_token) on success.
+        Raises HTTPException 401 on any failure.
+        Raises HTTPException 401 + revokes entire family if reuse is detected.
+        """
+        repo = RefreshTokenRepository(db)
+        token_row = await repo.get_by_raw(raw_token)
+
+        credentials_exception = HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token is invalid or has expired.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+        if token_row is None:
+            raise credentials_exception
+
+        if token_row.used_at is not None or token_row.revoked:
+            await repo.revoke_family(token_row.family_id)
+            logger.warning(
+                "Refresh token reuse detected — family revoked | user_id=%s family=%s",
+                token_row.user_id,
+                token_row.family_id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session invalidated. Please log in again.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        if token_row.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
+            raise credentials_exception
+
+        await repo.mark_used(token_row.id)
+
+        user_repo = UserRepository(db)
+        user = await user_repo.get_by_id(token_row.user_id)
+        if user is None or not user.is_active or user.is_deleted:
+            raise credentials_exception
+
+        new_access  = AuthService.create_access_token(user.id, user.primary_role or "client", token_version=getattr(user, "token_version", 1))
+        new_refresh = await AuthService.create_refresh_token(
+            user.id,
+            user.primary_role or "client",
+            db,
+            family_id=token_row.family_id,
+        )
+        return new_access, new_refresh
 
 
 # ------------------------------------------------------------------ #
@@ -675,40 +579,53 @@ async def get_current_user(
     allow_onboarding_scope: bool = False,
 ) -> User:
     """
-    Decode the Bearer access token and return the authenticated User.
+    Decode the Bearer token and return the authenticated User.
 
     Validates:
-      1. Signature + expiry (jose)
-      2. Token type = "access" or "onboarding"
-      3. User still exists and is active (DB lookup)
+      1. RS256 signature + expiry + audience (via AuthService.decode_token)
+      2. Token type = "access" (or "onboarding" when allow_onboarding_scope=True)
+      3. User exists, is active, and is not deleted
       4. token_version claim "v" matches user.token_version (instant revocation)
-      5. If type == "onboarding" and allow_onboarding_scope is False → 403
+      5. Onboarding is complete (unless token type is "onboarding")
     """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials.",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+    # First attempt to decode as access token; fall back to onboarding if allowed.
+    payload = None
+    token_type = None
+
     try:
-        payload = jwt.decode(
-            token,
-            settings.JWT_SECRET_KEY,
-            algorithms=[settings.JWT_ALGORITHM],
-            options={"verify_aud": False},  # aud checked manually; backward-compat
-        )
-        # Validate aud if present (tokens before this change lack "aud")
-        aud = payload.get("aud")
-        if aud is not None and aud != "raycarwash-api":
-            raise JWTError("Invalid audience")
-        token_type = payload.get("type")
+        payload = AuthService.decode_token(token, expected_type=_TOKEN_TYPE_ACCESS)
+        token_type = _TOKEN_TYPE_ACCESS
+    except JWTError:
+        if allow_onboarding_scope:
+            try:
+                payload = jwt.decode(
+                    token,
+                    _get_public_key(),
+                    algorithms=["RS256"],
+                    options={"verify_aud": False},
+                )
+                if payload.get("type") != _TOKEN_TYPE_ONBOARDING:
+                    raise credentials_exception
+                token_type = _TOKEN_TYPE_ONBOARDING
+            except JWTError:
+                raise credentials_exception
+        else:
+            raise credentials_exception
+
+    try:
         user_id_str: str | None = payload.get("sub")
         if user_id_str is None:
             raise credentials_exception
         user_id = uuid.UUID(user_id_str)
-    except (JWTError, ValueError):
+    except ValueError:
         raise credentials_exception
 
-    # Token type check — onboarding tokens only allowed on designated endpoints.
     if token_type == _TOKEN_TYPE_ONBOARDING and not allow_onboarding_scope:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -722,11 +639,6 @@ async def get_current_user(
         logger.warning("Auth failed — user inactive or missing: %s", user_id)
         raise credentials_exception
 
-    # token_version check — instant session revocation.
-    # When token_version is incremented (e.g. on password reset, role removal),
-    # any token carrying the old "v" value is immediately rejected without
-    # waiting for the 30-minute JWT expiry window.
-    # Only enforced on access tokens; onboarding tokens don't carry "v".
     if token_type == _TOKEN_TYPE_ACCESS:
         token_v = payload.get("v")
         db_v    = getattr(user, "token_version", 1)
@@ -737,10 +649,8 @@ async def get_current_user(
             )
             raise credentials_exception
 
-    # Eager load user_roles for RBAC.
     await db.refresh(user, attribute_names=["user_roles"])
 
-    # Onboarding tokens bypass the completion check (they're issued pre-completion).
     if token_type != _TOKEN_TYPE_ONBOARDING and not user.onboarding_completed:
         logger.warning("Auth rejected — onboarding incomplete: %s", user_id)
         raise HTTPException(
@@ -755,10 +665,7 @@ async def get_current_user_for_onboarding(
     token: Annotated[str, Depends(_oauth2_scheme)],
     db:    Annotated[AsyncSession, Depends(get_db)],
 ) -> User:
-    """
-    Variant of get_current_user that accepts onboarding-scoped tokens.
-    Use as Depends() on /onboarding/* and /auth/complete-profile endpoints.
-    """
+    """Variant of get_current_user that accepts onboarding-scoped tokens."""
     return await get_current_user(token=token, db=db, allow_onboarding_scope=True)
 
 
@@ -771,13 +678,8 @@ async def ws_get_current_user(
     db: AsyncSession,
 ) -> User | None:
     """
-    WebSocket-safe authentication.
-
-    WebSocket connections cannot send HTTP headers after the handshake, so
-    the JWT is passed as a query parameter (?token=<jwt>).
-
-    Returns None instead of raising so the WS endpoint can close cleanly
-    with an appropriate close code rather than an HTTP 401.
+    WebSocket-safe authentication. JWT passed as query parameter (?token=<jwt>).
+    Returns None instead of raising so the WS endpoint can close cleanly.
     """
     try:
         payload = AuthService.decode_token(token, expected_type=_TOKEN_TYPE_ACCESS)
@@ -808,7 +710,7 @@ def require_role(*role_names: str):
     Usage:
         @router.post("/admin/resource")
         async def handler(_: User = Depends(require_role("admin"))):
-    
+
     Or for multiple allowed roles:
         @router.get("/detailer-only")
         async def handler(_: User = Depends(require_role("detailer", "admin"))):

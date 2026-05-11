@@ -3,17 +3,16 @@
 # Wraps py_webauthn (webauthn==2.2.0) to generate and verify
 # FIDO2/WebAuthn registration and authentication ceremonies.
 #
-# Design notes:
-#   - Pure functions / static methods — no state, easy to test.
-#   - challenge storage is stateless: the challenge bytes are embedded in a
-#     short-lived JWT (challenge_token) signed with SECRET_KEY, so no extra
-#     DB table is needed.
-#   - All base64url encoding/decoding goes through webauthn's own helpers so
-#     we stay consistent with the spec.
+# Challenge storage uses Redis (stateful, single-use):
+#   - Begin: generate challenge → store in Redis with TTL → return opaque session_id
+#   - Complete: retrieve challenge by session_id → delete (consume) → verify
+# This prevents challenge replay attacks vs the previous JWT-embedded approach.
 
 from __future__ import annotations
 
 import base64
+import json
+import uuid
 from typing import TYPE_CHECKING
 
 import webauthn
@@ -196,6 +195,66 @@ class WebAuthnService:
             credential_current_sign_count=stored_credential.sign_count,
             require_user_verification=False,
         )
+
+    # ---------------------------------------------------------------- #
+    #  Redis challenge storage (stateful, single-use)                  #
+    # ---------------------------------------------------------------- #
+
+    @staticmethod
+    async def store_challenge(
+        redis,
+        user_id: uuid.UUID,
+        challenge_bytes: bytes,
+        ctype: str,
+        ttl_seconds: int,
+    ) -> str:
+        """
+        Store a WebAuthn challenge in Redis and return an opaque session_id.
+
+        The client echoes back the session_id in the /complete request so
+        we can retrieve the challenge. The Redis key is deleted on consume
+        to prevent replay attacks.
+
+        Key format: webauthn_challenge:{session_id}
+        Value: JSON {"user_id": str, "challenge_b64": str, "type": str}
+        """
+        session_id = str(uuid.uuid4())
+        value = json.dumps({
+            "user_id": str(user_id),
+            "challenge_b64": bytes_to_base64url(challenge_bytes),
+            "type": ctype,
+        })
+        await redis.setex(f"webauthn_challenge:{session_id}", ttl_seconds, value)
+        return session_id
+
+    @staticmethod
+    async def consume_challenge(
+        redis,
+        session_id: str,
+        expected_type: str,
+    ) -> tuple[uuid.UUID, bytes] | None:
+        """
+        Retrieve and delete a WebAuthn challenge from Redis (single-use).
+
+        Returns (user_id, challenge_bytes) if valid, None if missing/wrong type.
+        The key is deleted regardless to prevent partial-use replay.
+        """
+        key = f"webauthn_challenge:{session_id}"
+        raw = await redis.get(key)
+        if raw is None:
+            return None
+
+        await redis.delete(key)
+
+        try:
+            data = json.loads(raw)
+            if data.get("type") != expected_type:
+                return None
+            user_id = uuid.UUID(data["user_id"])
+            challenge = base64url_to_bytes(data["challenge_b64"])
+            return user_id, challenge
+        except (KeyError, ValueError):
+            return None
 
     # ---------------------------------------------------------------- #
     #  Helpers                                                          #
