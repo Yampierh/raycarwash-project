@@ -1,8 +1,11 @@
-import React, { useEffect } from "react";
+import React, { useCallback, useEffect } from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import * as Notifications from "expo-notifications";
 import AppNavigator from "./src/navigation/AppNavigator";
 import { useAuthStore } from "./src/store/authStore";
 import { getToken } from "./src/utils/storage";
+import { usePushNotifications } from "./src/hooks/usePushNotifications";
+import { navigationRef } from "./src/navigation/navigationRef";
 
 // Lazy-load StripeProvider — crashes in Expo Go (needs custom dev client)
 let StripeProvider: React.ComponentType<any> | null = null;
@@ -32,18 +35,32 @@ function extractRoleFromJwt(token: string): string[] {
 }
 
 export default function App() {
-  const setTokens = useAuthStore((s) => s.setTokens);
+  const setTokens  = useAuthStore((s) => s.setTokens);
+  const isDetailer = useAuthStore((s) => s.isDetailer);
+  const token      = useAuthStore((s) => s.token);
 
   // Hydrate Zustand store from SecureStore on first mount.
-  // This enables synchronous token access in the WS hook without an
-  // async SecureStore call each time a connection is (re-)established.
   useEffect(() => {
-    getToken().then((token) => {
-      if (token) {
-        setTokens(token, extractRoleFromJwt(token));
-      }
+    getToken().then((t) => {
+      if (t) setTokens(t, extractRoleFromJwt(t));
     });
   }, [setTokens]);
+
+  const handleNotificationTap = useCallback(
+    (notification: Notifications.Notification) => {
+      if (!navigationRef.isReady()) return;
+      // Navigate to the user's main dashboard so they can find the appointment
+      if (isDetailer()) {
+        navigationRef.navigate("DetailerMain");
+      } else {
+        navigationRef.navigate("Main");
+      }
+    },
+    [isDetailer]
+  );
+
+  // Register device push token when authenticated; unregister is handled by clearAuthTokens
+  usePushNotifications(token ? handleNotificationTap : undefined);
 
   const inner = (
     <SafeAreaProvider>

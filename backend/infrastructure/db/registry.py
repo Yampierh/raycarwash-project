@@ -36,4 +36,5 @@ from domains.payments.models import (  # noqa: F401
     PaymentLedger, LedgerSeal, LedgerRevision,
 )
 from domains.audit.models import AuditLog, AuditAction  # noqa: F401
+from domains.notifications.models import DeviceToken, DevicePlatform  # noqa: F401
 from infrastructure.db.base import Base  # noqa: F401

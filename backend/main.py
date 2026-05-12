@@ -39,6 +39,7 @@ from infrastructure.db.base import Base
 
 from api.router import api_router
 from domains.realtime.connection_manager import ConnectionManager
+from domains.notifications.handlers import register_handlers as register_notification_handlers
 
 from shared.schemas import ErrorDetail, HealthResponse
 from app.core.logging_context import RequestIdFilter, StaticFieldsFilter, request_id_var
@@ -80,7 +81,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
       - engine.dispose() flushes in-flight queries and releases all
         connections back to PostgreSQL gracefully.
     """
-    logger.info("🚗  RayCarwash API — Sprint 5 — Fort Wayne, IN — starting")
+    logger.info("🚗  RayCarwash API — Sprint 8 — Fort Wayne, IN — starting")
+
+    # Register event bus handlers (push notifications, etc.)
+    register_notification_handlers()
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

@@ -23,6 +23,7 @@ from domains.providers.router        import router as detailer_router
 from domains.providers.verification_router import router as verification_router
 from domains.users.router            import router as user_router
 from domains.admin.router            import router as admin_router
+from domains.notifications.router   import router as notifications_router
 
 api_router = APIRouter()
 
@@ -76,3 +77,6 @@ api_router.include_router(user_router)
 
 # Admin dashboard — /api/v1/admin/*
 api_router.include_router(admin_router)
+
+# Push notifications — /api/v1/notifications/*
+api_router.include_router(notifications_router)

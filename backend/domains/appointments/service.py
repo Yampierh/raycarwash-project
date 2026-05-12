@@ -32,6 +32,7 @@ from domains.users.repository import UserRepository
 from domains.vehicles.repository import VehicleRepository
 from infrastructure.nhtsa.client import map_body_to_size
 from domains.appointments.schemas import AppointmentCreate, AppointmentStatusUpdate
+from events.bus import bus
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -422,6 +423,13 @@ class AppointmentService:
             total_duration_mins, payload.scheduled_time.isoformat(),
         )
 
+        await bus.emit("appointment.created", {
+            "appointment_id": str(created.id),
+            "client_id":      str(client.id),
+            "detailer_id":    str(payload.detailer_id),
+            "scheduled_time": payload.scheduled_time.isoformat(),
+        })
+
         return created
 
     async def transition_status(
@@ -565,5 +573,14 @@ class AppointmentService:
         appointment.__dict__["_refund_policy"]       = refund_policy_applied
         appointment.__dict__["_refund_amount_cents"] = refund_amount_cents
         appointment.__dict__["_stripe_refund_id"]    = stripe_refund_id
+
+        await bus.emit("appointment.status_changed", {
+            "appointment_id": str(appointment.id),
+            "client_id":      str(appointment.client_id),
+            "detailer_id":    str(appointment.detailer_id) if appointment.detailer_id else None,
+            "old_status":     old_status.value,
+            "new_status":     new_status.value,
+            "scheduled_time": appointment.scheduled_time.isoformat(),
+        })
 
         return appointment

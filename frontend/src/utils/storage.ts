@@ -4,6 +4,7 @@ import { useAuthStore } from "../store/authStore";
 const TOKEN_KEY = "raycarwash_jwt_token";
 const REFRESH_TOKEN_KEY = "raycarwash_refresh_token";
 const ONBOARDING_TOKEN_KEY = "raycarwash_onboarding_token";
+const PUSH_TOKEN_KEY = "raycarwash_push_token";
 
 /** Decode the `role` claim from a JWT payload (no signature check needed on client). */
 function _extractRoles(token: string): string[] {
@@ -63,10 +64,35 @@ export const removeOnboardingToken = async (): Promise<void> => {
   await SecureStore.deleteItemAsync(ONBOARDING_TOKEN_KEY);
 };
 
+// --- Push token (Expo) ---
+
+export const savePushToken = async (token: string): Promise<void> => {
+  await SecureStore.setItemAsync(PUSH_TOKEN_KEY, token);
+};
+
+export const getPushToken = async (): Promise<string | null> => {
+  return await SecureStore.getItemAsync(PUSH_TOKEN_KEY);
+};
+
+export const removePushToken = async (): Promise<void> => {
+  await SecureStore.deleteItemAsync(PUSH_TOKEN_KEY);
+};
+
 // --- Clear all auth data ---
 
 export const clearAuthTokens = async (): Promise<void> => {
-  await Promise.all([removeToken(), removeRefreshToken(), removeOnboardingToken()]);
+  // Best-effort: unregister push token from backend before clearing storage
+  try {
+    const pushToken = await getPushToken();
+    if (pushToken) {
+      const { notificationService } = await import("../services/notification.service");
+      const { Platform } = await import("react-native");
+      const platform = (Platform.OS as "ios" | "android" | "web") ?? "ios";
+      await notificationService.unregisterToken(pushToken, platform);
+    }
+  } catch { /* ignore — logout must succeed regardless */ }
+
+  await Promise.all([removeToken(), removeRefreshToken(), removeOnboardingToken(), removePushToken()]);
   useAuthStore.getState().clear();
 };
 
