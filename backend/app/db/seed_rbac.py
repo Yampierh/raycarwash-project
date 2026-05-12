@@ -11,7 +11,8 @@ import logging
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from domains.auth.models import Permission, Role, RolePermission
+from domains.auth.models import Permission, Role, RolePermission, UserRoleAssociation
+from domains.users.models import User, OnboardingStatus
 
 logger = logging.getLogger(__name__)
 
@@ -122,3 +123,33 @@ async def seed_rbac(db: AsyncSession) -> None:
 
     await db.commit()
     logger.info("RBAC seed complete.")
+
+    # Seed default admin user (dev only — change password in production)
+    await _seed_admin_user(db, roles_by_name.get("admin"))
+
+
+async def _seed_admin_user(db: AsyncSession, admin_role: Role | None) -> None:
+    """Create a default admin user if none exists. Idempotent."""
+    if admin_role is None:
+        return
+
+    ADMIN_EMAIL    = "admin@raycarwash.com"
+    ADMIN_PASSWORD = "Admin1234!"
+
+    existing = await db.execute(select(User).where(User.email == ADMIN_EMAIL))
+    if existing.scalar_one_or_none() is not None:
+        return
+
+    from domains.auth.service import AuthService
+    user = User(
+        email=ADMIN_EMAIL,
+        full_name="Admin",
+        password_hash=AuthService.hash_password(ADMIN_PASSWORD),
+        is_active=True,
+        onboarding_status=OnboardingStatus.COMPLETED,
+    )
+    db.add(user)
+    await db.flush()
+    db.add(UserRoleAssociation(user_id=user.id, role_id=admin_role.id))
+    await db.commit()
+    logger.info("Default admin user created: %s / %s", ADMIN_EMAIL, ADMIN_PASSWORD)
