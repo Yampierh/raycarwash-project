@@ -35,8 +35,11 @@ class AdminRepository:
             select(User)
             .where(User.is_deleted.is_(False))
             .options(
-                selectinload(User.user_roles).selectinload(UserRoleAssociation.role)
+                selectinload(User.user_roles)
+                .selectinload(UserRoleAssociation.role)
+                .selectinload(Role.permissions)
             )
+            .execution_options(populate_existing=True)
         )
 
         if search:
@@ -66,6 +69,7 @@ class AdminRepository:
                 .selectinload(UserRoleAssociation.role)
                 .selectinload(Role.permissions)
             )
+            .execution_options(populate_existing=True)
         )
         result = await self._db.execute(stmt)
         return result.scalar_one_or_none()
@@ -119,6 +123,7 @@ class AdminRepository:
             .where(Role.is_deleted.is_(False))
             .options(selectinload(Role.permissions))
             .order_by(Role.name)
+            .execution_options(populate_existing=True)
         )
         result = await self._db.execute(stmt)
         return list(result.scalars().all())
@@ -128,6 +133,7 @@ class AdminRepository:
             select(Role)
             .where(Role.id == role_id, Role.is_deleted.is_(False))
             .options(selectinload(Role.permissions))
+            .execution_options(populate_existing=True)
         )
         result = await self._db.execute(stmt)
         return result.scalar_one_or_none()
@@ -141,8 +147,8 @@ class AdminRepository:
         role = Role(name=name, description=description, is_system=False)
         self._db.add(role)
         await self._db.flush()
-        await self._db.refresh(role)
-        return role
+        # Re-fetch with permissions eager-loaded so RoleRead can serialize
+        return await self.get_role_by_id(role.id)  # type: ignore[return-value]
 
     async def update_role(self, role_id: uuid.UUID, fields: dict) -> Role | None:
         role = await self.get_role_by_id(role_id)
@@ -151,7 +157,8 @@ class AdminRepository:
         for key, value in fields.items():
             setattr(role, key, value)
         await self._db.flush()
-        return role
+        # Re-fetch so updated fields + permissions are fresh
+        return await self.get_role_by_id(role_id)
 
     async def delete_role(self, role_id: uuid.UUID) -> bool:
         """Soft-delete a role. Refuses to delete system roles."""
