@@ -15,6 +15,11 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import Button from "../components/Button";
+import Card from "../components/Card";
+import EmptyState from "../components/EmptyState";
+import SectionHeader from "../components/SectionHeader";
+import StatusBadge from "../components/StatusBadge";
 import { useAppNavigation } from "../hooks/useAppNavigation";
 import { useAppointmentSocket } from "../hooks/useAppointmentSocket";
 import { acceptRide, declineRide } from "../services/rides.service";
@@ -61,19 +66,8 @@ const STATUS_LABEL: Record<string, string> = {
   cancelled_by_detailer: "Cancelled",
 };
 
-const STATUS_COLOR: Record<string, string> = {
-  pending: "#F59E0B",
-  confirmed: "#3B82F6",
-  arrived: "#A78BFA",
-  in_progress: "#10B981",
-  completed: "#94A3B8",
-  cancelled_by_client: "#EF4444",
-  cancelled_by_detailer: "#EF4444",
-};
-
 function formatJobTime(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 function formatJobDate(iso: string): string {
@@ -109,16 +103,13 @@ export default function DetailerHomeScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Offer card state
   const [offer, setOffer] = useState<OfferCard | null>(null);
   const [offerCountdown, setOfferCountdown] = useState(15);
   const offerTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Active job timer
   const [elapsed, setElapsed] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Personal WS for receiving offers from assignment engine
   const personalWsRef = useRef<WebSocket | null>(null);
   useEffect(() => {
     if (!userId || !token) return;
@@ -128,88 +119,54 @@ export default function DetailerHomeScreen() {
       try {
         const msg = JSON.parse(e.data as string);
         if (msg.type === "offer") {
-          setOffer({
-            appointmentId: msg.appointment_id,
-            assignmentId: msg.assignment_id,
-            expiresAt: msg.offer_expires_at,
-          });
+          setOffer({ appointmentId: msg.appointment_id, assignmentId: msg.assignment_id, expiresAt: msg.offer_expires_at });
           setOfferCountdown(15);
           if (offerTimerRef.current) clearInterval(offerTimerRef.current);
           offerTimerRef.current = setInterval(() => {
             setOfferCountdown((n) => {
-              if (n <= 1) {
-                clearInterval(offerTimerRef.current!);
-                setOffer(null);
-                return 0;
-              }
+              if (n <= 1) { clearInterval(offerTimerRef.current!); setOffer(null); return 0; }
               return n - 1;
             });
           }, 1000);
         }
       } catch { /* ignore */ }
     };
-    return () => {
-      ws.close();
-      if (offerTimerRef.current) clearInterval(offerTimerRef.current);
-    };
+    return () => { ws.close(); if (offerTimerRef.current) clearInterval(offerTimerRef.current); };
   }, [userId, token]);
 
-  // Active job = arrived OR in_progress (detailer is on-site or working)
-  const activeJob = appointments.find(
-    (a) => a.status === "arrived" || a.status === "in_progress",
-  );
+  const activeJob = appointments.find((a) => a.status === "arrived" || a.status === "in_progress");
   const nextJob = appointments.find(
-    (a) =>
-      (a.status === "confirmed" || a.status === "pending") &&
-      new Date(a.scheduled_time) > new Date(),
+    (a) => (a.status === "confirmed" || a.status === "pending") && new Date(a.scheduled_time) > new Date(),
   );
 
-  // WebSocket — connect to active job's room (or next confirmed job)
   const wsJobId = activeJob?.id ?? null;
   const { sendLocationUpdate } = useAppointmentSocket({
     appointmentId: wsJobId,
     onStatusChange: useCallback(
       (newStatus: string) => {
-        // Optimistically update local state on WS broadcast
-        setAppointments((prev) =>
-          prev.map((a) => (a.id === wsJobId ? { ...a, status: newStatus } : a)),
-        );
+        setAppointments((prev) => prev.map((a) => (a.id === wsJobId ? { ...a, status: newStatus } : a)));
       },
       [wsJobId],
     ),
   });
 
-  // Send GPS location every 5 s while an active job is open
   const locationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => {
     if (!activeJob) {
-      if (locationIntervalRef.current) {
-        clearInterval(locationIntervalRef.current);
-        locationIntervalRef.current = null;
-      }
+      if (locationIntervalRef.current) { clearInterval(locationIntervalRef.current); locationIntervalRef.current = null; }
       return;
     }
-
     const pushLocation = async () => {
       try {
-        const pos = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
+        const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
         sendLocationUpdate(pos.coords.latitude, pos.coords.longitude);
-      } catch {
-        // Location unavailable — skip tick
-      }
+      } catch { /* skip */ }
     };
-
-    pushLocation(); // immediate first push
+    pushLocation();
     locationIntervalRef.current = setInterval(pushLocation, 5_000);
-    return () => {
-      if (locationIntervalRef.current) {
-        clearInterval(locationIntervalRef.current);
-        locationIntervalRef.current = null;
-      }
-    };
+    return () => { if (locationIntervalRef.current) { clearInterval(locationIntervalRef.current); locationIntervalRef.current = null; } };
   }, [activeJob?.id, sendLocationUpdate]);
+
   const todayJobs = appointments.filter(
     (a) => isToday(a.scheduled_time) && a.status !== "cancelled_by_client" && a.status !== "cancelled_by_detailer",
   );
@@ -244,44 +201,25 @@ export default function DetailerHomeScreen() {
 
   const handleDeclineOffer = async () => {
     if (!offer) return;
-    try {
-      await declineRide(offer.appointmentId);
-    } catch { /* ignore */ } finally {
-      setOffer(null);
-      if (offerTimerRef.current) clearInterval(offerTimerRef.current);
-    }
+    try { await declineRide(offer.appointmentId); } catch { /* ignore */ }
+    finally { setOffer(null); if (offerTimerRef.current) clearInterval(offerTimerRef.current); }
   };
 
   async function loadData() {
     try {
       const [user, profile, appts] = await Promise.all([
-        getUserProfile(),
-        getMyDetailerProfile(),
-        getMyAppointments(1, 50),
+        getUserProfile(), getMyDetailerProfile(), getMyAppointments(1, 50),
       ]);
       setUserName(user.full_name);
       setUserId(user.id);
       setAccepting(profile.is_accepting_bookings);
-      setStats({
-        earnings: profile.total_earnings_cents,
-        jobs: profile.total_services,
-        rating: profile.average_rating ?? 0,
-      });
+      setStats({ earnings: profile.total_earnings_cents, jobs: profile.total_services, rating: profile.average_rating ?? 0 });
       setAppointments(appts.items as Appointment[]);
-    } catch {
-      // non-critical refresh failures are silently ignored
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
+    } catch { /* non-critical */ }
+    finally { setLoading(false); setRefreshing(false); }
   }
 
-  useFocusEffect(
-    useCallback(() => {
-      setLoading(true);
-      loadData();
-    }, []),
-  );
+  useFocusEffect(useCallback(() => { setLoading(true); loadData(); }, []));
 
   async function handleToggleStatus() {
     setTogglingStatus(true);
@@ -297,24 +235,20 @@ export default function DetailerHomeScreen() {
   }
 
   async function handleStatusChange(appt: Appointment, newStatus: string) {
-    Alert.alert(
-      "Update Job Status",
-      `Mark this job as "${STATUS_LABEL[newStatus] ?? newStatus}"?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Confirm",
-          onPress: async () => {
-            try {
-              await patchAppointmentStatus(appt.id, { status: newStatus });
-              await loadData();
-            } catch {
-              Alert.alert("Error", "Status update failed. Please try again.");
-            }
-          },
+    Alert.alert("Update Job Status", `Mark this job as "${STATUS_LABEL[newStatus] ?? newStatus}"?`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Confirm",
+        onPress: async () => {
+          try {
+            await patchAppointmentStatus(appt.id, { status: newStatus });
+            await loadData();
+          } catch {
+            Alert.alert("Error", "Status update failed. Please try again.");
+          }
         },
-      ],
-    );
+      },
+    ]);
   }
 
   function callClient(phone?: string) {
@@ -325,9 +259,7 @@ export default function DetailerHomeScreen() {
   if (loading) {
     return (
       <SafeAreaView style={styles.safe}>
-        <View style={styles.loader}>
-          <ActivityIndicator size="large" color="#60A5FA" />
-        </View>
+        <View style={styles.loader}><ActivityIndicator size="large" color={Colors.primary} /></View>
       </SafeAreaView>
     );
   }
@@ -341,11 +273,11 @@ export default function DetailerHomeScreen() {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={() => { setRefreshing(true); loadData(); }}
-            tintColor="#60A5FA"
+            tintColor={Colors.primary}
           />
         }
       >
-        {/* Header */}
+        {/* ── HEADER ──────────────────────────────────────────────────── */}
         <View style={styles.header}>
           <View style={styles.headerLeft}>
             <View style={styles.avatar}>
@@ -361,9 +293,9 @@ export default function DetailerHomeScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* ── OFFER CARD ─────────────────────────────────────────────── */}
+        {/* ── OFFER CARD ──────────────────────────────────────────────── */}
         {offer && (
-          <View style={styles.offerCard}>
+          <Card style={{ marginBottom: 16, borderColor: "#F59E0B44" }}>
             <View style={styles.offerHeader}>
               <View style={styles.offerBadge}>
                 <Ionicons name="flash" size={14} color="#0B0F19" />
@@ -378,19 +310,27 @@ export default function DetailerHomeScreen() {
             <Text style={styles.offerTitle}>Incoming Job Request</Text>
             <Text style={styles.offerSub}>ID: {offer.appointmentId.slice(0, 8).toUpperCase()}</Text>
             <View style={styles.offerBtns}>
-              <TouchableOpacity style={styles.declineBtn} onPress={handleDeclineOffer}>
-                <Ionicons name="close" size={18} color="#EF4444" />
-                <Text style={styles.declineBtnText}>Decline</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.acceptBtn} onPress={handleAcceptOffer}>
-                <Ionicons name="checkmark" size={18} color="#0B0F19" />
-                <Text style={styles.acceptBtnText}>Accept</Text>
-              </TouchableOpacity>
+              <Button
+                title="Decline"
+                onPress={handleDeclineOffer}
+                variant="danger"
+                size="md"
+                icon="close"
+                style={{ flex: 1 }}
+              />
+              <Button
+                title="Accept"
+                onPress={handleAcceptOffer}
+                variant="primary"
+                size="md"
+                icon="checkmark"
+                style={{ flex: 1 }}
+              />
             </View>
-          </View>
+          </Card>
         )}
 
-        {/* Online Toggle Card */}
+        {/* ── ONLINE TOGGLE ───────────────────────────────────────────── */}
         <LinearGradient
           colors={accepting ? ["#1E3A2F", "#0F2A1F"] : ["#2A1E1E", "#1A0F0F"]}
           style={styles.statusCard}
@@ -398,53 +338,39 @@ export default function DetailerHomeScreen() {
           <View style={styles.statusCardLeft}>
             <View style={[styles.statusDot, { backgroundColor: accepting ? "#10B981" : "#EF4444" }]} />
             <View>
-              <Text style={styles.statusLabel}>
-                {accepting ? "You're Online" : "You're Offline"}
-              </Text>
-              <Text style={styles.statusSub}>
-                {accepting ? "Clients can book you" : "Hidden from matching"}
-              </Text>
+              <Text style={styles.statusLabel}>{accepting ? "You're Online" : "You're Offline"}</Text>
+              <Text style={styles.statusSub}>{accepting ? "Clients can book you" : "Hidden from matching"}</Text>
             </View>
           </View>
-          <TouchableOpacity
-            style={[styles.toggleBtn, accepting && styles.toggleBtnOn]}
+          <Button
+            title={accepting ? "Go Offline" : "Go Online"}
             onPress={handleToggleStatus}
-            disabled={togglingStatus}
-          >
-            {togglingStatus ? (
-              <ActivityIndicator size="small" color="#FFF" />
-            ) : (
-              <Text style={styles.toggleBtnText}>{accepting ? "Go Offline" : "Go Online"}</Text>
-            )}
-          </TouchableOpacity>
+            variant={accepting ? "secondary" : "primary"}
+            size="sm"
+            loading={togglingStatus}
+          />
         </LinearGradient>
 
-        {/* Today's Summary */}
-        <Text style={styles.sectionTitle}>Today's Summary</Text>
+        {/* ── TODAY'S SUMMARY ─────────────────────────────────────────── */}
+        <SectionHeader title="Today's Summary" style={{ marginTop: 24 }} />
         <View style={styles.statsRow}>
-          <LinearGradient colors={["#1E293B", "#0F172A"]} style={styles.statCard}>
-            <MaterialCommunityIcons name="currency-usd" size={22} color="#10B981" />
-            <Text style={styles.statValue}>{formatPrice(stats.earnings)}</Text>
-            <Text style={styles.statLabel}>Earned</Text>
-          </LinearGradient>
-          <LinearGradient colors={["#1E293B", "#0F172A"]} style={styles.statCard}>
-            <MaterialCommunityIcons name="briefcase-check" size={22} color="#3B82F6" />
-            <Text style={styles.statValue}>{stats.jobs}</Text>
-            <Text style={styles.statLabel}>Total Jobs</Text>
-          </LinearGradient>
-          <LinearGradient colors={["#1E293B", "#0F172A"]} style={styles.statCard}>
-            <MaterialCommunityIcons name="star" size={22} color="#F59E0B" />
-            <Text style={styles.statValue}>
-              {stats.rating > 0 ? stats.rating.toFixed(1) : "—"}
-            </Text>
-            <Text style={styles.statLabel}>Rating</Text>
-          </LinearGradient>
+          {[
+            { icon: "currency-usd", color: "#10B981", value: formatPrice(stats.earnings), label: "Earned" },
+            { icon: "briefcase-check", color: Colors.primary, value: String(stats.jobs), label: "Total Jobs" },
+            { icon: "star", color: "#F59E0B", value: stats.rating > 0 ? stats.rating.toFixed(1) : "—", label: "Rating" },
+          ].map(({ icon, color, value, label }) => (
+            <LinearGradient key={label} colors={["#1E293B", "#0F172A"]} style={styles.statCard}>
+              <MaterialCommunityIcons name={icon as any} size={22} color={color} />
+              <Text style={styles.statValue}>{value}</Text>
+              <Text style={styles.statLabel}>{label}</Text>
+            </LinearGradient>
+          ))}
         </View>
 
-        {/* Active Job Banner */}
+        {/* ── ACTIVE JOB ──────────────────────────────────────────────── */}
         {activeJob && (
           <>
-            <Text style={styles.sectionTitle}>Active Job</Text>
+            <SectionHeader title="Active Job" style={{ marginTop: 4 }} />
             <LinearGradient
               colors={activeJob.status === "arrived" ? ["#1A0F2E", "#0F172A"] : ["#0F2A1F", "#0F172A"]}
               style={styles.activeCard}
@@ -458,49 +384,48 @@ export default function DetailerHomeScreen() {
                 </Text>
                 <Text style={styles.activeTimer}>{formatElapsed(elapsed)}</Text>
               </View>
-              <Text style={styles.activeClient}>
-                {activeJob.client?.full_name ?? "Client"}
-              </Text>
-              <Text style={styles.activeAddress} numberOfLines={1}>
-                {activeJob.service_address}
-              </Text>
+              <Text style={styles.activeClient}>{activeJob.client?.full_name ?? "Client"}</Text>
+              <Text style={styles.activeAddress} numberOfLines={1}>{activeJob.service_address}</Text>
               <View style={styles.actionRow}>
-                <TouchableOpacity
-                  style={[styles.actionBtn, styles.actionBtnSecondary]}
+                <Button
+                  title="Call Client"
                   onPress={() => callClient(activeJob.client?.phone)}
-                >
-                  <Ionicons name="call-outline" size={16} color="#60A5FA" />
-                  <Text style={[styles.actionBtnText, { color: "#60A5FA" }]}>Call Client</Text>
-                </TouchableOpacity>
+                  variant="secondary"
+                  size="md"
+                  icon="call-outline"
+                  style={{ flex: 1 }}
+                />
                 {activeJob.status === "arrived" ? (
-                  <TouchableOpacity
-                    style={[styles.actionBtn, { backgroundColor: "#10B981" }]}
+                  <Button
+                    title="Start Job"
                     onPress={() => handleStatusChange(activeJob, "in_progress")}
-                  >
-                    <MaterialCommunityIcons name="play" size={16} color="#FFF" />
-                    <Text style={styles.actionBtnText}>Start Job</Text>
-                  </TouchableOpacity>
+                    variant="primary"
+                    size="md"
+                    icon="play"
+                    style={{ flex: 1, backgroundColor: "#10B981" }}
+                  />
                 ) : (
-                  <TouchableOpacity
-                    style={styles.actionBtn}
+                  <Button
+                    title="Mark Complete"
                     onPress={() => handleStatusChange(activeJob, "completed")}
-                  >
-                    <MaterialCommunityIcons name="check-circle-outline" size={16} color="#FFF" />
-                    <Text style={styles.actionBtnText}>Mark Complete</Text>
-                  </TouchableOpacity>
+                    variant="primary"
+                    size="md"
+                    icon="check-circle-outline"
+                    style={{ flex: 1 }}
+                  />
                 )}
               </View>
             </LinearGradient>
           </>
         )}
 
-        {/* Next Job */}
+        {/* ── NEXT JOB ────────────────────────────────────────────────── */}
         {nextJob && (
           <>
-            <Text style={styles.sectionTitle}>Next Job</Text>
+            <SectionHeader title="Next Job" style={{ marginTop: 4 }} />
             <LinearGradient colors={["#1E293B", "#0F172A"]} style={styles.nextCard}>
               <View style={styles.nextCardHeader}>
-                <View style={styles.timeBlock}>
+                <View>
                   <Text style={styles.timeBlockDate}>{formatJobDate(nextJob.scheduled_time)}</Text>
                   <Text style={styles.timeBlockTime}>{formatJobTime(nextJob.scheduled_time)}</Text>
                 </View>
@@ -510,13 +435,11 @@ export default function DetailerHomeScreen() {
                 </View>
               </View>
 
+              <StatusBadge status={nextJob.status} size="md" style={{ marginBottom: 12 }} />
+
               {nextJob.vehicles?.slice(0, 1).map((v, i) => (
                 <View key={i} style={styles.vehicleRow}>
-                  <MaterialCommunityIcons
-                    name={getCarIcon(v.vehicle?.body_class) as any}
-                    size={22}
-                    color="#60A5FA"
-                  />
+                  <MaterialCommunityIcons name={getCarIcon(v.vehicle?.body_class) as any} size={22} color="#60A5FA" />
                   <Text style={styles.vehicleText}>
                     {v.vehicle?.make} {v.vehicle?.model}
                     {nextJob.vehicles!.length > 1 ? ` +${nextJob.vehicles!.length - 1} more` : ""}
@@ -529,76 +452,63 @@ export default function DetailerHomeScreen() {
               </Text>
 
               <View style={styles.actionRow}>
-                <TouchableOpacity
-                  style={[styles.actionBtn, styles.actionBtnSecondary]}
+                <Button
+                  title="Call"
                   onPress={() => callClient(nextJob.client?.phone)}
-                >
-                  <Ionicons name="call-outline" size={16} color="#60A5FA" />
-                  <Text style={[styles.actionBtnText, { color: "#60A5FA" }]}>Call</Text>
-                </TouchableOpacity>
+                  variant="secondary"
+                  size="md"
+                  icon="call-outline"
+                  style={{ flex: 1 }}
+                />
                 {nextJob.status === "pending" && (
-                  <TouchableOpacity
-                    style={styles.actionBtn}
+                  <Button
+                    title="Confirm"
                     onPress={() => handleStatusChange(nextJob, "confirmed")}
-                  >
-                    <MaterialCommunityIcons name="check" size={16} color="#FFF" />
-                    <Text style={styles.actionBtnText}>Confirm</Text>
-                  </TouchableOpacity>
+                    variant="primary"
+                    size="md"
+                    icon="check"
+                    style={{ flex: 1 }}
+                  />
                 )}
                 {nextJob.status === "confirmed" && (
-                  <TouchableOpacity
-                    style={[styles.actionBtn, { backgroundColor: "#7C3AED" }]}
+                  <Button
+                    title="I've Arrived"
                     onPress={() => handleStatusChange(nextJob, "arrived")}
-                  >
-                    <Ionicons name="location" size={16} color="#FFF" />
-                    <Text style={styles.actionBtnText}>I've Arrived</Text>
-                  </TouchableOpacity>
+                    variant="primary"
+                    size="md"
+                    icon="location"
+                    style={{ flex: 1, backgroundColor: "#7C3AED" }}
+                  />
                 )}
               </View>
             </LinearGradient>
           </>
         )}
 
-        {/* Upcoming Today */}
+        {/* ── UPCOMING TODAY ──────────────────────────────────────────── */}
         {todayJobs.length > 0 && (
           <>
-            <Text style={styles.sectionTitle}>Upcoming Today</Text>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.upcomingScroll}
-            >
-              {todayJobs.map((appt) => {
-                const color = STATUS_COLOR[appt.status] ?? "#94A3B8";
-                return (
-                  <LinearGradient
-                    key={appt.id}
-                    colors={["#1E293B", "#0F172A"]}
-                    style={styles.upcomingCard}
-                  >
-                    <View style={[styles.upcomingStatusBar, { backgroundColor: color }]} />
-                    <Text style={styles.upcomingTime}>{formatJobTime(appt.scheduled_time)}</Text>
-                    <Text style={styles.upcomingClient} numberOfLines={1}>
-                      {appt.client?.full_name ?? "Client"}
-                    </Text>
-                    <Text style={[styles.upcomingBadge, { color }]}>
-                      {STATUS_LABEL[appt.status] ?? appt.status}
-                    </Text>
-                  </LinearGradient>
-                );
-              })}
+            <SectionHeader title="Upcoming Today" style={{ marginTop: 4 }} />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.upcomingScroll}>
+              {todayJobs.map((appt) => (
+                <LinearGradient key={appt.id} colors={["#1E293B", "#0F172A"]} style={styles.upcomingCard}>
+                  <StatusBadge status={appt.status} style={styles.upcomingBadge} />
+                  <Text style={styles.upcomingTime}>{formatJobTime(appt.scheduled_time)}</Text>
+                  <Text style={styles.upcomingClient} numberOfLines={1}>{appt.client?.full_name ?? "Client"}</Text>
+                </LinearGradient>
+              ))}
             </ScrollView>
           </>
         )}
 
         {!nextJob && !activeJob && (
-          <View style={styles.emptyState}>
-            <MaterialCommunityIcons name="calendar-blank" size={48} color="#334155" />
-            <Text style={styles.emptyTitle}>No upcoming jobs</Text>
-            <Text style={styles.emptySub}>
-              {accepting ? "You're online — clients can find you." : "Go online to start receiving bookings."}
-            </Text>
-          </View>
+          <EmptyState
+            icon="calendar-blank"
+            title="No upcoming jobs"
+            subtitle={accepting ? "You're online — clients can find you." : "Go online to start receiving bookings."}
+            dashed={false}
+            style={{ marginTop: 16 }}
+          />
         )}
 
         <View style={{ height: 32 }} />
@@ -609,124 +519,64 @@ export default function DetailerHomeScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.background },
-  scroll: { paddingHorizontal: 16, paddingTop: 8 },
+  scroll: { paddingHorizontal: 20, paddingTop: 8 },
   loader: { flex: 1, alignItems: "center", justifyContent: "center" },
 
-  // Offer card
-  offerCard: {
-    backgroundColor: "#1E293B", borderRadius: 16, padding: 18,
-    marginBottom: 16, borderWidth: 1, borderColor: "#F59E0B44",
+  header: {
+    flexDirection: "row", alignItems: "center",
+    justifyContent: "space-between", marginBottom: 20,
   },
+  headerLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
+  avatar: {
+    width: 52, height: 52, borderRadius: 26,
+    backgroundColor: "#1D4ED8", alignItems: "center", justifyContent: "center",
+  },
+  avatarText: { color: "#FFFFFF", fontSize: 18, fontWeight: "700" },
+  greeting: { fontSize: 13, color: "#64748B" },
+  name: { fontSize: 20, fontWeight: "700", color: "#F1F5F9" },
+  bellBtn: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: "#1E293B", alignItems: "center", justifyContent: "center",
+  },
+
   offerHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
   offerBadge: {
     flexDirection: "row", alignItems: "center", gap: 4,
     backgroundColor: "#F59E0B", borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4,
   },
   offerBadgeText: { color: "#0B0F19", fontWeight: "800", fontSize: 11 },
-  countdownPill: {
-    backgroundColor: "#0F172A", borderRadius: 20, paddingHorizontal: 12, paddingVertical: 4,
-  },
+  countdownPill: { backgroundColor: "#0F172A", borderRadius: 20, paddingHorizontal: 12, paddingVertical: 4 },
   countdownText: { color: "#F8FAFC", fontWeight: "700", fontSize: 16 },
   offerTitle: { color: "#F8FAFC", fontSize: 17, fontWeight: "700", marginBottom: 4 },
   offerSub: { color: "#64748B", fontSize: 12, marginBottom: 16 },
   offerBtns: { flexDirection: "row", gap: 12 },
-  declineBtn: {
-    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
-    gap: 6, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: "#EF4444",
-  },
-  declineBtnText: { color: "#EF4444", fontWeight: "700" },
-  acceptBtn: {
-    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
-    gap: 6, borderRadius: 12, padding: 14, backgroundColor: Colors.primary,
-  },
-  acceptBtnText: { color: "#0B0F19", fontWeight: "700" },
-
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 20,
-  },
-  headerLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
-  avatar: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: "#1D4ED8",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  avatarText: { color: "#FFFFFF", fontSize: 16, fontWeight: "700" },
-  greeting: { fontSize: 13, color: "#64748B" },
-  name: { fontSize: 20, fontWeight: "700", color: "#F1F5F9" },
-  bellBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#1E293B",
-    alignItems: "center",
-    justifyContent: "center",
-  },
 
   statusCard: {
-    borderRadius: 16,
-    padding: 18,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 24,
-    borderWidth: 1,
-    borderColor: "#1E3A2F",
+    borderRadius: 16, padding: 18,
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    marginBottom: 4, borderWidth: 1, borderColor: "#1E3A2F",
   },
   statusCardLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
   statusDot: { width: 10, height: 10, borderRadius: 5 },
   statusLabel: { fontSize: 15, fontWeight: "700", color: "#F1F5F9" },
   statusSub: { fontSize: 12, color: "#64748B", marginTop: 2 },
-  toggleBtn: {
-    backgroundColor: "#334155",
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-  },
-  toggleBtnOn: { backgroundColor: "#1D4ED8" },
-  toggleBtnText: { color: "#FFFFFF", fontSize: 13, fontWeight: "600" },
 
-  sectionTitle: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#64748B",
-    letterSpacing: 0.8,
-    textTransform: "uppercase",
-    marginBottom: 12,
-  },
-
-  statsRow: { flexDirection: "row", gap: 10, marginBottom: 28 },
+  statsRow: { flexDirection: "row", gap: 10, marginBottom: 4 },
   statCard: {
-    flex: 1,
-    borderRadius: 14,
-    paddingVertical: 16,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#1E293B",
+    flex: 1, borderRadius: 14, paddingVertical: 16,
+    alignItems: "center", borderWidth: 1, borderColor: "#1E293B",
   },
   statValue: { fontSize: 20, fontWeight: "700", color: "#F1F5F9", marginTop: 6 },
   statLabel: { fontSize: 11, color: "#64748B", marginTop: 2 },
 
   activeCard: {
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 28,
-    borderWidth: 1,
-    borderColor: "#1E3A2F",
+    borderRadius: 16, padding: 20, marginBottom: 4,
+    borderWidth: 1, borderColor: "#1E3A2F",
   },
   activeCardTop: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 },
   activePulse: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: "rgba(16,185,129,0.2)",
-    alignItems: "center",
-    justifyContent: "center",
+    width: 18, height: 18, borderRadius: 9,
+    backgroundColor: "rgba(16,185,129,0.2)", alignItems: "center", justifyContent: "center",
   },
   activePulseArrived: { backgroundColor: "rgba(167,139,250,0.2)" },
   activePulseDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#10B981" },
@@ -737,29 +587,15 @@ const styles = StyleSheet.create({
   activeAddress: { fontSize: 13, color: "#64748B", marginBottom: 16 },
 
   nextCard: {
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 28,
-    borderWidth: 1,
-    borderColor: "#1E293B",
+    borderRadius: 16, padding: 20, marginBottom: 4,
+    borderWidth: 1, borderColor: "#1E293B",
   },
-  nextCardHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    marginBottom: 16,
-  },
-  timeBlock: {},
+  nextCardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 },
   timeBlockDate: { fontSize: 13, color: "#94A3B8", marginBottom: 2 },
   timeBlockTime: { fontSize: 24, fontWeight: "700", color: "#F1F5F9" },
   countdownBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "rgba(245,158,11,0.12)",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
+    flexDirection: "row", alignItems: "center", gap: 4,
+    backgroundColor: "rgba(245,158,11,0.12)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12,
   },
   jobCountdownText: { fontSize: 13, fontWeight: "600", color: "#F59E0B" },
   vehicleRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 },
@@ -767,34 +603,13 @@ const styles = StyleSheet.create({
   nextAddress: { fontSize: 13, color: "#64748B", marginBottom: 16 },
 
   actionRow: { flexDirection: "row", gap: 10 },
-  actionBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    backgroundColor: "#2563EB",
-    paddingVertical: 10,
-    borderRadius: 10,
-  },
-  actionBtnSecondary: { backgroundColor: "rgba(96,165,250,0.12)" },
-  actionBtnText: { color: "#FFFFFF", fontSize: 14, fontWeight: "600" },
 
-  upcomingScroll: { paddingBottom: 4, paddingRight: 4, gap: 10, marginBottom: 28 },
+  upcomingScroll: { paddingBottom: 4, paddingRight: 4, gap: 10, marginBottom: 4 },
   upcomingCard: {
-    width: 130,
-    borderRadius: 14,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: "#1E293B",
-    overflow: "hidden",
+    width: 130, borderRadius: 14, padding: 14,
+    borderWidth: 1, borderColor: "#1E293B", overflow: "hidden",
   },
-  upcomingStatusBar: { position: "absolute", top: 0, left: 0, right: 0, height: 3 },
-  upcomingTime: { fontSize: 16, fontWeight: "700", color: "#F1F5F9", marginTop: 6, marginBottom: 4 },
-  upcomingClient: { fontSize: 12, color: "#94A3B8", marginBottom: 8 },
-  upcomingBadge: { fontSize: 11, fontWeight: "600" },
-
-  emptyState: { alignItems: "center", paddingVertical: 48, gap: 10 },
-  emptyTitle: { fontSize: 16, fontWeight: "600", color: "#475569" },
-  emptySub: { fontSize: 13, color: "#334155", textAlign: "center", maxWidth: 260 },
+  upcomingBadge: { marginBottom: 8 },
+  upcomingTime: { fontSize: 16, fontWeight: "700", color: "#F1F5F9", marginBottom: 4 },
+  upcomingClient: { fontSize: 12, color: "#94A3B8" },
 });

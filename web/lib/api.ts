@@ -143,3 +143,67 @@ export async function revokePermissionFromRole(
     `/api/v1/admin/roles/${roleId}/permissions/${permissionId}`
   );
 }
+
+// ── Appointments ────────────────────────────────────────────────── //
+
+export async function listAppointments(params: {
+  page?: number;
+  per_page?: number;
+  status?: string;
+  start_date?: string;
+  end_date?: string;
+  search?: string;
+}) {
+  const res = await api.get("/api/v1/admin/appointments", { params });
+  return res.data;
+}
+
+export async function getAppointment(id: string) {
+  const res = await api.get(`/api/v1/admin/appointments/${id}`);
+  return res.data;
+}
+
+export async function forceAppointmentStatus(id: string, new_status: string) {
+  const res = await api.patch(`/api/v1/admin/appointments/${id}/status`, { new_status });
+  return res.data;
+}
+
+// ── Verifications ───────────────────────────────────────────────── //
+
+export async function listVerifications(verification_status?: string) {
+  const res = await api.get("/api/v1/admin/verifications", {
+    params: verification_status ? { verification_status } : {},
+  });
+  return res.data;
+}
+
+export async function approveVerification(providerId: string) {
+  const res = await api.post(`/api/v1/admin/verifications/${providerId}/approve`);
+  return res.data;
+}
+
+export async function rejectVerification(providerId: string, reason: string) {
+  const res = await api.post(`/api/v1/admin/verifications/${providerId}/reject`, { reason });
+  return res.data;
+}
+
+// ── Payments ────────────────────────────────────────────────────── //
+
+export async function getPaymentSummary(params: {
+  start_date?: string;
+  end_date?: string;
+}) {
+  const res = await api.get("/api/v1/admin/payments/summary", { params });
+  return res.data;
+}
+
+export async function getPaymentLedger(params: {
+  page?: number;
+  per_page?: number;
+  entry_type?: string;
+  start_date?: string;
+  end_date?: string;
+}) {
+  const res = await api.get("/api/v1/admin/payments/ledger", { params });
+  return res.data;
+}

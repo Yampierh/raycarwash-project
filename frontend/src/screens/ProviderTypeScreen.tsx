@@ -1,13 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import React, { useState } from "react";
-import {
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import Button from "../components/Button";
 import { Colors } from "../theme/colors";
 
 interface ServiceType {
@@ -52,10 +48,7 @@ export default function ProviderTypeScreen({ navigation }: any) {
 
   return (
     <View style={styles.container}>
-      <LinearGradient
-        colors={["#060A14", "#0B0F1A", "#101828"]}
-        style={StyleSheet.absoluteFill}
-      />
+      <LinearGradient colors={["#060A14", "#0B0F1A", "#101828"]} style={StyleSheet.absoluteFill} />
       <SafeAreaView style={{ flex: 1 }}>
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
@@ -87,33 +80,20 @@ export default function ProviderTypeScreen({ navigation }: any) {
                   <View style={styles.optionIcon}>
                     <Ionicons
                       name={type.icon}
-                      size={28}
-                      color={
-                        !type.enabled
-                          ? "#334155"
-                          : isSelected
-                          ? Colors.primary
-                          : "#64748B"
-                      }
+                      size={26}
+                      color={!type.enabled ? "#334155" : isSelected ? Colors.primary : "#64748B"}
                     />
                   </View>
 
                   <View style={styles.optionText}>
-                    <Text
-                      style={[
-                        styles.optionLabel,
-                        isSelected && styles.optionLabelSelected,
-                        !type.enabled && styles.optionLabelDisabled,
-                      ]}
-                    >
+                    <Text style={[
+                      styles.optionLabel,
+                      isSelected && styles.optionLabelSelected,
+                      !type.enabled && styles.optionLabelDisabled,
+                    ]}>
                       {type.label}
                     </Text>
-                    <Text
-                      style={[
-                        styles.optionDesc,
-                        !type.enabled && styles.optionDescDisabled,
-                      ]}
-                    >
+                    <Text style={[styles.optionDesc, !type.enabled && styles.optionDescDisabled]}>
                       {type.description}
                     </Text>
                   </View>
@@ -132,13 +112,14 @@ export default function ProviderTypeScreen({ navigation }: any) {
             })}
           </View>
 
-          <TouchableOpacity
-            style={[styles.continueBtn, !selectedType && styles.continueBtnDisabled]}
+          <Button
+            title="CONTINUE"
             onPress={handleContinue}
+            variant="primary"
+            size="lg"
+            fullWidth
             disabled={!selectedType}
-          >
-            <Text style={styles.continueBtnText}>CONTINUE</Text>
-          </TouchableOpacity>
+          />
 
           <TouchableOpacity
             style={styles.clientSkipBtn}
@@ -154,30 +135,11 @@ export default function ProviderTypeScreen({ navigation }: any) {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: {
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 4,
-  },
+  header: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 4 },
   backBtn: { padding: 4, alignSelf: "flex-start" },
-  content: {
-    flex: 1,
-    paddingHorizontal: 24,
-    paddingTop: 20,
-  },
-  title: {
-    color: "#FFFFFF",
-    fontSize: 28,
-    fontWeight: "800",
-    lineHeight: 36,
-    marginBottom: 10,
-  },
-  subtitle: {
-    color: "#64748B",
-    fontSize: 14,
-    lineHeight: 20,
-    marginBottom: 36,
-  },
+  content: { flex: 1, paddingHorizontal: 24, paddingTop: 20 },
+  title: { color: "#FFFFFF", fontSize: 28, fontWeight: "800", lineHeight: 36, marginBottom: 10 },
+  subtitle: { color: "#64748B", fontSize: 14, lineHeight: 20, marginBottom: 36 },
   optionsList: { gap: 12, marginBottom: 40 },
   optionCard: {
     flexDirection: "row",
@@ -193,9 +155,7 @@ const styles = StyleSheet.create({
     borderColor: Colors.primary,
     backgroundColor: "rgba(59,130,246,0.07)",
   },
-  optionCardDisabled: {
-    opacity: 0.4,
-  },
+  optionCardDisabled: { opacity: 0.4 },
   optionIcon: {
     width: 44,
     height: 44,
@@ -205,12 +165,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   optionText: { flex: 1 },
-  optionLabel: {
-    color: "#CBD5E1",
-    fontSize: 16,
-    fontWeight: "700",
-    marginBottom: 3,
-  },
+  optionLabel: { color: "#CBD5E1", fontSize: 16, fontWeight: "700", marginBottom: 3 },
   optionLabelSelected: { color: "#FFFFFF" },
   optionLabelDisabled: { color: "#475569" },
   optionDesc: { color: "#475569", fontSize: 12, lineHeight: 16 },
@@ -222,32 +177,6 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   comingSoonText: { color: "#64748B", fontSize: 10, fontWeight: "700" },
-  continueBtn: {
-    backgroundColor: Colors.primary,
-    padding: 17,
-    borderRadius: 14,
-    alignItems: "center",
-    shadowColor: Colors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 10,
-    elevation: 6,
-  },
-  continueBtnDisabled: { opacity: 0.35 },
-  continueBtnText: {
-    color: "#fff",
-    fontWeight: "800",
-    fontSize: 15,
-    letterSpacing: 1.5,
-  },
-  clientSkipBtn: {
-    alignItems: "center",
-    paddingVertical: 14,
-    marginTop: 4,
-  },
-  clientSkipText: {
-    color: "#475569",
-    fontSize: 13,
-    fontWeight: "600",
-  },
+  clientSkipBtn: { alignItems: "center", paddingVertical: 14, marginTop: 4 },
+  clientSkipText: { color: "#475569", fontSize: 13, fontWeight: "600" },
 });

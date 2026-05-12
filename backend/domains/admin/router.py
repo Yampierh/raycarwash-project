@@ -1,4 +1,6 @@
 import uuid
+from datetime import datetime
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -6,10 +8,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from infrastructure.db.session import get_db
 from domains.admin.repository import AdminRepository
 from domains.admin.schemas import (
+    AdminAppointmentDetail,
+    AdminAppointmentRead,
+    AdminAppointmentStatusUpdate,
+    AdminAppointmentsListResponse,
+    AdminLedgerEntryRead,
+    AdminLedgerListResponse,
+    AdminPaymentSummary,
     AdminStats,
     AdminUserRead,
     AdminUserUpdate,
     AdminUsersListResponse,
+    AdminVerificationRead,
+    AdminVerificationReject,
     PermissionCreate,
     PermissionRead,
     RoleCreate,
@@ -322,6 +333,175 @@ async def delete_permission(
     if not ok:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Permission not found.")
     await db.commit()
+
+
+# ── Appointments ───────────────────────────────────────────────────── #
+
+@router.get(
+    "/appointments",
+    response_model=AdminAppointmentsListResponse,
+    summary="List all appointments (paginated, filterable)",
+)
+async def list_appointments(
+    page: int = Query(default=1, ge=1),
+    per_page: int = Query(default=20, ge=1, le=100),
+    status: Optional[str] = Query(default=None, description="Filter by appointment status"),
+    start_date: Optional[datetime] = Query(default=None),
+    end_date: Optional[datetime] = Query(default=None),
+    search: Optional[str] = Query(default=None, description="Search by client/detailer email"),
+    _: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> AdminAppointmentsListResponse:
+    rows, total = await AdminRepository(db).list_appointments(
+        page=page, per_page=per_page, status=status,
+        start_date=start_date, end_date=end_date, search=search,
+    )
+    return AdminAppointmentsListResponse(
+        appointments=[AdminAppointmentRead(**r) for r in rows],
+        total=total,
+        page=page,
+        per_page=per_page,
+    )
+
+
+@router.get(
+    "/appointments/{appointment_id}",
+    response_model=AdminAppointmentDetail,
+    summary="Get appointment detail",
+)
+async def get_appointment(
+    appointment_id: uuid.UUID,
+    _: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> AdminAppointmentDetail:
+    data = await AdminRepository(db).get_appointment_detail(appointment_id)
+    if data is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Appointment not found.")
+    return AdminAppointmentDetail(**data)
+
+
+@router.patch(
+    "/appointments/{appointment_id}/status",
+    response_model=AdminAppointmentDetail,
+    summary="Force appointment status (admin override)",
+)
+async def force_appointment_status(
+    appointment_id: uuid.UUID,
+    body: AdminAppointmentStatusUpdate,
+    admin: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> AdminAppointmentDetail:
+    repo = AdminRepository(db)
+    ok = await repo.force_appointment_status(appointment_id, body.new_status, admin.id)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Appointment not found.")
+    await db.commit()
+    data = await repo.get_appointment_detail(appointment_id)
+    return AdminAppointmentDetail(**data)  # type: ignore[arg-type]
+
+
+# ── Verifications ──────────────────────────────────────────────────── #
+
+@router.get(
+    "/verifications",
+    response_model=list[AdminVerificationRead],
+    summary="List detailer verification requests",
+)
+async def list_verifications(
+    verification_status: Optional[str] = Query(default=None, description="Filter: pending | approved | rejected"),
+    _: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> list[AdminVerificationRead]:
+    rows = await AdminRepository(db).list_verifications(status_filter=verification_status)
+    return [AdminVerificationRead(**r) for r in rows]
+
+
+@router.post(
+    "/verifications/{provider_id}/approve",
+    response_model=AdminVerificationRead,
+    summary="Approve a detailer verification",
+)
+async def approve_verification(
+    provider_id: uuid.UUID,
+    admin: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> AdminVerificationRead:
+    repo = AdminRepository(db)
+    ok = await repo.approve_verification(provider_id, admin.id)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Provider not found.")
+    await db.commit()
+    rows = await repo.list_verifications()
+    match = next((r for r in rows if r["provider_id"] == provider_id), None)
+    if match is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Provider not found.")
+    return AdminVerificationRead(**match)
+
+
+@router.post(
+    "/verifications/{provider_id}/reject",
+    response_model=AdminVerificationRead,
+    summary="Reject a detailer verification",
+)
+async def reject_verification(
+    provider_id: uuid.UUID,
+    body: AdminVerificationReject,
+    admin: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> AdminVerificationRead:
+    repo = AdminRepository(db)
+    ok = await repo.reject_verification(provider_id, body.reason, admin.id)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Provider not found.")
+    await db.commit()
+    rows = await repo.list_verifications()
+    match = next((r for r in rows if r["provider_id"] == provider_id), None)
+    if match is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Provider not found.")
+    return AdminVerificationRead(**match)
+
+
+# ── Payments ───────────────────────────────────────────────────────── #
+
+@router.get(
+    "/payments/summary",
+    response_model=AdminPaymentSummary,
+    summary="Payment summary for a time period",
+)
+async def get_payment_summary(
+    start_date: Optional[datetime] = Query(default=None),
+    end_date: Optional[datetime] = Query(default=None),
+    _: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> AdminPaymentSummary:
+    data = await AdminRepository(db).get_payment_summary(start_date, end_date)
+    return AdminPaymentSummary(**data)
+
+
+@router.get(
+    "/payments/ledger",
+    response_model=AdminLedgerListResponse,
+    summary="Paginated payment ledger entries",
+)
+async def list_ledger_entries(
+    page: int = Query(default=1, ge=1),
+    per_page: int = Query(default=20, ge=1, le=100),
+    entry_type: Optional[str] = Query(default=None, description="CAPTURE | REFUND | PAYOUT | CHARGE_COMMISSION | AUTHORIZATION"),
+    start_date: Optional[datetime] = Query(default=None),
+    end_date: Optional[datetime] = Query(default=None),
+    _: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> AdminLedgerListResponse:
+    entries, total = await AdminRepository(db).list_ledger_entries(
+        page=page, per_page=per_page,
+        entry_type=entry_type, start_date=start_date, end_date=end_date,
+    )
+    return AdminLedgerListResponse(
+        entries=[AdminLedgerEntryRead.model_validate(e) for e in entries],
+        total=total,
+        page=page,
+        per_page=per_page,
+    )
 
 
 # ── Helpers ────────────────────────────────────────────────────────── #

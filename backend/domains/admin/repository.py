@@ -14,6 +14,10 @@ from domains.auth.models import (
     UserRoleAssociation,
 )
 from domains.users.models import User
+from domains.appointments.models import Appointment
+from domains.providers.models import ProviderProfile
+from domains.payments.models import PaymentLedger
+from domains.audit.models import AuditLog, AuditAction
 
 
 class AdminRepository:
@@ -233,6 +237,278 @@ class AdminRepository:
         await self._db.execute(delete(Permission).where(Permission.id == permission_id))
         await self._db.flush()
         return True
+
+    # ── Appointments ───────────────────────────────────────────────── #
+
+    async def list_appointments(
+        self,
+        page: int = 1,
+        per_page: int = 20,
+        status: str | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+        search: str | None = None,
+    ) -> tuple[list[dict], int]:
+        base = select(Appointment).where(Appointment.is_deleted.is_(False))
+
+        if status:
+            base = base.where(Appointment.status == status)
+        if start_date:
+            base = base.where(Appointment.scheduled_time >= start_date)
+        if end_date:
+            base = base.where(Appointment.scheduled_time <= end_date)
+        if search:
+            matching_users = select(User.id).where(User.email.ilike(f"%{search}%")).subquery()
+            base = base.where(
+                (Appointment.client_id.in_(select(matching_users.c.id))) |
+                (Appointment.detailer_id.in_(select(matching_users.c.id)))
+            )
+
+        count_stmt = select(func.count()).select_from(base.subquery())
+        total = (await self._db.execute(count_stmt)).scalar_one()
+
+        stmt = base.order_by(Appointment.scheduled_time.desc()).offset((page - 1) * per_page).limit(per_page)
+        result = await self._db.execute(stmt)
+        appointments = list(result.scalars().all())
+
+        rows = []
+        for appt in appointments:
+            client_email = None
+            detailer_email = None
+            service_name = None
+            if appt.client_id:
+                r = await self._db.execute(select(User.email).where(User.id == appt.client_id))
+                client_email = r.scalar_one_or_none()
+            if appt.detailer_id:
+                r = await self._db.execute(select(User.email).where(User.id == appt.detailer_id))
+                detailer_email = r.scalar_one_or_none()
+            if appt.service_id:
+                from domains.services_catalog.models import Service
+                r = await self._db.execute(select(Service.name).where(Service.id == appt.service_id))
+                service_name = r.scalar_one_or_none()
+            rows.append({
+                "id": appt.id,
+                "status": appt.status,
+                "scheduled_time": appt.scheduled_time,
+                "client_email": client_email,
+                "detailer_email": detailer_email,
+                "service_name": service_name,
+                "estimated_price": appt.estimated_price,
+                "actual_price": appt.actual_price,
+                "client_notes": appt.client_notes,
+                "detailer_notes": appt.detailer_notes,
+                "service_address": appt.service_address,
+                "stripe_payment_intent_id": appt.stripe_payment_intent_id,
+                "arrived_at": appt.arrived_at,
+                "started_at": appt.started_at,
+                "completed_at": appt.completed_at,
+                "created_at": appt.created_at,
+                "updated_at": appt.updated_at,
+            })
+        return rows, total
+
+    async def get_appointment_detail(self, appointment_id: uuid.UUID) -> dict | None:
+        stmt = select(Appointment).where(
+            Appointment.id == appointment_id,
+            Appointment.is_deleted.is_(False),
+        )
+        result = await self._db.execute(stmt)
+        appt = result.scalar_one_or_none()
+        if appt is None:
+            return None
+
+        client_email = None
+        detailer_email = None
+        service_name = None
+        if appt.client_id:
+            r = await self._db.execute(select(User.email).where(User.id == appt.client_id))
+            client_email = r.scalar_one_or_none()
+        if appt.detailer_id:
+            r = await self._db.execute(select(User.email).where(User.id == appt.detailer_id))
+            detailer_email = r.scalar_one_or_none()
+        if appt.service_id:
+            from domains.services_catalog.models import Service
+            r = await self._db.execute(select(Service.name).where(Service.id == appt.service_id))
+            service_name = r.scalar_one_or_none()
+
+        return {
+            "id": appt.id,
+            "status": appt.status,
+            "scheduled_time": appt.scheduled_time,
+            "client_email": client_email,
+            "detailer_email": detailer_email,
+            "service_name": service_name,
+            "estimated_price": appt.estimated_price,
+            "actual_price": appt.actual_price,
+            "client_notes": appt.client_notes,
+            "detailer_notes": appt.detailer_notes,
+            "service_address": appt.service_address,
+            "stripe_payment_intent_id": appt.stripe_payment_intent_id,
+            "arrived_at": appt.arrived_at,
+            "started_at": appt.started_at,
+            "completed_at": appt.completed_at,
+            "created_at": appt.created_at,
+            "updated_at": appt.updated_at,
+        }
+
+    async def force_appointment_status(
+        self,
+        appointment_id: uuid.UUID,
+        new_status: str,
+        actor_id: uuid.UUID,
+    ) -> bool:
+        stmt = (
+            update(Appointment)
+            .where(Appointment.id == appointment_id, Appointment.is_deleted.is_(False))
+            .values(status=new_status, updated_at=datetime.now(timezone.utc))
+        )
+        result = await self._db.execute(stmt)
+        if result.rowcount == 0:
+            return False
+        self._db.add(AuditLog(
+            actor_id=actor_id,
+            action=AuditAction.APPOINTMENT_STATUS_CHANGED,
+            entity_type="appointment",
+            entity_id=str(appointment_id),
+            stripe_metadata={"forced_status": new_status, "by": "admin"},
+        ))
+        await self._db.flush()
+        return True
+
+    # ── Verifications ─────────────────────────────────────────────── #
+
+    async def list_verifications(self, status_filter: str | None = None) -> list[dict]:
+        stmt = select(ProviderProfile)
+        if status_filter:
+            stmt = stmt.where(ProviderProfile.verification_status == status_filter)
+        else:
+            stmt = stmt.where(ProviderProfile.verification_status != "not_submitted")
+        stmt = stmt.order_by(ProviderProfile.verification_submitted_at.asc().nullslast())
+        result = await self._db.execute(stmt)
+        profiles = list(result.scalars().all())
+
+        rows = []
+        for p in profiles:
+            r = await self._db.execute(select(User.email).where(User.id == p.user_id))
+            user_email = r.scalar_one_or_none()
+            rows.append({
+                "provider_id": p.id,
+                "user_email": user_email,
+                "legal_full_name": p.legal_full_name,
+                "verification_status": p.verification_status,
+                "background_check_consent": p.background_check_consent,
+                "submitted_at": p.verification_submitted_at,
+                "reviewed_at": p.verification_reviewed_at,
+                "rejection_reason": p.rejection_reason,
+            })
+        return rows
+
+    async def approve_verification(self, provider_id: uuid.UUID, actor_id: uuid.UUID) -> bool:
+        now = datetime.now(timezone.utc)
+        stmt = (
+            update(ProviderProfile)
+            .where(ProviderProfile.id == provider_id)
+            .values(
+                verification_status="approved",
+                verification_reviewed_at=now,
+                rejection_reason=None,
+                updated_at=now,
+            )
+        )
+        result = await self._db.execute(stmt)
+        if result.rowcount == 0:
+            return False
+        self._db.add(AuditLog(
+            actor_id=actor_id,
+            action=AuditAction.DETAILER_PROFILE_UPDATED,
+            entity_type="provider_profile",
+            entity_id=str(provider_id),
+            stripe_metadata={"action": "verification_approved"},
+        ))
+        await self._db.flush()
+        return True
+
+    async def reject_verification(self, provider_id: uuid.UUID, reason: str, actor_id: uuid.UUID) -> bool:
+        now = datetime.now(timezone.utc)
+        stmt = (
+            update(ProviderProfile)
+            .where(ProviderProfile.id == provider_id)
+            .values(
+                verification_status="rejected",
+                verification_reviewed_at=now,
+                rejection_reason=reason,
+                updated_at=now,
+            )
+        )
+        result = await self._db.execute(stmt)
+        if result.rowcount == 0:
+            return False
+        self._db.add(AuditLog(
+            actor_id=actor_id,
+            action=AuditAction.DETAILER_PROFILE_UPDATED,
+            entity_type="provider_profile",
+            entity_id=str(provider_id),
+            stripe_metadata={"action": "verification_rejected", "reason": reason},
+        ))
+        await self._db.flush()
+        return True
+
+    # ── Payments ──────────────────────────────────────────────────── #
+
+    async def list_ledger_entries(
+        self,
+        page: int = 1,
+        per_page: int = 20,
+        entry_type: str | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+    ) -> tuple[list[PaymentLedger], int]:
+        base = select(PaymentLedger)
+        if entry_type:
+            base = base.where(PaymentLedger.entry_type == entry_type)
+        if start_date:
+            base = base.where(PaymentLedger.created_at >= start_date)
+        if end_date:
+            base = base.where(PaymentLedger.created_at <= end_date)
+
+        count_stmt = select(func.count()).select_from(base.subquery())
+        total = (await self._db.execute(count_stmt)).scalar_one()
+
+        stmt = base.order_by(PaymentLedger.created_at.desc()).offset((page - 1) * per_page).limit(per_page)
+        result = await self._db.execute(stmt)
+        return list(result.scalars().all()), total
+
+    async def get_payment_summary(
+        self,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+    ) -> dict:
+        base_filter = []
+        if start_date:
+            base_filter.append(PaymentLedger.created_at >= start_date)
+        if end_date:
+            base_filter.append(PaymentLedger.created_at <= end_date)
+
+        async def _sum(entry_type: str) -> int:
+            stmt = select(func.coalesce(func.sum(PaymentLedger.amount_cents), 0)).where(
+                PaymentLedger.entry_type == entry_type, *base_filter
+            )
+            return (await self._db.execute(stmt)).scalar_one()
+
+        captured = await _sum("CAPTURE")
+        refunded = await _sum("REFUND")
+        commissions = await _sum("CHARGE_COMMISSION")
+        payouts = await _sum("PAYOUT")
+
+        return {
+            "total_captured": captured,
+            "total_refunded": refunded,
+            "total_commissions": commissions,
+            "total_payouts": payouts,
+            "net_revenue": captured - refunded - payouts,
+            "period_start": start_date,
+            "period_end": end_date,
+        }
 
     # ── Stats ──────────────────────────────────────────────────────── #
 

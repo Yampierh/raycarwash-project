@@ -264,7 +264,7 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     paddingTop: 16,
     paddingBottom: 12,
     justifyContent: "space-between",
@@ -272,14 +272,16 @@ const styles = StyleSheet.create({
   backBtn: {
     width: 40,
     height: 40,
-    borderRadius: 20,
-    backgroundColor: "#1E293B",
+    borderRadius: 12,
+    backgroundColor: "#161E2E",
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#262F3F",
   },
-  headerTitle: { fontSize: 18, fontWeight: "700", color: "#F1F5F9" },
+  headerTitle: { fontSize: 18, fontWeight: "800", color: "#F1F5F9" },
 
-  scroll: { paddingHorizontal: 16, paddingTop: 4 },
+  scroll: { paddingHorizontal: 20, paddingTop: 4 },
   hint: {
     fontSize: 13,
     color: "#64748B",
@@ -294,7 +296,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#1E293B",
   },
-  serviceCardDirty: { borderColor: "#2563EB" },
+  serviceCardDirty: { borderColor: Colors.primary },
 
   cardHeader: {
     flexDirection: "row",
@@ -377,9 +379,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    backgroundColor: "#2563EB",
+    backgroundColor: Colors.primary,
     borderRadius: 14,
-    paddingVertical: 16,
+    paddingVertical: 17,
   },
   saveBtnDisabled: { opacity: 0.5 },
   saveBtnText: { fontSize: 16, fontWeight: "700", color: "#FFFFFF" },

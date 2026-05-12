@@ -2,7 +2,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import React, { useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -14,6 +13,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import AnimatedInput from "../components/AnimatedInput";
+import Button from "../components/Button";
 import { completeProfile, VerifyResponse } from "../services/auth.service";
 import { Colors } from "../theme/colors";
 import { navigateAfterAuth } from "../utils/auth-redirect";
@@ -56,14 +56,14 @@ export default function CompleteProfileScreen({ navigation, route }: any) {
         phone_number: form.phone_number.trim() || undefined,
         service_type,
       });
-
       if (result.access_token) {
         await saveToken(result.access_token);
         if (result.refresh_token) await saveRefreshToken(result.refresh_token);
         await removeOnboardingToken();
+        await navigateAfterAuth(navigation);
+      } else {
+        throw new Error("No access token returned. Please try again.");
       }
-
-      await navigateAfterAuth(navigation);
     } catch (error: any) {
       const detail = error.response?.data?.detail;
       const msg =
@@ -78,15 +78,9 @@ export default function CompleteProfileScreen({ navigation, route }: any) {
 
   return (
     <View style={styles.container}>
-      <LinearGradient
-        colors={["#060A14", "#0B0F1A", "#101828"]}
-        style={StyleSheet.absoluteFill}
-      />
+      <LinearGradient colors={["#060A14", "#0B0F1A", "#101828"]} style={StyleSheet.absoluteFill} />
       <SafeAreaView style={{ flex: 1 }}>
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-        >
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
           <View style={styles.header}>
             <View style={{ width: 40 }} />
             <Text style={styles.headerTitle}>Almost There!</Text>
@@ -99,12 +93,9 @@ export default function CompleteProfileScreen({ navigation, route }: any) {
             showsVerticalScrollIndicator={false}
           >
             <Text style={styles.subtitle}>
-              {isProviderPath
-                ? "Set up your detailing provider account"
-                : "Complete your account setup"}
+              {isProviderPath ? "Set up your detailing provider account" : "Complete your account setup"}
             </Text>
 
-            {/* Full Name */}
             <View style={styles.fieldGroup}>
               <Text style={styles.label}>FULL NAME</Text>
               <AnimatedInput
@@ -116,12 +107,9 @@ export default function CompleteProfileScreen({ navigation, route }: any) {
                 returnKeyType="next"
                 error={!!errors.full_name}
               />
-              {errors.full_name && (
-                <Text style={styles.errorText}>{errors.full_name}</Text>
-              )}
+              {errors.full_name && <Text style={styles.errorText}>{errors.full_name}</Text>}
             </View>
 
-            {/* Phone — optional */}
             <View style={styles.fieldGroup}>
               <View style={styles.labelRow}>
                 <Text style={styles.label}>PHONE NUMBER</Text>
@@ -137,19 +125,13 @@ export default function CompleteProfileScreen({ navigation, route }: any) {
               />
             </View>
 
-            {/* Terms */}
             <TouchableOpacity
               style={styles.termsRow}
-              onPress={() => {
-                setAcceptedTerms((v) => !v);
-                setErrors((e) => ({ ...e, terms: undefined }));
-              }}
+              onPress={() => { setAcceptedTerms((v) => !v); setErrors((e) => ({ ...e, terms: undefined })); }}
               activeOpacity={0.7}
             >
               <View style={[styles.checkbox, acceptedTerms && styles.checkboxChecked]}>
-                {acceptedTerms && (
-                  <Ionicons name="checkmark" size={14} color="#fff" />
-                )}
+                {acceptedTerms && <Ionicons name="checkmark" size={14} color="#fff" />}
               </View>
               <Text style={styles.termsText}>
                 I agree to the{" "}
@@ -159,24 +141,17 @@ export default function CompleteProfileScreen({ navigation, route }: any) {
               </Text>
             </TouchableOpacity>
             {errors.terms && (
-              <Text style={[styles.errorText, { marginTop: -8, marginBottom: 12 }]}>
-                {errors.terms}
-              </Text>
+              <Text style={[styles.errorText, { marginTop: -8, marginBottom: 12 }]}>{errors.terms}</Text>
             )}
 
-            <TouchableOpacity
-              style={[styles.primaryBtn, loading && styles.btnDisabled]}
+            <Button
+              title={isProviderPath ? "CONTINUE" : "GET STARTED"}
               onPress={handleComplete}
-              disabled={loading}
-            >
-              {loading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.primaryBtnText}>
-                  {isProviderPath ? "CONTINUE" : "GET STARTED"}
-                </Text>
-              )}
-            </TouchableOpacity>
+              variant="primary"
+              size="lg"
+              fullWidth
+              loading={loading}
+            />
 
             <View style={{ height: 30 }} />
           </ScrollView>
@@ -196,37 +171,15 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 4,
   },
-  headerTitle: { color: "white", fontSize: 18, fontWeight: "bold" },
+  headerTitle: { color: "white", fontSize: 18, fontWeight: "700" },
   scroll: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 20 },
-  subtitle: {
-    color: "#475569",
-    fontSize: 14,
-    marginBottom: 28,
-    textAlign: "center",
-  },
+  subtitle: { color: "#475569", fontSize: 14, marginBottom: 28, textAlign: "center" },
   fieldGroup: { marginBottom: 16 },
-  labelRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  label: {
-    color: "#94A3B8",
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 1,
-    marginBottom: 8,
-  },
+  labelRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
+  label: { color: "#94A3B8", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 8 },
   optionalLabel: { color: "#64748B", fontSize: 10, fontWeight: "600" },
   errorText: { color: "#EF4444", fontSize: 11, marginTop: 5, marginLeft: 4 },
-  termsRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 12,
-    marginBottom: 20,
-    marginTop: 6,
-  },
+  termsRow: { flexDirection: "row", alignItems: "flex-start", gap: 12, marginBottom: 20, marginTop: 6 },
   checkbox: {
     width: 22,
     height: 22,
@@ -237,28 +190,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginTop: 1,
   },
-  checkboxChecked: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
-  },
+  checkboxChecked: { backgroundColor: Colors.primary, borderColor: Colors.primary },
   termsText: { flex: 1, color: "#64748B", fontSize: 13, lineHeight: 20 },
   termsLink: { color: Colors.primary, fontWeight: "600" },
-  primaryBtn: {
-    backgroundColor: Colors.primary,
-    padding: 17,
-    borderRadius: 14,
-    alignItems: "center",
-    shadowColor: Colors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 10,
-    elevation: 6,
-  },
-  btnDisabled: { opacity: 0.5 },
-  primaryBtnText: {
-    color: "#fff",
-    fontWeight: "800",
-    fontSize: 15,
-    letterSpacing: 1.5,
-  },
 });

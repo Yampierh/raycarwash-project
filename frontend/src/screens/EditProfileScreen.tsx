@@ -1,7 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import React, { useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -13,6 +12,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import Button from "../components/Button";
 import { updateUserProfile } from "../services/user.service";
 import { Colors } from "../theme/colors";
 
@@ -28,9 +28,7 @@ export default function EditProfileScreen({ navigation, route }: any) {
   });
 
   useEffect(() => {
-    if (focusAddress) {
-      setTimeout(() => addressRef.current?.focus(), 400);
-    }
+    if (focusAddress) setTimeout(() => addressRef.current?.focus(), 400);
   }, [focusAddress]);
 
   const handleUpdate = async () => {
@@ -38,18 +36,13 @@ export default function EditProfileScreen({ navigation, route }: any) {
       Alert.alert("Error", "Full name is required.");
       return;
     }
-
     setLoading(true);
     try {
       const payload: { full_name: string; phone_number?: string } = {
         full_name: form.full_name.trim(),
       };
-      if (form.phone_number.trim()) {
-        payload.phone_number = form.phone_number.trim();
-      }
-
+      if (form.phone_number.trim()) payload.phone_number = form.phone_number.trim();
       await updateUserProfile(payload);
-
       Alert.alert("Success", "Profile updated successfully.", [
         { text: "OK", onPress: () => navigation.goBack() },
       ]);
@@ -64,28 +57,12 @@ export default function EditProfileScreen({ navigation, route }: any) {
     }
   };
 
-  const Field = ({
-    label,
-    value,
-    onChangeText,
-    placeholder,
-    keyboardType,
-    autoCapitalize,
-    editable = true,
-    icon,
-    inputRef,
-    hint,
-  }: any) => (
+  const Field = ({ label, value, onChangeText, placeholder, keyboardType, autoCapitalize, editable = true, icon, inputRef, hint }: any) => (
     <View style={styles.inputGroup}>
       <Text style={styles.label}>{label}</Text>
       <View style={[styles.inputWrapper, !editable && styles.inputDisabled]}>
         {icon && (
-          <Ionicons
-            name={icon}
-            size={18}
-            color={editable ? "#475569" : "#2D3748"}
-            style={styles.inputIcon}
-          />
+          <Ionicons name={icon} size={18} color={editable ? "#475569" : "#2D3748"} style={styles.inputIcon} />
         )}
         <TextInput
           ref={inputRef}
@@ -109,11 +86,7 @@ export default function EditProfileScreen({ navigation, route }: any) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
-        {/* Header */}
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
             <Ionicons name="chevron-back" size={22} color="white" />
@@ -127,7 +100,6 @@ export default function EditProfileScreen({ navigation, route }: any) {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* Avatar con iniciales (no editable por ahora) */}
           <View style={styles.avatarSection}>
             <View style={styles.avatarInitials}>
               <Text style={styles.initialsText}>
@@ -139,7 +111,6 @@ export default function EditProfileScreen({ navigation, route }: any) {
             <Text style={styles.avatarHint}>Profile photo coming soon</Text>
           </View>
 
-          {/* Sección: Información personal */}
           <Text style={styles.sectionLabel}>PERSONAL INFORMATION</Text>
 
           <Field
@@ -149,7 +120,6 @@ export default function EditProfileScreen({ navigation, route }: any) {
             placeholder="Your full name"
             icon="person-outline"
           />
-
           <Field
             label="EMAIL ADDRESS"
             value={user?.email || ""}
@@ -157,7 +127,6 @@ export default function EditProfileScreen({ navigation, route }: any) {
             icon="mail-outline"
             hint="Contact support to change your email address"
           />
-
           <Field
             label="PHONE NUMBER"
             value={form.phone_number}
@@ -169,10 +138,7 @@ export default function EditProfileScreen({ navigation, route }: any) {
             hint="Include country code (e.g. +1 for US)"
           />
 
-          {/* Sección: Preferencias de servicio */}
-          <Text style={[styles.sectionLabel, { marginTop: 28 }]}>
-            SERVICE PREFERENCES
-          </Text>
+          <Text style={[styles.sectionLabel, { marginTop: 28 }]}>SERVICE PREFERENCES</Text>
 
           <Field
             label="DEFAULT SERVICE ADDRESS"
@@ -184,7 +150,6 @@ export default function EditProfileScreen({ navigation, route }: any) {
             hint="Used to pre-fill your service location when booking"
           />
 
-          {/* Info box */}
           <View style={styles.infoBox}>
             <Ionicons name="information-circle-outline" size={18} color={Colors.primary} />
             <Text style={styles.infoText}>
@@ -192,18 +157,14 @@ export default function EditProfileScreen({ navigation, route }: any) {
             </Text>
           </View>
 
-          {/* Botón guardar */}
-          <TouchableOpacity
-            style={[styles.saveBtn, loading && styles.saveBtnDisabled]}
+          <Button
+            title="SAVE CHANGES"
             onPress={handleUpdate}
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator color="#0F172A" />
-            ) : (
-              <Text style={styles.saveBtnText}>SAVE CHANGES</Text>
-            )}
-          </TouchableOpacity>
+            variant="primary"
+            size="lg"
+            fullWidth
+            loading={loading}
+          />
 
           <View style={{ height: 40 }} />
         </ScrollView>
@@ -215,84 +176,39 @@ export default function EditProfileScreen({ navigation, route }: any) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#0B0F1A" },
   header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingHorizontal: 20, paddingVertical: 16,
   },
-  backBtn: { backgroundColor: "#1E293B", padding: 8, borderRadius: 12 },
-  headerTitle: { color: "white", fontSize: 18, fontWeight: "bold" },
+  backBtn: {
+    backgroundColor: "#161E2E", padding: 8, borderRadius: 12,
+    borderWidth: 1, borderColor: "#262F3F",
+  },
+  headerTitle: { color: "white", fontSize: 18, fontWeight: "700" },
   scrollContent: { paddingHorizontal: 20, paddingBottom: 20 },
   avatarSection: { alignItems: "center", paddingVertical: 24 },
   avatarInitials: {
-    width: 90,
-    height: 90,
-    borderRadius: 45,
-    backgroundColor: "#1E3A5F",
-    borderWidth: 3,
-    borderColor: Colors.primary,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 10,
+    width: 90, height: 90, borderRadius: 45, backgroundColor: "#1E3A5F",
+    borderWidth: 3, borderColor: Colors.primary,
+    alignItems: "center", justifyContent: "center", marginBottom: 10,
   },
-  initialsText: { color: Colors.primary, fontSize: 32, fontWeight: "bold" },
+  initialsText: { color: Colors.primary, fontSize: 32, fontWeight: "700" },
   avatarHint: { color: "#334155", fontSize: 12 },
-  sectionLabel: {
-    color: "#475569",
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 1,
-    marginBottom: 14,
-  },
+  sectionLabel: { color: "#475569", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 14 },
   inputGroup: { marginBottom: 16 },
-  label: {
-    color: "#94A3B8",
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 1,
-    marginBottom: 8,
-  },
+  label: { color: "#94A3B8", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 8 },
   inputWrapper: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#161E2E",
-    borderRadius: 15,
-    borderWidth: 1,
-    borderColor: "#262F3F",
+    flexDirection: "row", alignItems: "center",
+    backgroundColor: "#161E2E", borderRadius: 12,
+    borderWidth: 1, borderColor: "#262F3F",
   },
-  inputDisabled: {
-    backgroundColor: "#0F1623",
-    borderColor: "#1A2235",
-  },
+  inputDisabled: { backgroundColor: "#0F1623", borderColor: "#1A2235" },
   inputIcon: { marginLeft: 14, marginRight: 4 },
-  input: {
-    flex: 1,
-    color: "white",
-    padding: 16,
-    fontSize: 15,
-  },
+  input: { flex: 1, color: "white", padding: 16, fontSize: 15 },
   inputTextDisabled: { color: "#334155" },
   hint: { color: "#334155", fontSize: 11, marginTop: 6, marginLeft: 4 },
   infoBox: {
-    flexDirection: "row",
-    backgroundColor: "#1E3A5F20",
-    borderRadius: 12,
-    padding: 14,
-    gap: 10,
-    borderWidth: 1,
-    borderColor: "#1E3A5F50",
-    marginBottom: 24,
-    marginTop: 4,
-    alignItems: "flex-start",
+    flexDirection: "row", backgroundColor: "#1E3A5F20", borderRadius: 12, padding: 14,
+    gap: 10, borderWidth: 1, borderColor: "#1E3A5F50", marginBottom: 24, marginTop: 4, alignItems: "flex-start",
   },
   infoText: { color: "#94A3B8", fontSize: 12, flex: 1, lineHeight: 18 },
-  saveBtn: {
-    backgroundColor: Colors.primary,
-    padding: 18,
-    borderRadius: 15,
-    alignItems: "center",
-  },
-  saveBtnDisabled: { opacity: 0.6 },
-  saveBtnText: { color: "#0F172A", fontWeight: "900", fontSize: 16 },
 });

@@ -1,4 +1,4 @@
-import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useIsFocused } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
 import React, { useEffect, useState } from "react";
@@ -12,25 +12,16 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import Button from "../components/Button";
+import EmptyState from "../components/EmptyState";
 import { getMyVehicles, Vehicle } from "../services/vehicle.service";
 import { Colors } from "../theme/colors";
 
 const COLOR_MAP: Record<string, string> = {
-  white: "#F1F5F9",
-  black: "#1E293B",
-  silver: "#94A3B8",
-  gray: "#64748B",
-  grey: "#64748B",
-  red: "#EF4444",
-  blue: "#3B82F6",
-  navy: "#1E40AF",
-  green: "#10B981",
-  yellow: "#EAB308",
-  orange: "#F97316",
-  brown: "#78350F",
-  gold: "#D97706",
-  charcoal: "#374151",
-  pearl: "#BAE6FD",
+  white: "#F1F5F9", black: "#1E293B", silver: "#94A3B8", gray: "#64748B",
+  grey: "#64748B", red: "#EF4444", blue: "#3B82F6", navy: "#1E40AF",
+  green: "#10B981", yellow: "#EAB308", orange: "#F97316", brown: "#78350F",
+  gold: "#D97706", charcoal: "#374151", pearl: "#BAE6FD",
 };
 
 function getCarIcon(bodyClass = "") {
@@ -74,27 +65,18 @@ export default function MyVehiclesScreen({ navigation }: any) {
     return (
       <TouchableOpacity
         style={styles.card}
-        onPress={() =>
-          (navigation as any).navigate("VehicleDetail", { vehicle: item })
-        }
+        onPress={() => (navigation as any).navigate("VehicleDetail", { vehicle: item })}
         activeOpacity={0.85}
       >
-        <LinearGradient
-          colors={[`${colorHex}15`, "transparent"]}
-          style={StyleSheet.absoluteFill}
-        />
+        <LinearGradient colors={[`${colorHex}15`, "transparent"]} style={StyleSheet.absoluteFill} />
 
         <View style={styles.cardHeader}>
           <View>
-            <Text style={styles.carName}>
-              {item.year} {item.make} {item.model}
-            </Text>
+            <Text style={styles.carName}>{item.year} {item.make} {item.model}</Text>
             <Text style={styles.plateText}>{item.license_plate}</Text>
           </View>
           <View style={styles.bodyBadge}>
-            <Text style={styles.bodyBadgeText}>
-              {(item.body_class || "SEDAN").toUpperCase()}
-            </Text>
+            <Text style={styles.bodyBadgeText}>{(item.body_class || "SEDAN").toUpperCase()}</Text>
           </View>
         </View>
 
@@ -109,27 +91,16 @@ export default function MyVehiclesScreen({ navigation }: any) {
 
         <View style={styles.cardFooter}>
           <View style={styles.infoRow}>
-            <View
-              style={[
-                styles.colorDot,
-                {
-                  backgroundColor: colorHex,
-                  borderWidth: needsBorder ? 1 : 0,
-                  borderColor: "#334155",
-                },
-              ]}
-            />
+            <View style={[styles.colorDot, { backgroundColor: colorHex, borderWidth: needsBorder ? 1 : 0, borderColor: "#334155" }]} />
             <Text style={styles.infoPillText}>{item.color}</Text>
           </View>
-          <TouchableOpacity
-            style={styles.actionBtn}
-            onPress={() =>
-              navigation.navigate("Booking", { selectedVehicles: [item] })
-            }
-          >
-            <Text style={styles.actionBtnText}>BOOK NOW</Text>
-            <Ionicons name="chevron-forward" size={16} color="#0F172A" />
-          </TouchableOpacity>
+          <Button
+            title="BOOK NOW"
+            onPress={() => navigation.navigate("Booking", { selectedVehicles: [item] })}
+            variant="primary"
+            size="sm"
+            iconRight="chevron-forward"
+          />
         </View>
       </TouchableOpacity>
     );
@@ -144,16 +115,12 @@ export default function MyVehiclesScreen({ navigation }: any) {
           style={styles.addBtn}
           onPress={() => navigation.navigate("AddVehicle")}
         >
-          <Ionicons name="add" size={24} color="#0F172A" />
+          <MaterialCommunityIcons name="plus" size={22} color="#0F172A" />
         </TouchableOpacity>
       </View>
 
       {loading ? (
-        <ActivityIndicator
-          color={Colors.primary}
-          size="large"
-          style={{ marginTop: 60 }}
-        />
+        <ActivityIndicator color={Colors.primary} size="large" style={{ marginTop: 60 }} />
       ) : (
         <FlatList
           data={vehicles}
@@ -161,23 +128,14 @@ export default function MyVehiclesScreen({ navigation }: any) {
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
           ListEmptyComponent={
-            <View style={styles.emptyState}>
-              <MaterialCommunityIcons
-                name="car-off"
-                size={80}
-                color="#1E293B"
-              />
-              <Text style={styles.emptyTitle}>Your garage is empty</Text>
-              <Text style={styles.emptySubtitle}>
-                Add your first vehicle to get started
-              </Text>
-              <TouchableOpacity
-                style={styles.emptyAddBtn}
-                onPress={() => navigation.navigate("AddVehicle")}
-              >
-                <Text style={styles.emptyAddBtnText}>Add My First Vehicle</Text>
-              </TouchableOpacity>
-            </View>
+            <EmptyState
+              icon="car-off"
+              title="Your garage is empty"
+              subtitle="Add your first vehicle to get started"
+              action={{ label: "Add My First Vehicle", onPress: () => navigation.navigate("AddVehicle") }}
+              dashed={false}
+              style={{ marginTop: 40 }}
+            />
           }
         />
       )}
@@ -194,14 +152,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 16,
   },
-  headerTitle: { color: "white", fontSize: 22, fontWeight: "bold" },
-  addBtn: { backgroundColor: Colors.primary, padding: 8, borderRadius: 12 },
-  listContent: { padding: 20, paddingBottom: 120 },
+  headerTitle: { color: "white", fontSize: 22, fontWeight: "800" },
+  addBtn: {
+    backgroundColor: Colors.primary,
+    padding: 8,
+    borderRadius: 12,
+  },
+  listContent: { paddingHorizontal: 20, paddingBottom: 120 },
   card: {
     backgroundColor: "#161E2E",
-    borderRadius: 24,
+    borderRadius: 20,
     padding: 20,
-    marginBottom: 18,
+    marginBottom: 16,
     borderWidth: 1,
     borderColor: "#262F3F",
     overflow: "hidden",
@@ -210,27 +172,18 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
+    marginBottom: 4,
   },
-  carName: { color: "white", fontSize: 18, fontWeight: "bold" },
-  plateText: {
-    color: Colors.primary,
-    fontSize: 13,
-    fontWeight: "600",
-    marginTop: 3,
-  },
+  carName: { color: "white", fontSize: 18, fontWeight: "800" },
+  plateText: { color: Colors.primary, fontSize: 13, fontWeight: "600", marginTop: 3 },
   bodyBadge: {
     backgroundColor: "#1E293B",
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 8,
   },
-  bodyBadgeText: { color: "#94A3B8", fontSize: 10, fontWeight: "bold" },
-  visualContainer: {
-    height: 110,
-    justifyContent: "center",
-    alignItems: "center",
-    marginVertical: 8,
-  },
+  bodyBadgeText: { color: "#94A3B8", fontSize: 10, fontWeight: "700" },
+  visualContainer: { height: 100, justifyContent: "center", alignItems: "center", marginVertical: 4 },
   cardFooter: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -240,35 +193,4 @@ const styles = StyleSheet.create({
   infoRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   colorDot: { width: 12, height: 12, borderRadius: 6 },
   infoPillText: { color: "#94A3B8", fontSize: 13 },
-  actionBtn: {
-    backgroundColor: Colors.primary,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 12,
-    gap: 5,
-  },
-  actionBtnText: { color: "#0F172A", fontWeight: "bold", fontSize: 12 },
-  emptyState: { alignItems: "center", marginTop: 80, paddingHorizontal: 20 },
-  emptyTitle: {
-    color: "#94A3B8",
-    fontSize: 20,
-    fontWeight: "700",
-    marginTop: 20,
-  },
-  emptySubtitle: {
-    color: "#475569",
-    fontSize: 14,
-    marginTop: 8,
-    marginBottom: 30,
-  },
-  emptyAddBtn: {
-    backgroundColor: Colors.primary,
-    padding: 18,
-    borderRadius: 16,
-    width: "100%",
-    alignItems: "center",
-  },
-  emptyAddBtnText: { color: "#0F172A", fontWeight: "bold", fontSize: 15 },
 });
