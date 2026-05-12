@@ -27,6 +27,7 @@ raycarwash-project/
 │   │   ├── payments/               # Stripe intents, webhooks, fare estimation, ledger
 │   │   ├── services_catalog/       # Service + addon catalogue
 │   │   ├── reviews/                # Rating aggregation
+│   │   ├── notifications/          # Push notifications — Expo Push API, device tokens
 │   │   ├── realtime/               # Redis Pub/Sub WebSocket rooms
 │   │   └── audit/                  # Append-only audit log
 │   ├── infrastructure/             # Adapters for external systems
@@ -242,7 +243,7 @@ The backend was refactored from a monolithic `app/` structure into a Domain-Driv
 | 5 | ✅ Done | Addons, multi-vehicle bookings, smart matching, email service |
 | 6 | ✅ Done | DDD-lite refactor, WebAuthn passkeys, Stripe Identity, H3 geospatial, auto-assignment, WebSocket real-time |
 | 7 | ✅ Done | Auth hardening: RS256 JWT, stateful email/WebAuthn tokens, lazy loading fix, auth router split, admin domain + dashboard |
-| 8 | 📋 Planned | Push notifications, TOTP/2FA, full test coverage, multiservice: mechanic vertical |
+| 8 | 🚧 In progress | Push notifications (Expo Push API ✅), user flow + admin tests 44/44 ✅, TOTP/2FA, mechanic vertical |
 
 ---
 
@@ -251,6 +252,8 @@ The backend was refactored from a monolithic `app/` structure into a Domain-Driv
 ```text
 tests/test_auth.py         70/70  ✅ all pass  (includes role-escalation security test)
 tests/test_appointments.py 19/19  ✅ all pass
+tests/test_user_flows.py   17/17  ✅ all pass  (client + detailer registration flows)
+tests/test_admin.py        27/27  ✅ all pass  (all /api/v1/admin/* endpoints)
 tests/test_detailers.py    ~pass  (profile fixture edge cases pending)
 tests/test_matching.py     ~pass  (H3 index requires real Redis for spatial tests)
 tests/test_vehicles.py     ~pass  (body_class / onboarding edge cases pending)
@@ -260,7 +263,7 @@ Run tests:
 
 ```bash
 cd backend
-python -m pytest tests/test_auth.py tests/test_appointments.py -q
+python -m pytest tests/test_auth.py tests/test_appointments.py tests/test_user_flows.py tests/test_admin.py -q
 ```
 
 ---

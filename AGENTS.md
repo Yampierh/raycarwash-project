@@ -59,6 +59,7 @@ backend/
 │   ├── payments/           # Stripe, ledger, fare, rides
 │   ├── services_catalog/   # Service + addon catalogue
 │   ├── reviews/            # Rating aggregation
+│   ├── notifications/      # Push notifications — Expo Push API, device tokens, event handlers
 │   ├── realtime/           # WebSocket rooms (Redis Pub/Sub)
 │   └── audit/              # Append-only event log
 ├── infrastructure/         # External adapters
@@ -233,12 +234,46 @@ Frontend hook: `useAppointmentSocket` — auto-connect, exponential backoff, 30s
 
 ---
 
+## Push notifications (Sprint 8)
+
+Expo Push API — no Firebase project needed for managed workflow. Tokens have format `ExponentPushToken[...]`.
+
+```text
+POST /api/v1/notifications/device-token   # register (call after login)
+DELETE /api/v1/notifications/device-token # unregister (call on logout)
+```
+
+Event bus triggers (domains/notifications/handlers.py):
+
+| Event | Recipient | Notification |
+|---|---|---|
+| appointment.created (PENDING) | detailer | "New booking request" |
+| CONFIRMED | client | "Booking confirmed!" |
+| ARRIVED | client | "Your detailer has arrived" |
+| IN_PROGRESS | client | "Service in progress" |
+| COMPLETED | client | "All done! ⭐" |
+| CANCELLED_BY_CLIENT | detailer | "Appointment cancelled" |
+| CANCELLED_BY_DETAILER | client | "Appointment cancelled" |
+
+Frontend: `usePushNotifications` hook in `src/hooks/` — requests permission, registers token, handles tap navigation. Token persisted in SecureStore. `clearAuthTokens()` unregisters on logout.
+
+---
+
 ## Test status
 
 ```text
 tests/test_auth.py         70/70  ✅  (includes role-escalation security test)
 tests/test_appointments.py 19/19  ✅
+tests/test_user_flows.py   17/17  ✅  (client + detailer registration flows, guard rails)
+tests/test_admin.py        27/27  ✅  (all /api/v1/admin/* — auth, stats, users, roles, permissions)
 tests/test_detailers.py    ⚠️  edge cases (profile fixture)
 tests/test_matching.py     ⚠️  requires real Redis for H3 spatial tests
 tests/test_vehicles.py     ⚠️  body_class / onboarding edge cases
+```
+
+Run core suite:
+
+```bash
+cd backend
+python -m pytest tests/test_auth.py tests/test_appointments.py tests/test_user_flows.py tests/test_admin.py -q
 ```
