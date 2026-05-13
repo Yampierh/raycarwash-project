@@ -330,6 +330,7 @@
     "with": "with",
     "nextAppointment": "Next appointment",
     "viewAll": "View all appointments",
+    "viewDetail": "View detail",
     "stats": {
       "upcoming": "Upcoming",
       "vehicles": "Vehicles",
@@ -399,6 +400,7 @@
   "clientAppointments": {
     "title": "Your appointments",
     "sub": "Upcoming and past bookings.",
+    "book": "Book a detail",
     "loadError": "Couldn't load your appointments.",
     "emptyTitle": "No appointments yet",
     "emptyBody": "When you book a detail it'll appear here.",
@@ -411,6 +413,97 @@
       "searching": "Searching",
       "confirmed": "Confirmed",
       "arrived": "Arrived",
+      "in_progress": "In progress",
+      "completed": "Completed",
+      "cancelled_by_client": "Cancelled",
+      "cancelled_by_detailer": "Cancelled by detailer",
+      "no_show": "No show",
+      "no_detailer_found": "No detailer found"
+    }
+  },
+  "book": {
+    "title": "Book a detail",
+    "sub": "Pick a service, a time, and a detailer near you.",
+    "back": "Back to home",
+    "backStep": "Back",
+    "next": "Next",
+    "startingAt": "Starting at",
+    "findMatches": "Find available detailers",
+    "matchError": "Couldn't find matching detailers. Try a different date or address.",
+    "continueToPayment": "Continue to payment",
+    "confirmError": "Couldn't create the booking. Please try again.",
+    "availableSlots": "Available times",
+    "date": "Date",
+    "address": "Service address",
+    "addressPlaceholder": "Street, City, State ZIP",
+    "locationHint": "Using your current location ({lat}, {lng}) to find nearby detailers.",
+    "notes": "Notes for the detailer (optional)",
+    "notesPlaceholder": "Anything they should know before arriving?",
+    "steps": {
+      "service": "Service & vehicles",
+      "vehicles": "Pick vehicles",
+      "addons": "Add-ons (optional)",
+      "date": "Date & address",
+      "match": "Pick detailer",
+      "pay": "Pay"
+    },
+    "noVehicles": {
+      "title": "No vehicles yet",
+      "body": "Add a vehicle first so we can match it to the right service.",
+      "action": "Add vehicle"
+    },
+    "noMatches": {
+      "title": "No detailers available",
+      "body": "Try a different date or expand your area."
+    },
+    "summary": {
+      "title": "Summary",
+      "service": "Service",
+      "vehicles": "Vehicles",
+      "vehiclesCount": "{count, plural, one {# vehicle} other {# vehicles}}",
+      "when": "When",
+      "detailer": "Detailer",
+      "address": "Address"
+    }
+  },
+  "checkout": {
+    "missingKey": "Stripe is not configured. Set NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY to enable payments.",
+    "securedByStripe": "Payments secured by Stripe.",
+    "pay": "Pay {amount}",
+    "error": "Payment failed. Please check your card details and try again."
+  },
+  "clientAppointmentDetail": {
+    "title": "Appointment",
+    "back": "Back to appointments",
+    "backToHome": "Back to home",
+    "loadError": "Couldn't load this appointment.",
+    "scheduled": "Scheduled for",
+    "detailer": "Detailer",
+    "searching": "Searching for a detailer",
+    "address": "Service address",
+    "vehicles": "Vehicles",
+    "vehicle": "Vehicle",
+    "yourNotes": "Your notes",
+    "detailerNotes": "Detailer notes",
+    "estimatedPrice": "Estimated price",
+    "finalPrice": "Final price",
+    "cancel": "Cancel appointment",
+    "confirmCancel": "Cancel this appointment? Refunds depend on the cancellation policy.",
+    "cancelError": "Couldn't cancel the appointment.",
+    "review": {
+      "title": "Leave a review",
+      "sub": "How did your detailer do?",
+      "starLabel": "{n} star rating",
+      "commentPlaceholder": "What stood out about the service? (optional)",
+      "submit": "Submit review",
+      "thanks": "Thanks for your feedback!"
+    },
+    "reviewError": "Couldn't submit your review.",
+    "status": {
+      "pending": "Pending",
+      "searching": "Searching",
+      "confirmed": "Confirmed",
+      "arrived": "Detailer arrived",
       "in_progress": "In progress",
       "completed": "Completed",
       "cancelled_by_client": "Cancelled",

@@ -105,13 +105,19 @@ export default function ClientHomePage() {
               {nextAppointment.service_address}
             </p>
           )}
-          <div className="mt-5">
+          <div className="mt-5 flex items-center gap-4">
             <Link
-              href="/client/appointments"
+              href={`/client/appointments/${nextAppointment.id}`}
               className="inline-flex items-center gap-1 text-sm font-medium text-zinc-900 underline-offset-4 hover:underline"
             >
-              {t("viewAll")}
+              {t("viewDetail")}
               <ArrowRight className="size-3.5" />
+            </Link>
+            <Link
+              href="/client/appointments"
+              className="text-sm text-zinc-500 hover:text-zinc-900"
+            >
+              {t("viewAll")}
             </Link>
           </div>
         </div>
@@ -122,13 +128,12 @@ export default function ClientHomePage() {
             {t("placeholder.title")}
           </h2>
           <p className="mt-2 text-sm text-zinc-600">{t("placeholder.body")}</p>
-          <Button
-            className="mt-6"
-            disabled
-            title={t("placeholder.comingSoon")}
+          <Link
+            href="/client/book"
+            className="mt-6 inline-flex items-center justify-center gap-2 rounded-lg bg-zinc-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-zinc-800"
           >
             {t("placeholder.cta")}
-          </Button>
+          </Link>
         </div>
       )}
     </div>

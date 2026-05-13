@@ -330,6 +330,7 @@
     "with": "con",
     "nextAppointment": "Próximo turno",
     "viewAll": "Ver todos los turnos",
+    "viewDetail": "Ver detalle",
     "stats": {
       "upcoming": "Próximos",
       "vehicles": "Vehículos",
@@ -399,6 +400,7 @@
   "clientAppointments": {
     "title": "Tus turnos",
     "sub": "Próximos y pasados.",
+    "book": "Reservar",
     "loadError": "No pudimos cargar tus turnos.",
     "emptyTitle": "Todavía no hay turnos",
     "emptyBody": "Cuando reserves un detallado va a aparecer acá.",
@@ -411,6 +413,97 @@
       "searching": "Buscando",
       "confirmed": "Confirmado",
       "arrived": "Llegó",
+      "in_progress": "En curso",
+      "completed": "Completado",
+      "cancelled_by_client": "Cancelado",
+      "cancelled_by_detailer": "Cancelado por detailer",
+      "no_show": "No-show",
+      "no_detailer_found": "Sin detailer"
+    }
+  },
+  "book": {
+    "title": "Reservar un detallado",
+    "sub": "Elegí un servicio, un horario y un detailer cerca tuyo.",
+    "back": "Volver al inicio",
+    "backStep": "Atrás",
+    "next": "Siguiente",
+    "startingAt": "Desde",
+    "findMatches": "Buscar detailers disponibles",
+    "matchError": "No pudimos encontrar detailers. Probá con otra fecha o dirección.",
+    "continueToPayment": "Continuar al pago",
+    "confirmError": "No pudimos crear la reserva. Probá de nuevo.",
+    "availableSlots": "Horarios disponibles",
+    "date": "Fecha",
+    "address": "Dirección del servicio",
+    "addressPlaceholder": "Calle, Ciudad, Estado CP",
+    "locationHint": "Usando tu ubicación actual ({lat}, {lng}) para buscar detailers cercanos.",
+    "notes": "Notas para el detailer (opcional)",
+    "notesPlaceholder": "¿Algo que deba saber antes de llegar?",
+    "steps": {
+      "service": "Servicio y vehículos",
+      "vehicles": "Elegí los vehículos",
+      "addons": "Adicionales (opcional)",
+      "date": "Fecha y dirección",
+      "match": "Elegí detailer",
+      "pay": "Pagar"
+    },
+    "noVehicles": {
+      "title": "Todavía no hay vehículos",
+      "body": "Agregá primero un vehículo para que podamos matchearlo con el servicio adecuado.",
+      "action": "Agregar vehículo"
+    },
+    "noMatches": {
+      "title": "No hay detailers disponibles",
+      "body": "Probá con otra fecha o ampliá tu zona."
+    },
+    "summary": {
+      "title": "Resumen",
+      "service": "Servicio",
+      "vehicles": "Vehículos",
+      "vehiclesCount": "{count, plural, one {# vehículo} other {# vehículos}}",
+      "when": "Cuándo",
+      "detailer": "Detailer",
+      "address": "Dirección"
+    }
+  },
+  "checkout": {
+    "missingKey": "Stripe no está configurado. Definí NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY para habilitar los pagos.",
+    "securedByStripe": "Pagos asegurados por Stripe.",
+    "pay": "Pagar {amount}",
+    "error": "El pago falló. Revisá los datos de la tarjeta e intentá de nuevo."
+  },
+  "clientAppointmentDetail": {
+    "title": "Turno",
+    "back": "Volver a turnos",
+    "backToHome": "Volver al inicio",
+    "loadError": "No pudimos cargar este turno.",
+    "scheduled": "Programado para",
+    "detailer": "Detailer",
+    "searching": "Buscando detailer",
+    "address": "Dirección del servicio",
+    "vehicles": "Vehículos",
+    "vehicle": "Vehículo",
+    "yourNotes": "Tus notas",
+    "detailerNotes": "Notas del detailer",
+    "estimatedPrice": "Precio estimado",
+    "finalPrice": "Precio final",
+    "cancel": "Cancelar turno",
+    "confirmCancel": "¿Cancelar este turno? Los reintegros dependen de la política de cancelación.",
+    "cancelError": "No pudimos cancelar el turno.",
+    "review": {
+      "title": "Dejar una review",
+      "sub": "¿Cómo te trató tu detailer?",
+      "starLabel": "Rating de {n} estrellas",
+      "commentPlaceholder": "¿Qué destacarías del servicio? (opcional)",
+      "submit": "Enviar review",
+      "thanks": "¡Gracias por tu feedback!"
+    },
+    "reviewError": "No pudimos enviar tu review.",
+    "status": {
+      "pending": "Pendiente",
+      "searching": "Buscando",
+      "confirmed": "Confirmado",
+      "arrived": "Detailer llegó",
       "in_progress": "En curso",
       "completed": "Completado",
       "cancelled_by_client": "Cancelado",

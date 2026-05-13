@@ -1,6 +1,7 @@
 "use client";
 
 import { useTranslations, useLocale } from "next-intl";
+import { Link, useRouter } from "@/i18n/navigation";
 import { useAppointments } from "@/lib/hooks/useAppointments";
 import {
   type Appointment,
@@ -9,7 +10,8 @@ import {
 import { PageHeader } from "@/components/app/PageHeader";
 import { EmptyState } from "@/components/app/EmptyState";
 import { AppointmentStatusBadge } from "@/components/app/AppointmentStatusBadge";
-import { Calendar, MapPin, Loader2, Car } from "lucide-react";
+import { Button } from "@/components/forms/Button";
+import { Calendar, MapPin, Loader2, Car, Plus } from "lucide-react";
 
 function flatten(data: unknown): Appointment[] {
   if (!data) return [];
@@ -21,6 +23,7 @@ function flatten(data: unknown): Appointment[] {
 export default function AppointmentsPage() {
   const t = useTranslations("clientAppointments");
   const locale = useLocale();
+  const router = useRouter();
   const { data, error, isLoading } = useAppointments();
 
   const items = flatten(data);
@@ -31,7 +34,15 @@ export default function AppointmentsPage() {
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-10">
-      <PageHeader title={t("title")} sub={t("sub")} />
+      <PageHeader
+        title={t("title")}
+        sub={t("sub")}
+        action={
+          <Button onClick={() => router.push("/client/book")}>
+            <Plus className="size-4" /> {t("book")}
+          </Button>
+        }
+      />
 
       {isLoading && (
         <div className="flex justify-center py-16">
@@ -50,15 +61,21 @@ export default function AppointmentsPage() {
           icon={<Calendar className="size-5" />}
           title={t("emptyTitle")}
           body={t("emptyBody")}
+          action={
+            <Button onClick={() => router.push("/client/book")}>
+              <Plus className="size-4" /> {t("book")}
+            </Button>
+          }
         />
       )}
 
       {items.length > 0 && (
         <ul className="flex flex-col gap-3">
           {items.map((a) => (
-            <li
+            <Link
+              href={`/client/appointments/${a.id}`}
               key={a.id}
-              className="flex flex-col gap-3 rounded-2xl border border-zinc-200 bg-white p-5 md:flex-row md:items-center md:justify-between"
+              className="flex flex-col gap-3 rounded-2xl border border-zinc-200 bg-white p-5 transition hover:border-zinc-300 hover:shadow-sm md:flex-row md:items-center md:justify-between"
             >
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
@@ -102,7 +119,7 @@ export default function AppointmentsPage() {
                   {a.actual_price_cents ? t("final") : t("estimate")}
                 </div>
               </div>
-            </li>
+            </Link>
           ))}
         </ul>
       )}

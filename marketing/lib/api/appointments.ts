@@ -84,3 +84,26 @@ export async function updateAppointmentStatus(
   );
   return res.data;
 }
+
+// --- Create ---
+
+export type AppointmentVehicleCreate = {
+  vehicle_id: string;
+  service_id: string;
+  addon_ids?: string[];
+};
+
+export type AppointmentCreate = {
+  detailer_id: string;
+  scheduled_time: string; // ISO 8601 with timezone, must be future and UTC
+  service_address: string;
+  service_latitude?: number | null;
+  service_longitude?: number | null;
+  client_notes?: string | null;
+  vehicles: AppointmentVehicleCreate[];
+};
+
+export async function createAppointment(body: AppointmentCreate) {
+  const res = await apiClient.post<Appointment>("/appointments", body);
+  return res.data;
+}
