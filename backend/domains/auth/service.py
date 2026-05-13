@@ -269,11 +269,11 @@ class AuthService:
     @staticmethod
     def create_onboarding_token(user_id: uuid.UUID) -> str:
         """
-        Scope-limited token (30 min) issued after social auth before role selection.
+        Scope-limited token issued after registration/login before profile completion.
         type="onboarding" — rejected by all endpoints except /auth/complete-profile.
         """
         now    = datetime.now(timezone.utc)
-        expire = now + timedelta(minutes=30)
+        expire = now + timedelta(minutes=settings.ONBOARDING_TOKEN_EXPIRE_MINUTES)
         payload = {
             "sub":   str(user_id),
             "type":  _TOKEN_TYPE_ONBOARDING,
@@ -281,6 +281,48 @@ class AuthService:
             "exp":   int(expire.timestamp()),
         }
         return jwt.encode(payload, _get_private_key(), algorithm="RS256")
+
+    @staticmethod
+    def build_auth_state(
+        user: "User",
+        effective_role: str | None = None,
+        has_provider_profile: bool | None = None,
+        intent_role: str | None = None,
+    ) -> "AuthState":
+        """
+        Derive a structured AuthState from existing user data.
+
+        provider_profile is loaded via lazy="selectin" on every authenticated
+        request, so `user.provider_profile is not None` is reliable when
+        has_provider_profile is None.
+
+        intent_role: declared intent during registration ("detailer" → step
+        "provider_type" so the frontend asks for service type before profile).
+        """
+        from domains.auth.schemas import AuthState, AuthStateContext
+
+        if not user.onboarding_completed:
+            step = "provider_type" if intent_role == "detailer" else "profile_creation"
+            return AuthState(
+                type="onboarding",
+                step=step,
+                context=AuthStateContext(role=intent_role),
+            )
+
+        role = effective_role or user.primary_role or "client"
+
+        if role == "detailer":
+            if has_provider_profile is None:
+                has_provider_profile = user.provider_profile is not None
+            step = None if has_provider_profile else "detailer_setup"
+        else:
+            step = None
+
+        return AuthState(
+            type="active",
+            step=step,
+            context=AuthStateContext(role=role),
+        )
 
     @staticmethod
     async def create_email_verification_token(

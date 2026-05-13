@@ -1,6 +1,6 @@
 import * as AppleAuthentication from "expo-apple-authentication";
 import { LinearGradient } from "expo-linear-gradient";
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
@@ -20,8 +20,8 @@ import {
   SocialAuthResponse,
 } from "../services/auth.service";
 import { Colors } from "../theme/colors";
-import { navigateAfterAuth } from "../utils/auth-redirect";
-import { saveOnboardingToken, saveRefreshToken, saveToken, setRegistrationPath, getRegistrationPath, removeRegistrationPath } from "../utils/storage";
+import { routeFromAuthResponse } from "../utils/auth-controller";
+import { saveOnboardingToken, saveRefreshToken, saveToken } from "../utils/storage";
 
 export default function RegisterScreen({ navigation }: any) {
   const [form, setForm] = useState({ email: "", password: "", confirmPassword: "" });
@@ -31,19 +31,13 @@ export default function RegisterScreen({ navigation }: any) {
   const [loading, setLoading] = useState(false);
   const [isProviderPath, setIsProviderPath] = useState(false);
 
-  useEffect(() => {
-    getRegistrationPath().then((path) => setIsProviderPath(path === "provider"));
-  }, []);
-
   const update = (field: keyof typeof form) => (value: string) => {
     setForm((f) => ({ ...f, [field]: value }));
     setErrors((e) => ({ ...e, [field]: "" }));
   };
 
   const handleProviderToggle = () => {
-    const next = !isProviderPath;
-    setIsProviderPath(next);
-    setRegistrationPath(next);
+    setIsProviderPath((v) => !v);
   };
 
   const validate = () => {
@@ -70,13 +64,15 @@ const handleRegister = async () => {
     if (!validate()) return;
     setLoading(true);
     try {
-      const result = await registerWithEmail(form.email, form.password);
-      if (result.onboarding_token) {
-        await saveOnboardingToken(result.onboarding_token);
-        navigation.navigate(isProviderPath ? "ProviderType" : "CompleteProfile");
+      const intentRole = isProviderPath ? "detailer" : "client";
+      const result = await registerWithEmail(form.email, form.password, intentRole);
+      if (result.onboarding_token) await saveOnboardingToken(result.onboarding_token);
+      if (result.access_token) {
+        await saveToken(result.access_token);
+        if (result.refresh_token) await saveRefreshToken(result.refresh_token);
       }
+      await routeFromAuthResponse(result, navigation);
     } catch (err: any) {
-      await removeRegistrationPath();
       const status = err.response?.status;
       const detail = err.response?.data?.detail;
       const msg =
@@ -102,15 +98,12 @@ const handleRegister = async () => {
   };
 
   const handleSocialAuth = async (result: SocialAuthResponse) => {
-    if (result.onboarding_required && result.onboarding_token) {
-      await saveOnboardingToken(result.onboarding_token);
-      navigation.navigate(isProviderPath ? "ProviderType" : "CompleteProfile");
-    } else if (result.access_token) {
+    if (result.onboarding_token) await saveOnboardingToken(result.onboarding_token);
+    if (result.access_token) {
       await saveToken(result.access_token);
       if (result.refresh_token) await saveRefreshToken(result.refresh_token);
-      await removeRegistrationPath();
-      await navigateAfterAuth(navigation);
     }
+    await routeFromAuthResponse(result as any, navigation);
   };
 
   const handleGoogle = () => {

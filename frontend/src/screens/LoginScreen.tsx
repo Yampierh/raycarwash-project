@@ -22,7 +22,7 @@ import {
   SocialAuthResponse,
 } from "../services/auth.service";
 import { Colors } from "../theme/colors";
-import { navigateAfterAuth } from "../utils/auth-redirect";
+import { resolveAuthState, routeFromAuthResponse } from "../utils/auth-controller";
 import {
   getBiometricEnabled,
   getRefreshToken,
@@ -64,7 +64,7 @@ export default function LoginScreen({ navigation }: any) {
     async (accessToken: string, refreshToken: string | null) => {
       await saveToken(accessToken);
       if (refreshToken) await saveRefreshToken(refreshToken);
-      await navigateAfterAuth(navigation);
+      await resolveAuthState(navigation);
     },
     [navigation],
   );
@@ -74,14 +74,12 @@ export default function LoginScreen({ navigation }: any) {
     setLoading(true);
     try {
       const result = await loginWithEmail(email, password);
-      if (!result.onboarding_completed && result.onboarding_token) {
-        await saveOnboardingToken(result.onboarding_token);
-        navigation.navigate("ProviderType");
-        return;
-      }
+      if (result.onboarding_token) await saveOnboardingToken(result.onboarding_token);
       if (result.access_token) {
-        await handleAfterLogin(result.access_token, result.refresh_token);
+        await saveToken(result.access_token);
+        if (result.refresh_token) await saveRefreshToken(result.refresh_token);
       }
+      await routeFromAuthResponse(result, navigation);
     } catch (err: any) {
       const status = err.response?.status;
       if (status === 401 || status === 400) {
@@ -115,7 +113,7 @@ export default function LoginScreen({ navigation }: any) {
       const tokens = await refreshAccessToken(storedRefresh);
       await saveToken(tokens.access_token);
       await saveRefreshToken(tokens.refresh_token);
-      await navigateAfterAuth(navigation);
+      await resolveAuthState(navigation);
     } catch {
       Alert.alert("Biometric Failed", "Please sign in with your password.");
     } finally {
@@ -124,12 +122,12 @@ export default function LoginScreen({ navigation }: any) {
   };
 
   const handleSocialAuth = async (result: SocialAuthResponse) => {
-    if (result.onboarding_required && result.onboarding_token) {
-      await saveOnboardingToken(result.onboarding_token);
-      navigation.navigate("ProviderType");
-    } else if (result.access_token) {
+    if (result.onboarding_token) await saveOnboardingToken(result.onboarding_token);
+    if (result.access_token) {
       await handleAfterLogin(result.access_token, result.refresh_token ?? null);
+      return;
     }
+    await resolveAuthState(navigation);
   };
 
   const handleApple = async () => {

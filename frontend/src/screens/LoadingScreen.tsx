@@ -6,7 +6,7 @@ import { Animated, StyleSheet, Text, View } from "react-native";
 import { useAppNavigation } from "../hooks/useAppNavigation";
 import { refreshAccessToken, webAuthnAuthenticateBegin, webAuthnAuthenticateComplete } from "../services/auth.service";
 import { Colors } from "../theme/colors";
-import { navigateAfterAuth } from "../utils/auth-redirect";
+import { resolveAuthState } from "../utils/auth-controller";
 import {
   getBiometricEnabled,
   getLastEmail,
@@ -84,11 +84,9 @@ export default function LoadingScreen() {
         return;
       }
 
-      // Resume mid-onboarding: user registered but never completed profile.
-      // Send them back to ProviderType so they can pick a service type
-      // (or "Continue as client") and finish onboarding without re-logging in.
+      // Onboarding resume — let the backend tell us where the user belongs.
       if (!accessToken && onboardingToken) {
-        navigation.reset({ index: 0, routes: [{ name: "ProviderType" }] });
+        await resolveAuthState(navigation);
         return;
       }
 
@@ -105,7 +103,7 @@ export default function LoadingScreen() {
           );
           await saveToken(access_token);
           await saveRefreshToken(refresh_token);
-          await navigateAfterAuth(navigation);
+          await resolveAuthState(navigation);
           return;
         } catch {
           // Passkey cancelled or failed — fall through to biometric / token refresh
@@ -126,15 +124,21 @@ export default function LoadingScreen() {
           });
 
           if (!result.success) {
-            // User cancelled biometric → go to login screen
+            if (accessToken) {
+              try {
+                await resolveAuthState(navigation);
+                return;
+              } catch {
+                // Token invalid/expired — fall through to refresh or login
+              }
+            }
             goToLogin();
             return;
           }
         }
       }
 
-      // Validate stored token by trying to navigate
-      await navigateAfterAuth(navigation);
+      await resolveAuthState(navigation);
     } catch (err: any) {
       // Token expired or invalid → try refresh
       try {
@@ -146,7 +150,7 @@ export default function LoadingScreen() {
         const { access_token, refresh_token } = await refreshAccessToken(refreshToken);
         await saveToken(access_token);
         await saveRefreshToken(refresh_token);
-        await navigateAfterAuth(navigation);
+        await resolveAuthState(navigation);
       } catch {
         goToLogin();
       }

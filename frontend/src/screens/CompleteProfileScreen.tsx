@@ -16,7 +16,7 @@ import AnimatedInput from "../components/AnimatedInput";
 import Button from "../components/Button";
 import { completeProfile, VerifyResponse } from "../services/auth.service";
 import { Colors } from "../theme/colors";
-import { navigateAfterAuth } from "../utils/auth-redirect";
+import { routeFromAuthResponse } from "../utils/auth-controller";
 import { removeOnboardingToken, saveRefreshToken, saveToken } from "../utils/storage";
 
 const ALLOWED_SERVICE_TYPES = ["detailer"] as const;
@@ -60,7 +60,7 @@ export default function CompleteProfileScreen({ navigation, route }: any) {
         await saveToken(result.access_token);
         if (result.refresh_token) await saveRefreshToken(result.refresh_token);
         await removeOnboardingToken();
-        await navigateAfterAuth(navigation);
+        await routeFromAuthResponse(result, navigation);
       } else {
         throw new Error("No access token returned. Please try again.");
       }

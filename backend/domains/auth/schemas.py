@@ -2,10 +2,23 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from shared.schemas import _BaseSchema, _BaseRequestSchema, _validate_password_strength
+
+
+# ── Auth state (v3 — derived from existing data, no DB changes) ──────── #
+
+class AuthStateContext(BaseModel):
+    role: str | None = None
+
+
+class AuthState(BaseModel):
+    type: Literal["onboarding", "active", "step_up_required"]
+    step: str | None = None
+    context: AuthStateContext = Field(default_factory=AuthStateContext)
 
 
 # ── Core auth ────────────────────────────────────────────────────── #
@@ -19,6 +32,7 @@ class Token(_BaseSchema):
 class RegisterRequest(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=8, max_length=128)
+    intent_role: Literal["client", "detailer"] | None = None
 
     @field_validator("email", mode="before")
     @classmethod
@@ -47,7 +61,12 @@ class LoginResponse(_BaseSchema):
     onboarding_token: str | None = None
     roles: list[str] = Field(default_factory=list)
     onboarding_completed: bool = False
-    next_step: str
+    next_step: str = Field(
+        ...,
+        deprecated=True,
+        description="Deprecated: use auth_state instead. Kept for legacy clients.",
+    )
+    auth_state: AuthState | None = None
 
 
 class LogoutRequest(BaseModel):
@@ -94,8 +113,13 @@ class VerifyResponse(_BaseSchema):
     is_new_user: bool
     temp_token: str | None = None
     needs_profile_completion: bool = False
-    next_step: str
+    next_step: str = Field(
+        ...,
+        deprecated=True,
+        description="Deprecated: use auth_state instead. Kept for legacy clients.",
+    )
     assigned_role: str | None = None
+    auth_state: AuthState | None = None
 
 
 VALID_SERVICE_TYPES: frozenset[str] = frozenset({"detailer"})

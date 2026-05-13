@@ -105,8 +105,9 @@ class Settings(BaseSettings):
         description="HMAC key for phone number hashing. Generate: openssl rand -hex 32",
     )
     JWT_ALGORITHM: str             = Field(default="RS256")
-    ACCESS_TOKEN_EXPIRE_MINUTES: int  = Field(default=30,  ge=5)
-    REFRESH_TOKEN_EXPIRE_DAYS: int    = Field(default=7,   ge=1)
+    ACCESS_TOKEN_EXPIRE_MINUTES: int      = Field(default=30, ge=5)
+    REFRESH_TOKEN_EXPIRE_DAYS: int        = Field(default=7,  ge=1)
+    ONBOARDING_TOKEN_EXPIRE_MINUTES: int  = Field(default=30, ge=5)
 
     # ---------------------------------------------------------------- #
     #  Stripe (Sprint 3)                                               #

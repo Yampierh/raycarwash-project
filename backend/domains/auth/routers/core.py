@@ -15,6 +15,8 @@ from domains.audit.repository import AuditRepository
 from domains.auth.models import Role, UserRoleAssociation
 from domains.auth.refresh_token_repository import RefreshTokenRepository
 from domains.auth.schemas import (
+    AuthState,
+    AuthStateContext,
     CheckEmailRequest,
     CheckEmailResponse,
     CompleteProfileRequest,
@@ -97,6 +99,7 @@ async def register(
         roles=[],
         onboarding_completed=False,
         next_step="complete_profile",
+        auth_state=AuthService.build_auth_state(user, intent_role=body.intent_role),
     )
 
 
@@ -145,6 +148,7 @@ async def login(
             roles=user.roles,
             onboarding_completed=False,
             next_step="complete_profile",
+            auth_state=AuthService.build_auth_state(user),
         )
 
     role_name = user.primary_role or "client"
@@ -159,6 +163,7 @@ async def login(
         roles=user.roles,
         onboarding_completed=True,
         next_step="app",
+        auth_state=AuthService.build_auth_state(user, role_name),
     )
 
 
@@ -451,6 +456,7 @@ async def complete_user_profile(
         needs_profile_completion=False,
         next_step=next_step,
         assigned_role=effective_role,
+        auth_state=AuthService.build_auth_state(user, effective_role, has_provider_profile=False),
     )
 
 
@@ -531,6 +537,21 @@ async def get_current_user_profile(
     current_user: User = Depends(get_current_user),
 ) -> UserRead:
     return UserRead.model_validate(current_user)
+
+
+@router.get(
+    "/state",
+    response_model=AuthState,
+    summary="Resolve the current auth state (accepts access OR onboarding token).",
+)
+async def get_auth_state(
+    current_user: User = Depends(get_current_user_for_onboarding),
+) -> AuthState:
+    """
+    Single source of truth for post-auth navigation. Frontend calls this on
+    app launch and after any auth event to derive routing without local flags.
+    """
+    return AuthService.build_auth_state(current_user)
 
 
 @router.put(

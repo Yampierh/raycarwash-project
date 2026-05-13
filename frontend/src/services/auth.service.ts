@@ -1,5 +1,17 @@
 import { apiClient, authClient } from "./api";
 
+// ─── Auth state v3 ────────────────────────────────────────────────────────────
+
+export interface AuthStateContext {
+  role?: "client" | "detailer";
+}
+
+export interface AuthState {
+  type: "onboarding" | "active" | "step_up_required";
+  step?: "profile_creation" | "provider_type" | "detailer_setup";
+  context: AuthStateContext;
+}
+
 // ─── Response types ───────────────────────────────────────────────────────────
 
 export interface LoginResponse {
@@ -9,6 +21,7 @@ export interface LoginResponse {
   roles: string[];
   onboarding_completed: boolean;
   next_step: string;
+  auth_state?: AuthState;
 }
 
 export interface SocialAuthResponse {
@@ -41,6 +54,7 @@ export interface VerifyResponse {
   needs_profile_completion: boolean;
   next_step: string;
   assigned_role?: string;
+  auth_state?: AuthState;
 }
 
 // ─── Email / Password ─────────────────────────────────────────────────────────
@@ -61,18 +75,28 @@ export const loginWithEmail = async (
 };
 
 /**
- * Register a new account (email + password only).
- * Backend: POST /auth/register  { email, password }
- * Always returns onboarding_token — caller must navigate to CompleteProfile.
+ * Register a new account. intent_role declares the user's intended role,
+ * which the backend reflects in auth_state.step (provider_type vs profile_creation).
  */
 export const registerWithEmail = async (
   email: string,
   password: string,
+  intentRole?: "client" | "detailer",
 ): Promise<LoginResponse> => {
   const response = await authClient.post<LoginResponse>("/register", {
     email: email.toLowerCase().trim(),
     password,
+    intent_role: intentRole ?? null,
   });
+  return response.data;
+};
+
+/**
+ * Resolve the user's current auth state. Accepts an access_token OR an
+ * onboarding_token (the auth client interceptor picks whichever is present).
+ */
+export const getAuthState = async (): Promise<AuthState> => {
+  const response = await authClient.get<AuthState>("/state");
   return response.data;
 };
 
