@@ -9,6 +9,7 @@ node_modules/
 .env.local
 .env.production
 *.env
+*.pem
 
 # Python
 __pycache__/
@@ -47,3 +48,9 @@ logs/
 # Build
 android/app/build/
 ios/build/
+
+# Marketing site (Next.js)
+marketing/.next/
+marketing/node_modules/
+marketing/out/
+marketing/next-env.d.ts

@@ -1,0 +1,386 @@
+{
+  "meta": {
+    "title": "RayCarWash — Detallado móvil para tu auto en Fort Wayne",
+    "description": "Reservá un detailer verificado que va hasta donde estés. Lavado interior y exterior profesional en tu casa u oficina, cuando vos quieras.",
+    "ogAlt": "RayCarWash — detallado móvil"
+  },
+  "nav": {
+    "home": "Inicio",
+    "how": "Cómo funciona",
+    "services": "Servicios",
+    "detailers": "Para detailers",
+    "faq": "Preguntas",
+    "login": "Ingresar",
+    "signup": "Crear cuenta",
+    "logout": "Cerrar sesión",
+    "dashboard": "Panel",
+    "openApp": "Abrir la app móvil"
+  },
+  "hero": {
+    "kicker": "Detallado móvil • Fort Wayne, IN",
+    "h1": "Detailers profesionales, en tu cochera.",
+    "sub": "Reservá un detailer verificado en minutos. Ellos van hasta vos con todo el equipo — vos te llevás un auto impecable sin moverte de tu casa.",
+    "ctaPrimary": "Descargar la app",
+    "ctaSecondary": "Quiero ser detailer",
+    "bullets": [
+      "Profesionales verificados y asegurados",
+      "Precios transparentes y planos",
+      "ETA en vivo + fotos al terminar"
+    ],
+    "appStoreAlt": "Descargá en el App Store",
+    "playStoreAlt": "Conseguilo en Google Play"
+  },
+  "how": {
+    "kicker": "Cómo funciona",
+    "h2": "Cuatro pasos. Cero vueltas.",
+    "sub": "Desde la reserva hasta el auto limpio, todo está pensado alrededor de tu agenda.",
+    "steps": [
+      {
+        "title": "Reservá en la app",
+        "body": "Elegí un servicio, agregá tu vehículo y un horario. Te damos un precio plano al instante."
+      },
+      {
+        "title": "Tu detailer va hasta vos",
+        "body": "Te matcheamos con un detailer cercano y verificado. Seguí su ETA en vivo desde la app."
+      },
+      {
+        "title": "Servicio donde estés",
+        "body": "Llevan agua, energía y productos profesionales. Vos seguís con lo tuyo."
+      },
+      {
+        "title": "Pagá y calificá",
+        "body": "Pago seguro desde la app. Calificá a tu detailer para ayudar a la comunidad."
+      }
+    ]
+  },
+  "services": {
+    "kicker": "Servicios",
+    "h2": "Elegí el nivel de limpieza.",
+    "sub": "Tres paquetes core hoy, con adicionales para pelos de mascota, pulido de ópticas, sellador cerámico y más dentro de la app.",
+    "fromLabel": "desde",
+    "items": [
+      {
+        "name": "Lavado exterior",
+        "price": "$49",
+        "duration": "45–60 min",
+        "features": [
+          "Lavado a mano y secado",
+          "Llantas y neumáticos",
+          "Encerado spray"
+        ]
+      },
+      {
+        "name": "Detalle interior",
+        "price": "$89",
+        "duration": "1,5–2 hs",
+        "features": [
+          "Aspirado completo",
+          "Tapizados con vapor",
+          "Tablero y paneles de puerta",
+          "Limpieza de vidrios"
+        ]
+      },
+      {
+        "name": "Detalle completo",
+        "price": "$149",
+        "duration": "3–4 hs",
+        "features": [
+          "Todo lo del Exterior + Interior",
+          "Descontaminación con arcilla",
+          "Acondicionado de neumáticos",
+          "Acabado nivel showroom"
+        ]
+      }
+    ],
+    "footnote": "Los precios mostrados son iniciales para vehículos tipo sedán. El precio final se calcula en la app según el tamaño del vehículo, su estado y los adicionales elegidos."
+  },
+  "detailers": {
+    "kicker": "Para detailers",
+    "h2": "Tu propio negocio de detailing — sin tener que hacer marketing.",
+    "sub": "Vos aportás el oficio. Nosotros traemos los clientes, la agenda y los pagos instantáneos.",
+    "benefits": [
+      {
+        "title": "Tu agenda, tus reglas",
+        "body": "Aceptá o rechazá cualquier job. Definí tu zona de cobertura y tus horarios."
+      },
+      {
+        "title": "Pagos instantáneos",
+        "body": "Cobrás el mismo día que terminás el trabajo, directo a tu cuenta bancaria."
+      },
+      {
+        "title": "Clientes verificados",
+        "body": "Cada cliente está identificado. Las cancelaciones tardías están penalizadas."
+      },
+      {
+        "title": "Herramientas listas",
+        "body": "Planificación de ruta, captura de fotos antes/después y libro de pagos claro — todo en una app."
+      }
+    ],
+    "cta": "Postularme como detailer"
+  },
+  "testimonials": {
+    "kicker": "Lo que dicen",
+    "h2": "Amada por quienes no quieren manejar hasta un car wash.",
+    "items": [
+      {
+        "quote": "Reservé a las 9 de la mañana, la camioneta estaba en mi entrada a las 11. Increíblemente cómodo.",
+        "name": "María G.",
+        "city": "Fort Wayne, IN",
+        "rating": 5
+      },
+      {
+        "quote": "El detailer me mandó fotos antes/después por la app. Súper profesional.",
+        "name": "Derrick P.",
+        "city": "Aboite, IN",
+        "rating": 5
+      },
+      {
+        "quote": "Detalle completo a mi F-150 — quedó mejor que cuando la compré.",
+        "name": "Jonas R.",
+        "city": "New Haven, IN",
+        "rating": 5
+      },
+      {
+        "quote": "Los precios son transparentes desde el principio. Cero recargos sorpresa.",
+        "name": "Anna L.",
+        "city": "Fort Wayne, IN",
+        "rating": 5
+      }
+    ]
+  },
+  "faq": {
+    "kicker": "Preguntas",
+    "h2": "Lo que la gente pregunta.",
+    "items": [
+      {
+        "q": "¿Qué zona cubren?",
+        "a": "Fort Wayne, IN y suburbios cercanos (Aboite, New Haven, Huntertown, Leo-Cedarville). Estamos creciendo — escribinos si querés que lleguemos a tu zona."
+      },
+      {
+        "q": "¿Los detailers llevan agua y energía?",
+        "a": "Sí. Cada detailer viene autónomo: tanques de agua, generador y productos profesionales. Vos no necesitás aportar nada."
+      },
+      {
+        "q": "¿Cómo verifican a los detailers?",
+        "a": "Verificación de identidad con Stripe Identity, control de seguro y revisión de portfolio antes de activarse. Después seguimos midiendo calidad por reviews."
+      },
+      {
+        "q": "¿Cómo funciona el pago?",
+        "a": "Al reservar te damos un precio plano. Retenemos la autorización hasta que se termine el trabajo y recién ahí te cobramos el monto final."
+      },
+      {
+        "q": "¿Y si no quedo conforme?",
+        "a": "Abrí una disputa dentro de la app en menos de 48 horas. Si el trabajo no cumple el estándar documentado, lo rehacemos o te reintegramos."
+      },
+      {
+        "q": "¿Puedo dejar propina al detailer?",
+        "a": "Por supuesto. Al terminar el trabajo, la app te ofrece montos sugeridos. El 100% de la propina va al detailer."
+      },
+      {
+        "q": "¿Ofrecen servicio recurrente?",
+        "a": "Sí. Guardá tu vehículo y tu detailer favorito para reservar semanal, quincenal o mensualmente con un solo tap."
+      }
+    ]
+  },
+  "contact": {
+    "kicker": "Conseguí la app",
+    "h2": "¿Listo para un auto más limpio?",
+    "sub": "Descargá RayCarWash y reservá tu primer detallado en menos de dos minutos.",
+    "email": "¿Dudas? Escribinos a"
+  },
+  "footer": {
+    "tagline": "Detallado móvil, a demanda.",
+    "sections": {
+      "product": "Producto",
+      "company": "Compañía",
+      "legal": "Legal"
+    },
+    "links": {
+      "how": "Cómo funciona",
+      "services": "Servicios",
+      "detailers": "Ser detailer",
+      "faq": "Preguntas",
+      "login": "Ingresar",
+      "contact": "Contacto",
+      "privacy": "Política de privacidad",
+      "terms": "Términos del servicio"
+    },
+    "copyright": "© {year} RayCarWash. Todos los derechos reservados."
+  },
+  "login": {
+    "title": "Bienvenido de vuelta",
+    "sub": "Ingresá a tu cuenta de RayCarWash.",
+    "email": "Email",
+    "password": "Contraseña",
+    "emailPlaceholder": "vos@ejemplo.com",
+    "submit": "Ingresar",
+    "submitting": "Ingresando…",
+    "error": "No pudimos ingresarte. Revisá tus datos e intentá de nuevo.",
+    "noAccount": "¿Todavía no tenés cuenta?",
+    "signupCta": "Crear una",
+    "continueGoogle": "Continuar con Google",
+    "orDivider": "o"
+  },
+  "signup": {
+    "title": "Crear tu cuenta",
+    "sub": "Es gratis. Tarda menos de un minuto.",
+    "email": "Email",
+    "emailPlaceholder": "vos@ejemplo.com",
+    "password": "Contraseña",
+    "passwordHint": "Al menos 8 caracteres, con un número.",
+    "submit": "Continuar",
+    "submitting": "Creando cuenta…",
+    "error": "No pudimos crear tu cuenta. Probá de nuevo.",
+    "haveAccount": "¿Ya tenés cuenta?",
+    "loginCta": "Ingresar",
+    "continueGoogle": "Continuar con Google",
+    "orDivider": "o"
+  },
+  "signupRole": {
+    "title": "¿Cómo vas a usar RayCarWash?",
+    "sub": "Elegí el rol que se adapta a vos. Siempre podés agregar el otro después.",
+    "client": {
+      "title": "Soy cliente",
+      "body": "Reservá detailers móviles que van a tu casa u oficina."
+    },
+    "detailer": {
+      "title": "Quiero ser detailer",
+      "body": "Te matcheamos con clientes, aceptás jobs y cobrás el mismo día."
+    },
+    "continue": "Continuar"
+  },
+  "onboarding": {
+    "title": "Contanos sobre vos",
+    "sub": "Un par de datos para que los detailers sepan con quién trabajan.",
+    "fullName": "Nombre completo",
+    "fullNamePlaceholder": "Juan Pérez",
+    "phone": "Teléfono",
+    "phonePlaceholder": "+54 11 1234 5678",
+    "submit": "Continuar",
+    "submitting": "Guardando…",
+    "error": "No pudimos guardar tu perfil. Probá de nuevo.",
+    "signingUpAs": "Registrándote como {role}",
+    "roleClient": "cliente",
+    "roleDetailer": "detailer"
+  },
+  "detailerOnboarding": {
+    "title": "Sé detailer en RayCarWash",
+    "sub": "Cuatro pasos rápidos y ya podés aceptar trabajos.",
+    "next": "Siguiente",
+    "back": "Atrás",
+    "error": "Algo falló. Probá de nuevo.",
+    "steps": {
+      "personal": "Datos personales",
+      "kyc": "Verificación",
+      "consent": "Consentimientos",
+      "services": "Servicios"
+    },
+    "personal": {
+      "title": "Información personal",
+      "sub": "Usamos esto para correr el background check y pagarte.",
+      "legalName": "Nombre legal completo",
+      "dob": "Fecha de nacimiento",
+      "address": "Dirección",
+      "city": "Ciudad",
+      "state": "Estado",
+      "zip": "Código postal"
+    },
+    "kyc": {
+      "title": "Verificación de identidad",
+      "sub": "Verificamos a cada detailer para proteger a los clientes.",
+      "body": "Tocá abajo para iniciar la verificación. En modo desarrollo salteamos el flujo real de Stripe Identity.",
+      "start": "Iniciar verificación",
+      "devBypassNotice": "Modo dev bypass activo — se saltea Stripe Identity."
+    },
+    "consent": {
+      "title": "Consentimientos",
+      "background": "Autorizo un background check como parte de mi onboarding.",
+      "tos": "Acepto los Términos del Servicio para Detailers de RayCarWash."
+    },
+    "services": {
+      "title": "Elegí tus servicios",
+      "sub": "Activá los servicios que querés ofrecer. Después podés ajustar precios.",
+      "empty": "Todavía no hay servicios disponibles. Continuá y los vas a poder agregar desde el panel.",
+      "finish": "Terminar onboarding"
+    },
+    "validation": {
+      "required": "Completá todos los campos.",
+      "dob": "Usá el formato AAAA-MM-DD.",
+      "zip": "Ingresá un código postal de 5 dígitos.",
+      "consent": "Aceptá ambos consentimientos para continuar.",
+      "atLeastOneService": "Elegí al menos un servicio."
+    }
+  },
+  "app": {
+    "signOut": "Cerrar sesión",
+    "nav": {
+      "home": "Inicio",
+      "vehicles": "Vehículos",
+      "appointments": "Turnos",
+      "profile": "Perfil",
+      "jobs": "Trabajos",
+      "services": "Servicios",
+      "earnings": "Ganancias"
+    }
+  },
+  "clientHome": {
+    "title": "Bienvenido de vuelta",
+    "sub": "Manejá tus reservas y vehículos.",
+    "stats": {
+      "upcoming": "Próximos",
+      "vehicles": "Vehículos",
+      "completed": "Completados"
+    },
+    "placeholder": {
+      "title": "Reservas próximamente en la web",
+      "body": "Estamos construyendo el flujo completo acá. Mientras tanto, abrí la app móvil para reservar tu próximo detallado."
+    }
+  },
+  "detailerHome": {
+    "title": "Tus trabajos",
+    "sub": "Manejá las reservas que entran y seguí tus ganancias.",
+    "yes": "Sí",
+    "no": "No",
+    "loadError": "No pudimos cargar tu perfil de detailer.",
+    "stats": {
+      "jobs": "Trabajos hechos",
+      "earnings": "Ganancias totales",
+      "accepting": "Aceptando trabajos"
+    },
+    "verifyPending": {
+      "title": "Verificación en revisión",
+      "body": "Estamos revisando tu solicitud. Te avisamos en cuanto esté aprobada."
+    },
+    "verifyRejected": {
+      "title": "Verificación no aprobada",
+      "body": "Por favor contactá a soporte para resolverlo."
+    },
+    "placeholder": {
+      "title": "Cola de trabajos próximamente en la web",
+      "body": "Estamos construyendo la cola completa acá. Mientras tanto, usá la app móvil para aceptar y completar trabajos."
+    }
+  },
+  "welcome": {
+    "title": "Estás dentro.",
+    "sub": "RayCarWash es mobile-first. Abrí la app en tu teléfono para reservar un detallado, manejar tus vehículos o aceptar trabajos.",
+    "openApp": "Abrir la app móvil",
+    "signOut": "Cerrar sesión"
+  },
+  "legal": {
+    "privacy": {
+      "title": "Política de privacidad",
+      "lastUpdated": "Última actualización",
+      "intro": "Esta es una política de privacidad placeholder. Reemplazá este contenido con tu política real antes de salir a producción."
+    },
+    "terms": {
+      "title": "Términos del servicio",
+      "lastUpdated": "Última actualización",
+      "intro": "Estos son Términos del servicio placeholder. Reemplazá este contenido con tus términos reales antes de salir a producción."
+    }
+  },
+  "notFound": {
+    "title": "Página no encontrada",
+    "sub": "La página que buscabas no existe o fue movida.",
+    "back": "Volver al inicio"
+  }
+}

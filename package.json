@@ -6,7 +6,9 @@
     "install-deps": "python -m venv backend/venv && ./backend/venv/Scripts/pip install -r backend/requirements.txt",
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
     "dev:backend": "cd backend && npx cross-env ENV_FILE=backend/.env uvicorn main:app --reload --host 0.0.0.0 --port 8000",
-    "dev:frontend": "npm start --prefix frontend"
+    "dev:frontend": "npm start --prefix frontend",
+    "dev:marketing": "npm run dev --prefix marketing",
+    "dev:all": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\" \"npm run dev:marketing\""
   },
   "devDependencies": {
     "concurrently": "^9.2.1",
