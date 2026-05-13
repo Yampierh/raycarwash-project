@@ -325,16 +325,111 @@
   },
   "clientHome": {
     "title": "Welcome back",
+    "greeting": "Hi {name}",
     "sub": "Manage your bookings and vehicles.",
+    "with": "with",
+    "nextAppointment": "Next appointment",
+    "viewAll": "View all appointments",
     "stats": {
       "upcoming": "Upcoming",
       "vehicles": "Vehicles",
       "completed": "Completed"
     },
+    "status": {
+      "pending": "Pending",
+      "searching": "Searching detailer",
+      "confirmed": "Confirmed",
+      "arrived": "Detailer arrived",
+      "in_progress": "In progress",
+      "completed": "Completed",
+      "cancelled_by_client": "Cancelled",
+      "cancelled_by_detailer": "Cancelled by detailer",
+      "no_show": "No show",
+      "no_detailer_found": "No detailer found"
+    },
     "placeholder": {
-      "title": "Booking coming soon on web",
-      "body": "We're building the full booking flow here. Meanwhile, open the mobile app to book your next detail."
+      "title": "Book your next detail",
+      "body": "Booking from the web is coming soon. Meanwhile, open the mobile app to schedule your next detail.",
+      "cta": "Book now",
+      "comingSoon": "Coming soon on web"
     }
+  },
+  "clientVehicles": {
+    "title": "Your vehicles",
+    "sub": "Manage the vehicles available for booking.",
+    "addVehicle": "Add vehicle",
+    "emptyTitle": "No vehicles yet",
+    "emptyBody": "Add your first vehicle so you can book a detail.",
+    "loadError": "Couldn't load your vehicles. Please retry.",
+    "edit": "Edit",
+    "delete": "Delete",
+    "confirmDelete": "Delete {label}? This can't be undone.",
+    "deleteError": "Couldn't delete the vehicle. Please try again."
+  },
+  "clientVehicleNew": {
+    "title": "Add a vehicle",
+    "sub": "Enter the details or look up by VIN to autofill.",
+    "back": "Back to vehicles",
+    "submit": "Add vehicle",
+    "submitting": "Adding…",
+    "error": "Couldn't save the vehicle."
+  },
+  "clientVehicleEdit": {
+    "title": "Edit vehicle",
+    "sub": "Update your vehicle details.",
+    "back": "Back to vehicles",
+    "submit": "Save changes",
+    "submitting": "Saving…",
+    "error": "Couldn't save the changes.",
+    "notFound": "Vehicle not found."
+  },
+  "vehicleForm": {
+    "vin": "VIN (17 chars)",
+    "vinHint": "Optional. Look it up to autofill make, model and year.",
+    "vinLength": "VIN must be exactly 17 characters.",
+    "vinLookupError": "Couldn't look up that VIN.",
+    "lookup": "Look up",
+    "make": "Make",
+    "model": "Model",
+    "year": "Year",
+    "bodyClass": "Body type",
+    "color": "Color",
+    "plate": "License plate"
+  },
+  "clientAppointments": {
+    "title": "Your appointments",
+    "sub": "Upcoming and past bookings.",
+    "loadError": "Couldn't load your appointments.",
+    "emptyTitle": "No appointments yet",
+    "emptyBody": "When you book a detail it'll appear here.",
+    "noDetailerAssigned": "Searching for a detailer",
+    "vehicle": "Vehicle",
+    "estimate": "Estimate",
+    "final": "Final",
+    "status": {
+      "pending": "Pending",
+      "searching": "Searching",
+      "confirmed": "Confirmed",
+      "arrived": "Arrived",
+      "in_progress": "In progress",
+      "completed": "Completed",
+      "cancelled_by_client": "Cancelled",
+      "cancelled_by_detailer": "Cancelled by detailer",
+      "no_show": "No show",
+      "no_detailer_found": "No detailer found"
+    }
+  },
+  "clientProfile": {
+    "title": "Your profile",
+    "sub": "Update your contact info.",
+    "email": "Email",
+    "fullName": "Full name",
+    "phone": "Phone",
+    "save": "Save changes",
+    "saving": "Saving…",
+    "saved": "Profile updated.",
+    "signOut": "Sign out",
+    "error": "Couldn't update your profile."
   },
   "detailerHome": {
     "title": "Your jobs",

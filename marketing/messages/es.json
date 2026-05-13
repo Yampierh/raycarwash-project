@@ -325,16 +325,111 @@
   },
   "clientHome": {
     "title": "Bienvenido de vuelta",
+    "greeting": "Hola {name}",
     "sub": "Manejá tus reservas y vehículos.",
+    "with": "con",
+    "nextAppointment": "Próximo turno",
+    "viewAll": "Ver todos los turnos",
     "stats": {
       "upcoming": "Próximos",
       "vehicles": "Vehículos",
       "completed": "Completados"
     },
+    "status": {
+      "pending": "Pendiente",
+      "searching": "Buscando detailer",
+      "confirmed": "Confirmado",
+      "arrived": "Detailer llegó",
+      "in_progress": "En curso",
+      "completed": "Completado",
+      "cancelled_by_client": "Cancelado",
+      "cancelled_by_detailer": "Cancelado por detailer",
+      "no_show": "No-show",
+      "no_detailer_found": "Sin detailer disponible"
+    },
     "placeholder": {
-      "title": "Reservas próximamente en la web",
-      "body": "Estamos construyendo el flujo completo acá. Mientras tanto, abrí la app móvil para reservar tu próximo detallado."
+      "title": "Reservá tu próximo detallado",
+      "body": "Las reservas desde la web están en camino. Mientras tanto, abrí la app móvil para agendar tu próximo detallado.",
+      "cta": "Reservar",
+      "comingSoon": "Próximamente en la web"
     }
+  },
+  "clientVehicles": {
+    "title": "Tus vehículos",
+    "sub": "Manejá los vehículos disponibles para reservar.",
+    "addVehicle": "Agregar vehículo",
+    "emptyTitle": "Todavía no hay vehículos",
+    "emptyBody": "Agregá tu primer vehículo para poder reservar un detallado.",
+    "loadError": "No pudimos cargar tus vehículos. Probá de nuevo.",
+    "edit": "Editar",
+    "delete": "Borrar",
+    "confirmDelete": "¿Borrar {label}? No se puede deshacer.",
+    "deleteError": "No pudimos borrar el vehículo. Probá de nuevo."
+  },
+  "clientVehicleNew": {
+    "title": "Agregar vehículo",
+    "sub": "Cargá los datos o consultá por VIN para autocompletar.",
+    "back": "Volver a vehículos",
+    "submit": "Agregar vehículo",
+    "submitting": "Agregando…",
+    "error": "No pudimos guardar el vehículo."
+  },
+  "clientVehicleEdit": {
+    "title": "Editar vehículo",
+    "sub": "Actualizá los datos de tu vehículo.",
+    "back": "Volver a vehículos",
+    "submit": "Guardar cambios",
+    "submitting": "Guardando…",
+    "error": "No pudimos guardar los cambios.",
+    "notFound": "Vehículo no encontrado."
+  },
+  "vehicleForm": {
+    "vin": "VIN (17 caracteres)",
+    "vinHint": "Opcional. Consultalo para autocompletar marca, modelo y año.",
+    "vinLength": "El VIN debe tener exactamente 17 caracteres.",
+    "vinLookupError": "No pudimos consultar ese VIN.",
+    "lookup": "Consultar",
+    "make": "Marca",
+    "model": "Modelo",
+    "year": "Año",
+    "bodyClass": "Tipo de carrocería",
+    "color": "Color",
+    "plate": "Patente"
+  },
+  "clientAppointments": {
+    "title": "Tus turnos",
+    "sub": "Próximos y pasados.",
+    "loadError": "No pudimos cargar tus turnos.",
+    "emptyTitle": "Todavía no hay turnos",
+    "emptyBody": "Cuando reserves un detallado va a aparecer acá.",
+    "noDetailerAssigned": "Buscando detailer",
+    "vehicle": "Vehículo",
+    "estimate": "Estimado",
+    "final": "Final",
+    "status": {
+      "pending": "Pendiente",
+      "searching": "Buscando",
+      "confirmed": "Confirmado",
+      "arrived": "Llegó",
+      "in_progress": "En curso",
+      "completed": "Completado",
+      "cancelled_by_client": "Cancelado",
+      "cancelled_by_detailer": "Cancelado por detailer",
+      "no_show": "No-show",
+      "no_detailer_found": "Sin detailer"
+    }
+  },
+  "clientProfile": {
+    "title": "Tu perfil",
+    "sub": "Actualizá tus datos de contacto.",
+    "email": "Email",
+    "fullName": "Nombre completo",
+    "phone": "Teléfono",
+    "save": "Guardar cambios",
+    "saving": "Guardando…",
+    "saved": "Perfil actualizado.",
+    "signOut": "Cerrar sesión",
+    "error": "No pudimos actualizar tu perfil."
   },
   "detailerHome": {
     "title": "Tus trabajos",
