@@ -432,19 +432,22 @@ export default function BookPage() {
             ) : (
               <ul className="flex flex-col gap-3">
                 {matches.map((m) => (
-                  <li key={m.user_id}>
+                  <li
+                    key={m.user_id}
+                    className={clsx(
+                      "overflow-hidden rounded-xl border-2 bg-white transition",
+                      selectedDetailerId === m.user_id
+                        ? "border-brand-600 ring-2 ring-brand-500/20"
+                        : "border-zinc-200 hover:border-zinc-300"
+                    )}
+                  >
                     <button
                       type="button"
                       onClick={() => {
                         setSelectedDetailerId(m.user_id);
                         setSelectedSlot(null);
                       }}
-                      className={clsx(
-                        "w-full rounded-xl border-2 bg-white p-4 text-left transition",
-                        selectedDetailerId === m.user_id
-                          ? "border-brand-600 ring-2 ring-brand-500/20"
-                          : "border-zinc-200 hover:border-zinc-300"
-                      )}
+                      className="block w-full p-4 text-left"
                     >
                       <div className="flex items-center justify-between gap-3">
                         <div className="min-w-0">
@@ -472,40 +475,37 @@ export default function BookPage() {
                           ${(m.estimated_price / 100).toFixed(2)}
                         </span>
                       </div>
-
-                      {selectedDetailerId === m.user_id && (
-                        <div className="mt-4">
-                          <p className="mb-2 text-xs font-medium uppercase tracking-wider text-zinc-500">
-                            {t("availableSlots")}
-                          </p>
-                          <ul className="flex flex-wrap gap-2">
-                            {m.available_slots.map((s) => {
-                              const isSel =
-                                selectedSlot?.start_time === s.start_time;
-                              return (
-                                <li key={s.start_time}>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setSelectedSlot(s);
-                                    }}
-                                    className={clsx(
-                                      "rounded-lg border px-3 py-1.5 text-xs font-medium transition",
-                                      isSel
-                                        ? "border-brand-600 bg-brand-600 text-white"
-                                        : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
-                                    )}
-                                  >
-                                    {dateFormatter.format(new Date(s.start_time))}
-                                  </button>
-                                </li>
-                              );
-                            })}
-                          </ul>
-                        </div>
-                      )}
                     </button>
+
+                    {selectedDetailerId === m.user_id && (
+                      <div className="border-t border-zinc-100 p-4 pt-3">
+                        <p className="mb-2 text-xs font-medium uppercase tracking-wider text-zinc-500">
+                          {t("availableSlots")}
+                        </p>
+                        <ul className="flex flex-wrap gap-2">
+                          {m.available_slots.map((s) => {
+                            const isSel =
+                              selectedSlot?.start_time === s.start_time;
+                            return (
+                              <li key={s.start_time}>
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedSlot(s)}
+                                  className={clsx(
+                                    "rounded-lg border px-3 py-1.5 text-xs font-medium transition",
+                                    isSel
+                                      ? "border-brand-600 bg-brand-600 text-white"
+                                      : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                                  )}
+                                >
+                                  {dateFormatter.format(new Date(s.start_time))}
+                                </button>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>

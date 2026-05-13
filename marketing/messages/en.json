@@ -444,6 +444,7 @@
       "vehicles": "Pick vehicles",
       "addons": "Add-ons (optional)",
       "date": "Date & address",
+      "address": "Service address",
       "match": "Pick detailer",
       "pay": "Pay"
     },
