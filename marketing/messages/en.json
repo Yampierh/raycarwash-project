@@ -1,8 +1,8 @@
 {
   "meta": {
-    "title": "RayCarWash — Mobile car detailing, anywhere in Fort Wayne",
-    "description": "Book a vetted detailer who travels to you. Professional interior and exterior detailing at your home or office, on your schedule.",
-    "ogAlt": "RayCarWash — mobile car detailing"
+    "title": "RayCarWash — Mobile car wash & detailing in Fort Wayne",
+    "description": "Book a trusted mobile car wash and detailing service that comes to you. Interior and exterior cleaning at your home or office, on your schedule.",
+    "ogAlt": "RayCarWash — mobile car wash and detailing"
   },
   "nav": {
     "home": "Home",
@@ -10,46 +10,46 @@
     "services": "Services",
     "detailers": "For detailers",
     "faq": "FAQ",
-    "login": "Login",
+    "login": "Log in",
     "signup": "Sign up",
     "logout": "Sign out",
     "dashboard": "Dashboard",
-    "openApp": "Open mobile app"
+    "openApp": "Open app"
   },
   "hero": {
-    "kicker": "Mobile detailing • Fort Wayne, IN",
-    "h1": "Pro detailers, on your driveway.",
-    "sub": "Book a vetted mobile detailer in minutes. They drive to you with everything they need — you get a showroom finish without leaving home.",
+    "kicker": "Mobile car wash & detailing • Fort Wayne, IN",
+    "h1": "Car wash and detailing, at your doorstep.",
+    "sub": "Book a trusted mobile car wash or detailing service in minutes. We come fully equipped — you get a spotless, showroom-ready car without leaving home.",
     "ctaPrimary": "Download the app",
     "ctaSecondary": "Become a detailer",
     "bullets": [
-      "Vetted, insured professionals",
+      "Vetted and insured professionals",
       "Transparent flat-rate pricing",
-      "Live ETA + photos when they finish"
+      "Live ETA and before/after photos"
     ],
     "appStoreAlt": "Download on the App Store",
     "playStoreAlt": "Get it on Google Play"
   },
   "how": {
     "kicker": "How it works",
-    "h2": "Four steps. Zero hassle.",
-    "sub": "From booking to a clean car, the whole flow is built around your schedule.",
+    "h2": "Simple. Fast. Done right.",
+    "sub": "From booking to a clean car, everything is built around your time.",
     "steps": [
       {
         "title": "Book in the app",
-        "body": "Pick a service, add your vehicle, choose a time window. You get an instant flat-rate quote."
+        "body": "Choose a service, add your vehicle, and pick a time. Get an instant flat-rate quote."
       },
       {
-        "title": "Your detailer travels to you",
-        "body": "We match you with a nearby, vetted detailer. Track their live ETA inside the app."
+        "title": "We come to you",
+        "body": "A nearby vetted detailer is assigned. Track their arrival in real time."
       },
       {
-        "title": "Service at your spot",
-        "body": "They bring water, power, and pro-grade products. You keep doing whatever you were doing."
+        "title": "Service at your location",
+        "body": "They bring water, power, and pro products. You stay focused on your day."
       },
       {
-        "title": "Pay & review",
-        "body": "Pay securely through the app. Rate your detailer to help the community."
+        "title": "Pay and review",
+        "body": "Pay securely in the app and rate your experience."
       }
     ]
   },
@@ -433,14 +433,31 @@
   },
   "detailerHome": {
     "title": "Your jobs",
+    "greeting": "Hi {name}",
     "sub": "Manage incoming bookings and track your earnings.",
-    "yes": "Yes",
-    "no": "No",
-    "loadError": "Couldn't load your detailer profile.",
+    "accepting": "Accepting jobs",
+    "paused": "Paused",
+    "loadError": "Couldn't update your status. Please try again.",
+    "activeJobs": "Active jobs",
+    "countJobs": "{count, plural, one {# job} other {# jobs}}",
+    "noRating": "No rating yet",
+    "client": "Client",
     "stats": {
       "jobs": "Jobs done",
       "earnings": "Total earnings",
-      "accepting": "Accepting jobs"
+      "rating": "Rating"
+    },
+    "status": {
+      "pending": "Pending",
+      "searching": "Searching",
+      "confirmed": "Confirmed",
+      "arrived": "Arrived",
+      "in_progress": "In progress",
+      "completed": "Completed",
+      "cancelled_by_client": "Cancelled by client",
+      "cancelled_by_detailer": "Cancelled",
+      "no_show": "No show",
+      "no_detailer_found": "No detailer found"
     },
     "verifyPending": {
       "title": "Verification under review",
@@ -450,9 +467,87 @@
       "title": "Verification not approved",
       "body": "Please contact support to resolve this."
     },
-    "placeholder": {
-      "title": "Job queue coming soon on web",
-      "body": "We're building the full job queue here. Meanwhile, use the mobile app to accept and complete jobs."
+    "emptyJobs": {
+      "title": "No active jobs",
+      "body": "When a client books with you, the request will appear here."
+    }
+  },
+  "detailerJob": {
+    "title": "Job detail",
+    "back": "Back to jobs",
+    "backToJobs": "Back to jobs",
+    "loadError": "Couldn't load this job.",
+    "error": "Couldn't update the job. Please try again.",
+    "scheduled": "Scheduled for",
+    "client": "Client",
+    "phone": "Phone",
+    "address": "Service address",
+    "vehicles": "Vehicles",
+    "vehicle": "Vehicle",
+    "clientNotes": "Client notes",
+    "estimatedPrice": "Estimated price",
+    "finalPrice": "Final price",
+    "completionNotes": "Completion notes",
+    "completionNotesPlaceholder": "Anything the client should know about the job?",
+    "cancelPrompt": "Why are you cancelling this job? (optional)",
+    "actions": {
+      "confirm": "Confirm booking",
+      "markArrived": "I've arrived",
+      "start": "Start service",
+      "complete": "Mark complete",
+      "cancel": "Cancel job"
+    },
+    "status": {
+      "pending": "Pending",
+      "searching": "Searching",
+      "confirmed": "Confirmed",
+      "arrived": "Arrived",
+      "in_progress": "In progress",
+      "completed": "Completed",
+      "cancelled_by_client": "Cancelled by client",
+      "cancelled_by_detailer": "Cancelled",
+      "no_show": "No show",
+      "no_detailer_found": "No detailer found"
+    }
+  },
+  "detailerServices": {
+    "title": "Your services",
+    "sub": "Toggle the services you offer and set custom pricing.",
+    "loadError": "Couldn't load services.",
+    "emptyTitle": "No services available",
+    "emptyBody": "Once the platform adds services, you'll be able to enable them here.",
+    "basePrice": "Base",
+    "yourPrice": "Your price",
+    "editPrice": "Edit price",
+    "priceInvalid": "Enter a valid price greater than $0.",
+    "error": "Couldn't save the change."
+  },
+  "detailerProfile": {
+    "title": "Your profile",
+    "sub": "Update how you appear to clients.",
+    "bio": "Bio",
+    "bioPlaceholder": "Tell clients a bit about your experience and what makes your work stand out.",
+    "years": "Years of experience",
+    "radius": "Service radius (miles)",
+    "radiusHint": "How far from your base you're willing to travel.",
+    "memberSince": "Member since {date}",
+    "save": "Save changes",
+    "saving": "Saving…",
+    "saved": "Profile updated.",
+    "signOut": "Sign out",
+    "error": "Couldn't save your profile."
+  },
+  "detailerEarnings": {
+    "title": "Earnings",
+    "sub": "Your total earnings and completed jobs.",
+    "history": "Recent jobs",
+    "client": "Client",
+    "emptyTitle": "No completed jobs yet",
+    "emptyBody": "Once you complete your first job, your earnings will show up here.",
+    "stats": {
+      "total": "Total",
+      "jobs": "Completed jobs",
+      "average": "Avg. per job"
     }
   },
   "welcome": {

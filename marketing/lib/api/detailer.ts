@@ -17,23 +17,51 @@ export type VerificationSubmitRequest = {
   session_id?: string;
 };
 
+export type VerificationStatus = {
+  verification_status: "not_submitted" | "pending" | "approved" | "rejected";
+  legal_full_name?: string | null;
+  submitted_at?: string | null;
+  reviewed_at?: string | null;
+  rejection_reason?: string | null;
+};
+
 export type DetailerService = {
   service_id: string;
   name: string;
+  description?: string | null;
   base_price_cents: number;
   custom_price_cents: number | null;
   is_active: boolean;
 };
 
 export type DetailerMe = {
-  id: string;
+  user_id: string;
+  full_name: string;
+  bio?: string | null;
+  years_of_experience?: number | null;
+  service_radius_miles: number;
+  is_accepting_bookings: boolean;
+  average_rating?: number | null;
+  total_reviews: number;
+  total_earnings_cents: number;
+  total_services: number;
+  specialties: string[];
+  created_at: string;
+};
+
+export type WorkingHoursDay = {
+  start: string;
+  end: string;
+  enabled?: boolean;
+};
+
+export type DetailerProfileUpdate = {
   bio?: string | null;
   years_of_experience?: number | null;
   service_radius_miles?: number | null;
-  is_accepting_bookings?: boolean;
-  verification_status?: "not_submitted" | "pending" | "approved" | "rejected";
-  total_earnings_cents?: number;
-  total_services?: number;
+  is_accepting_bookings?: boolean | null;
+  timezone?: string | null;
+  working_hours?: Record<string, WorkingHoursDay> | null;
 };
 
 export async function startVerification() {
@@ -45,6 +73,13 @@ export async function startVerification() {
 
 export async function submitVerification(body: VerificationSubmitRequest) {
   const res = await apiClient.post(`/detailers/verification/submit`, body);
+  return res.data;
+}
+
+export async function getVerificationStatus() {
+  const res = await apiClient.get<VerificationStatus>(
+    "/detailers/verification/status"
+  );
   return res.data;
 }
 
@@ -69,7 +104,14 @@ export async function getMyDetailer() {
   return res.data;
 }
 
-export async function updateMyDetailer(body: Partial<DetailerMe>) {
+export async function updateMyDetailer(body: DetailerProfileUpdate) {
   const res = await apiClient.put<DetailerMe>("/detailers/me", body);
+  return res.data;
+}
+
+export async function setAcceptingBookings(is_accepting_bookings: boolean) {
+  const res = await apiClient.patch<DetailerMe>("/detailers/me/status", {
+    is_accepting_bookings,
+  });
   return res.data;
 }
