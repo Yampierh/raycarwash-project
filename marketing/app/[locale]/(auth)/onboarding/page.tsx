@@ -59,6 +59,7 @@ export default function OnboardingPage() {
         access_token: data.access_token ?? null,
         refresh_token: data.refresh_token ?? null,
         onboarding_token: null,
+        roles: data.roles ?? [],
         next_step: data.next_step ?? null,
       });
       clearSignupRole();

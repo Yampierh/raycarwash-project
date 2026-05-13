@@ -1,5 +1,5 @@
 import type { LoginResponse, SocialAuthResponse } from "@/lib/api/auth-client";
-import { extractRole } from "@/lib/auth";
+import { effectiveRoleOf } from "@/lib/auth";
 
 const SIGNUP_ROLE_KEY = "raycarwash_signup_role";
 
@@ -30,13 +30,13 @@ export function resolvePostAuthPath(
 ): { path: string; externalAdmin?: boolean } {
   const access = data.access_token;
   const next = data.next_step;
-  const role = access ? extractRole(access) : null;
+  const effective = effectiveRoleOf(data.roles);
 
   if (next === "complete_profile" || (data.onboarding_token && !access)) {
     return { path: "/onboarding" };
   }
 
-  if (role === "admin") {
+  if (effective === "admin") {
     return { path: "/dashboard", externalAdmin: true };
   }
 

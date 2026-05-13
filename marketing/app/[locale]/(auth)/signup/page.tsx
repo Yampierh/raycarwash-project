@@ -43,6 +43,7 @@ export default function SignupPage() {
         access_token: data.access_token ?? null,
         refresh_token: data.refresh_token ?? null,
         onboarding_token: data.onboarding_token ?? null,
+        roles: data.roles ?? [],
         next_step: data.next_step ?? null,
       });
       router.push("/signup/role");
@@ -66,6 +67,7 @@ export default function SignupPage() {
         access_token: data.access_token ?? null,
         refresh_token: data.refresh_token ?? null,
         onboarding_token: data.onboarding_token ?? null,
+        roles: data.roles ?? [],
         next_step: data.next_step ?? null,
       });
       if (data.is_new_user) {

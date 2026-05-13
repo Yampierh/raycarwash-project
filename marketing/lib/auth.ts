@@ -35,3 +35,16 @@ export function isTokenExpired(token: string): boolean {
 export function getJwtPayload(token: string): JwtPayload | null {
   return decode(token);
 }
+
+/** Mirrors backend authz precedence: admin > detailer > client. */
+export type EffectiveRole = "admin" | "detailer" | "client" | null;
+
+export function effectiveRoleOf(
+  roles: string[] | null | undefined
+): EffectiveRole {
+  if (!roles || roles.length === 0) return null;
+  if (roles.includes("admin")) return "admin";
+  if (roles.includes("detailer")) return "detailer";
+  if (roles.includes("client")) return "client";
+  return null;
+}

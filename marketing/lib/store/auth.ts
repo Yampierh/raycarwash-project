@@ -23,6 +23,7 @@ export type AuthState = {
   refreshToken: string | null;
   onboardingToken: string | null;
   role: string | null;
+  roles: string[];
   user: AuthUser | null;
   nextStep: NextStep;
   hydrated: boolean;
@@ -31,6 +32,7 @@ export type AuthState = {
     access_token?: string | null;
     refresh_token?: string | null;
     onboarding_token?: string | null;
+    roles?: string[] | null;
     next_step?: NextStep;
     user?: AuthUser | null;
   }) => void;
@@ -46,6 +48,7 @@ export const useAuthStore = create<AuthState>()(
       refreshToken: null,
       onboardingToken: null,
       role: null,
+      roles: [],
       user: null,
       nextStep: null,
       hydrated: false,
@@ -61,6 +64,12 @@ export const useAuthStore = create<AuthState>()(
                 ? tokens.onboarding_token
                 : state.onboardingToken,
             role: access ? extractRole(access) : state.role,
+            // Preserve existing roles when not provided (e.g. refresh token flow
+            // returns no roles list). Empty array is a valid explicit "no roles".
+            roles:
+              tokens.roles != null
+                ? tokens.roles
+                : state.roles,
             user: tokens.user !== undefined ? tokens.user : state.user,
             nextStep:
               tokens.next_step !== undefined ? tokens.next_step : state.nextStep,
@@ -75,6 +84,7 @@ export const useAuthStore = create<AuthState>()(
           refreshToken: null,
           onboardingToken: null,
           role: null,
+          roles: [],
           user: null,
           nextStep: null,
         }),
@@ -91,6 +101,7 @@ export const useAuthStore = create<AuthState>()(
         accessToken: s.accessToken,
         refreshToken: s.refreshToken,
         onboardingToken: s.onboardingToken,
+        roles: s.roles,
         user: s.user,
         nextStep: s.nextStep,
       }),
@@ -101,6 +112,7 @@ export const useAuthStore = create<AuthState>()(
             if (isTokenExpired(state.accessToken)) {
               state.accessToken = null;
               state.role = null;
+              state.roles = [];
             } else {
               state.role = extractRole(state.accessToken);
             }
