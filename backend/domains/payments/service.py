@@ -122,12 +122,20 @@ class PaymentService:
                 detail="Only the booking client can initiate payment.",
             )
 
-        if appointment.status != AppointmentStatus.CONFIRMED:
+        # Auth happens at booking (PENDING). The intent is created with
+        # capture_method=manual so funds are held but not captured until the
+        # appointment is COMPLETED (see capture_payment_intent below). A
+        # CONFIRMED appointment with no intent yet (legacy/edge case) is also
+        # accepted. Any other status is rejected.
+        if appointment.status not in (
+            AppointmentStatus.PENDING,
+            AppointmentStatus.CONFIRMED,
+        ):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=(
-                    f"Payment can only be initiated for CONFIRMED appointments. "
-                    f"Current status: '{appointment.status.value}'."
+                    f"Payment can only be initiated for PENDING or CONFIRMED "
+                    f"appointments. Current status: '{appointment.status.value}'."
                 ),
             )
 
@@ -175,6 +183,9 @@ class PaymentService:
                 amount=appointment.estimated_price,
                 currency=settings.STRIPE_CURRENCY,
                 customer=customer_id,
+                # Auth-and-hold: funds are reserved at booking but captured
+                # later when the appointment transitions to COMPLETED.
+                capture_method="manual",
                 metadata={
                     "appointment_id": str(appointment.id),
                     "detailer_id":    str(appointment.detailer_id),
@@ -215,6 +226,84 @@ class PaymentService:
             "currency": settings.STRIPE_CURRENCY,
             "status": pi_status,
         }
+
+    # ---------------------------------------------------------------- #
+    #  capture_payment_intent — called when the job is COMPLETED        #
+    # ---------------------------------------------------------------- #
+
+    async def capture_payment_intent(
+        self,
+        payment_intent_id: str,
+        amount_cents: int | None = None,
+    ) -> str | None:
+        """
+        Capture funds that were authorized at booking time.
+
+        Returns the PI status after capture, or None when running with a
+        stub key. Idempotent: if the intent is already captured (status =
+        "succeeded") this is a no-op.
+
+        Called by AppointmentService.transition_status() when an
+        appointment transitions into COMPLETED.
+        """
+        if self._is_stub_key() or payment_intent_id.startswith("pi_stub"):
+            logger.info(
+                "Stub capture | pi=%s amount=%s",
+                payment_intent_id, amount_cents,
+            )
+            return None
+
+        kwargs: dict = {}
+        if amount_cents is not None and amount_cents > 0:
+            kwargs["amount_to_capture"] = amount_cents
+
+        intent = await asyncio.to_thread(
+            stripe.PaymentIntent.capture, payment_intent_id, **kwargs
+        )
+        logger.info(
+            "PaymentIntent captured | pi=%s amount=%d¢ status=%s",
+            payment_intent_id, intent.amount_received, intent.status,
+        )
+        return intent.status
+
+    # ---------------------------------------------------------------- #
+    #  cancel_payment_intent — void an uncaptured authorization         #
+    # ---------------------------------------------------------------- #
+
+    async def cancel_payment_intent(
+        self,
+        payment_intent_id: str,
+        reason: str = "abandoned",
+    ) -> str | None:
+        """
+        Void an uncaptured PaymentIntent (releases the auth hold).
+
+        Returns the PI status after cancellation, or None for stub mode.
+        Safe to call on an already-cancelled intent (Stripe is idempotent).
+
+        Called when a PENDING/CONFIRMED appointment is cancelled before
+        the funds were captured.
+
+        Reason values supported by Stripe:
+          "duplicate" | "fraudulent" | "requested_by_customer" | "abandoned"
+        """
+        if self._is_stub_key() or payment_intent_id.startswith("pi_stub"):
+            logger.info(
+                "Stub cancel | pi=%s reason=%s",
+                payment_intent_id, reason,
+            )
+            return None
+
+        intent = await asyncio.to_thread(
+            stripe.PaymentIntent.cancel,
+            payment_intent_id,
+            cancellation_reason=reason,
+        )
+        logger.info(
+            "PaymentIntent cancelled | pi=%s status=%s reason=%s",
+            payment_intent_id, intent.status, reason,
+        )
+        return intent.status
 
     # ---------------------------------------------------------------- #
     #  create_refund  (Sprint 4)                                        #

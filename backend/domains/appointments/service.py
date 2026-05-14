@@ -500,16 +500,77 @@ class AppointmentService:
         if new_status == AppointmentStatus.IN_PROGRESS:
             appointment.started_at = datetime.now(timezone.utc)
 
+        # ---- Capture held funds on COMPLETED ---------------------------- #
+        # The PaymentIntent was created at booking with capture_method=manual
+        # (funds authorized but not captured). Here is where they actually
+        # get charged.
+        if (
+            new_status == AppointmentStatus.COMPLETED
+            and appointment.stripe_payment_intent_id
+            and not appointment.stripe_payment_intent_id.startswith("pi_stub_NOPAY")
+        ):
+            from domains.payments.service import PaymentService  # avoid circular import
+            payment_svc = PaymentService(self._db)
+            try:
+                await payment_svc.capture_payment_intent(
+                    payment_intent_id=appointment.stripe_payment_intent_id,
+                    amount_cents=appointment.actual_price,
+                )
+            except Exception as exc:  # noqa: BLE001
+                # A capture failure is a real money issue worth surfacing; we
+                # leave the status update in place but log loudly. Ops should
+                # reconcile from the Stripe dashboard.
+                logger.exception(
+                    "Capture failed on COMPLETED transition | appt=%s pi=%s err=%s",
+                    appointment.id,
+                    appointment.stripe_payment_intent_id,
+                    exc,
+                )
+
         refund_amount_cents = 0
         refund_policy_applied = "none"
         stripe_refund_id: str | None = None
+        auth_voided = False
 
         is_cancellation = new_status in (
             AppointmentStatus.CANCELLED_BY_CLIENT,
             AppointmentStatus.CANCELLED_BY_DETAILER,
         )
+
+        # ---- Cancellation: void uncaptured auth OR refund captured funds  #
         if (
             is_cancellation
+            and appointment.stripe_payment_intent_id
+            and not appointment.stripe_payment_intent_id.startswith("pi_stub_NOPAY")
+            and current != AppointmentStatus.COMPLETED
+        ):
+            # Pre-capture auth → just void the hold; client never charged.
+            from domains.payments.service import PaymentService  # avoid circular import
+            payment_svc = PaymentService(self._db)
+            try:
+                await payment_svc.cancel_payment_intent(
+                    payment_intent_id=appointment.stripe_payment_intent_id,
+                    reason="requested_by_customer"
+                    if new_status == AppointmentStatus.CANCELLED_BY_CLIENT
+                    else "abandoned",
+                )
+                auth_voided = True
+                refund_policy_applied = "auth_voided"
+                logger.info(
+                    "Auth voided on cancellation | appt=%s pi=%s",
+                    appointment.id, appointment.stripe_payment_intent_id,
+                )
+            except Exception as exc:  # noqa: BLE001
+                # If the intent was already captured (race) Stripe will raise;
+                # fall through to refund logic below.
+                logger.warning(
+                    "Void failed (maybe already captured) | appt=%s err=%s",
+                    appointment.id, exc,
+                )
+
+        if (
+            is_cancellation
+            and not auth_voided
             and current == AppointmentStatus.CONFIRMED
             and appointment.stripe_payment_intent_id
             and not appointment.stripe_payment_intent_id.startswith("pi_stub_NOPAY")

@@ -8,6 +8,8 @@ import { useServices } from "@/lib/hooks/useServices";
 import { useAddons } from "@/lib/hooks/useAddons";
 import { findMatches, type MatchingResult, type TimeSlot } from "@/lib/api/matching";
 import { createAppointment } from "@/lib/api/appointments";
+import { createPaymentIntent } from "@/lib/api/payments";
+import { CheckoutForm } from "@/components/app/CheckoutForm";
 import { PageHeader } from "@/components/app/PageHeader";
 import { EmptyState } from "@/components/app/EmptyState";
 import { Input } from "@/components/forms/Input";
@@ -31,7 +33,7 @@ import clsx from "clsx";
 // Fort Wayne, IN center — fallback if geolocation isn't available.
 const FALLBACK_COORDS = { lat: 41.0793, lng: -85.1394 };
 
-type Step = 0 | 1 | 2;
+type Step = 0 | 1 | 2 | 3;
 
 export default function BookPage() {
   const t = useTranslations("book");
@@ -63,9 +65,12 @@ export default function BookPage() {
   const [selectedDetailerId, setSelectedDetailerId] = useState<string | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null);
 
-  // Confirm state
+  // Confirm / checkout state
   const [confirmLoading, setConfirmLoading] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
+  const [appointmentId, setAppointmentId] = useState<string | null>(null);
+  const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [amountCents, setAmountCents] = useState<number | null>(null);
 
   // Geolocate on mount.
   useEffect(() => {
@@ -167,9 +172,14 @@ export default function BookPage() {
           addon_ids: addonIds,
         })),
       });
-      // Payment happens later, once the detailer confirms (status -> CONFIRMED).
-      // For now, drop the user on the appointment detail where they can track it.
-      router.push(`/client/appointments/${appt.id}`);
+      setAppointmentId(appt.id);
+
+      // Authorize the funds now (manual capture). The hold stays until the
+      // detailer marks the job COMPLETED, at which point the backend captures.
+      const intent = await createPaymentIntent(appt.id);
+      setClientSecret(intent.client_secret);
+      setAmountCents(intent.amount_cents);
+      setStep(3);
       return;
     } catch (err: unknown) {
       const response = (err as { response?: { status?: number; data?: { detail?: string } } })?.response;
@@ -191,6 +201,11 @@ export default function BookPage() {
     } finally {
       setConfirmLoading(false);
     }
+  }
+
+  function handlePaymentSuccess() {
+    if (!appointmentId) return;
+    router.push(`/client/appointments/${appointmentId}`);
   }
 
   const hasVehicles = (vehicles?.length ?? 0) > 0;
@@ -553,9 +568,47 @@ export default function BookPage() {
               disabled={!selectedDetailerId || !selectedSlot}
               onClick={handleConfirmBooking}
             >
-              {t("confirmBooking")}
+              {t("confirmAndPay")}
             </Button>
           </div>
+        </section>
+      )}
+
+      {/* STEP 3: Stripe Elements — authorize funds (manual capture) */}
+      {step === 3 && clientSecret && amountCents !== null && (
+        <section className="space-y-6">
+          <SummaryCard
+            service={selectedService?.name ?? "—"}
+            vehiclesCount={selectedVehicles.length}
+            address={serviceAddress}
+            slotLabel={
+              selectedSlot
+                ? dateFormatter.format(new Date(selectedSlot.start_time))
+                : null
+            }
+            detailerName={selectedDetailer?.full_name ?? null}
+            priceCents={amountCents}
+            t={t}
+          />
+
+          <SectionCard
+            icon={<Sparkles className="size-5" />}
+            title={t("steps.pay")}
+          >
+            <p className="mb-4 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs leading-relaxed text-zinc-600">
+              {t("authNotice")}
+            </p>
+            <CheckoutForm
+              clientSecret={clientSecret}
+              amountCents={amountCents}
+              returnUrl={
+                typeof window !== "undefined"
+                  ? `${window.location.origin}/client/appointments/${appointmentId}`
+                  : ""
+              }
+              onSuccess={handlePaymentSuccess}
+            />
+          </SectionCard>
         </section>
       )}
     </div>
@@ -568,6 +621,7 @@ function Steps({ current }: { current: Step }) {
     t("steps.service"),
     t("steps.date"),
     t("steps.match"),
+    t("steps.pay"),
   ];
   return (
     <ol className="mb-8 flex items-center gap-2">

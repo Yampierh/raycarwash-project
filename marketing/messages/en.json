@@ -437,7 +437,8 @@
     "startingAt": "Starting at",
     "findMatches": "Find available detailers",
     "matchError": "Couldn't find matching detailers. Try a different date or address.",
-    "confirmBooking": "Confirm booking",
+    "confirmAndPay": "Confirm & reserve funds",
+    "authNotice": "We'll authorize the funds now and hold them until your job is completed. The detailer is paid only after marking the service done.",
     "confirmError": "Couldn't create the booking. Please try again.",
     "slotTaken": "That time was just taken. We refreshed the available slots — pick another time.",
     "availableSlots": "Available times",
@@ -487,8 +488,8 @@
     "backToHome": "Back to home",
     "loadError": "Couldn't load this appointment.",
     "pendingBanner": {
-      "title": "Waiting for the detailer to confirm",
-      "body": "We've sent your booking request. The detailer will accept it shortly — you'll see the status change here, and you'll be able to pay once it's confirmed."
+      "title": "Funds reserved — waiting for detailer to confirm",
+      "body": "We've authorized your card and we're holding the funds for this job. The detailer will accept your booking shortly. You'll only be charged once they mark the service as completed."
     },
     "scheduled": "Scheduled for",
     "detailer": "Detailer",
