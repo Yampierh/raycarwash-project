@@ -2,11 +2,15 @@
 shared/schemas.py — Cross-domain Pydantic base classes and generic response types.
 
 Import from here, never from app.schemas.schemas, for new domain code.
+
+Profile system (Phase 0) introduces `Envelope[T]`, `PaginatedEnvelope[T]`, `ErrorEnvelope`,
+and `Meta` for uniform API responses under /api/v1/*. Legacy classes (`PaginatedResponse`,
+`ErrorDetail`) are kept for backwards compatibility with pre-Phase 0 endpoints.
 """
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -51,12 +55,14 @@ class HealthResponse(_BaseSchema):
 
 
 class ErrorDetail(_BaseSchema):
+    """Legacy error shape — use ErrorEnvelope for new endpoints."""
     code: str = Field(..., examples=["VALIDATION_ERROR", "NOT_FOUND"])
     message: str
     details: list[dict] | None = Field(default=None)
 
 
 class PaginatedResponse(_BaseSchema):
+    """Legacy paginated shape (page-based) — use PaginatedEnvelope (cursor-based) for new endpoints."""
     items: list[Any]
     total: int
     page: int
@@ -67,3 +73,76 @@ class PaginatedResponse(_BaseSchema):
     def build(cls, items: list[Any], total: int, page: int, page_size: int) -> PaginatedResponse:
         pages = max(1, -(-total // page_size))
         return cls(items=items, total=total, page=page, page_size=page_size, pages=pages)
+
+
+# ─── Envelope generics (Phase 0) ──────────────────────────────────────────────
+
+T = TypeVar("T")
+
+
+class FieldError(_BaseSchema):
+    field: str
+    reason: str
+
+
+class ErrorPayload(_BaseSchema):
+    """Standardized error body. `code` is a machine-readable identifier."""
+    code: str = Field(..., examples=[
+        "bad_request", "authentication_required", "step_up_required",
+        "permission_denied", "resource_not_found", "conflict",
+        "validation_failed", "rate_limit_exceeded", "internal_error",
+    ])
+    message: str
+    details: list[FieldError] | None = None
+    request_id: str | None = None
+
+
+class Meta(_BaseSchema):
+    """Optional metadata block. Endpoints populate the fields they need."""
+    # Cursor pagination
+    cursor: str | None = None
+    prev_cursor: str | None = None
+    has_more: bool | None = None
+    limit: int | None = None
+    # Profile Hub
+    includes: list[str] | None = None
+    # Step-up
+    requires_step_up: list[str] | None = None
+    skipped_due_to_step_up: list[str] | None = None
+
+
+class Envelope(_BaseSchema, Generic[T]):
+    """Uniform success envelope. `data` carries the resource (object, list, or composite)."""
+    data: T
+    meta: Meta | None = None
+    links: dict[str, str] | None = None
+
+
+class PaginatedEnvelope(_BaseSchema, Generic[T]):
+    """List endpoints with cursor pagination. `meta` is always populated."""
+    data: list[T]
+    meta: Meta
+    links: dict[str, str] | None = None
+
+
+class ErrorEnvelope(_BaseSchema):
+    """Uniform error envelope. Returned for any non-2xx response from /api/v1/*."""
+    error: ErrorPayload
+    meta: Meta | None = None  # carries step-up info on 401 step_up_required
+
+
+# Convenience type aliases — use these when authoring endpoints
+__all__ = [
+    "_BaseSchema",
+    "_BaseRequestSchema",
+    "PositiveCents",
+    "HealthResponse",
+    "ErrorDetail",
+    "PaginatedResponse",
+    "Envelope",
+    "PaginatedEnvelope",
+    "ErrorEnvelope",
+    "ErrorPayload",
+    "FieldError",
+    "Meta",
+]

@@ -43,6 +43,11 @@ from domains.notifications.handlers import register_handlers as register_notific
 
 from shared.schemas import ErrorDetail, HealthResponse
 from app.core.logging_context import RequestIdFilter, StaticFieldsFilter, request_id_var
+from app.middleware.request_id import RequestIDMiddleware
+from app.middleware.structured_logging import StructuredLoggingMiddleware
+from app.middleware.audit_context import AuditContextMiddleware
+from app.core.idempotency import IdempotencyMiddleware
+from app.exception_handlers import register_exception_handlers
 from pythonjsonlogger import jsonlogger
 
 # ── Logging ──────────────────────────────────────────────────────────
@@ -177,32 +182,9 @@ def create_application() -> FastAPI:
     application.state.limiter = limiter
     application.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-    # ---- Correlation ID middleware ----
-    # Generates a unique X-Request-ID per request (or echoes the client-supplied
-    # one). Stored in request_id_var (ContextVar) so every log line emitted
-    # within this request's asyncio Task automatically carries it via
-    # RequestIdFilter. Returned in the response header for client-side tracing.
-    _req_log = logging.getLogger("raycarwash.request")
-
-    @application.middleware("http")
-    async def correlation_id_middleware(request: Request, call_next):
-        request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
-        token = request_id_var.set(request_id)
-        try:
-            _req_log.info(
-                "HTTP request",
-                extra={
-                    "method": request.method,
-                    "path": request.url.path,
-                    "client": getattr(request.client, "host", "-"),
-                },
-            )
-            response = await call_next(request)
-            _req_log.info("HTTP response", extra={"status_code": response.status_code})
-            response.headers["X-Request-ID"] = request_id
-            return response
-        finally:
-            request_id_var.reset(token)
+    # ---- Standardized exception handlers (Phase 0) ----
+    # Maps ValidationError, HTTPException, BusinessError → ErrorEnvelope.
+    register_exception_handlers(application)
 
     # ---- CORS ----
     application.add_middleware(
@@ -210,9 +192,25 @@ def create_application() -> FastAPI:
         allow_origins=settings.ALLOWED_ORIGINS,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "Accept", "X-Request-ID"],
-        expose_headers=["X-Process-Time-Ms", "X-Request-ID"],
+        allow_headers=["Authorization", "Content-Type", "Accept", "X-Request-ID", "Idempotency-Key"],
+        expose_headers=[
+            "X-Process-Time-Ms", "X-Request-ID",
+            "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset",
+            "Deprecation", "Sunset", "Link",
+        ],
     )
+
+    # ---- Phase 0 middleware stack ----
+    # `add_middleware` registers in reverse execution order: LAST added runs FIRST.
+    # Desired runtime order on each request:
+    #   1. RequestIDMiddleware       (outermost — generates request_id for everything else)
+    #   2. StructuredLoggingMiddleware (logs every request once)
+    #   3. AuditContextMiddleware    (extracts ip/UA/request_id into request.state.audit_ctx)
+    #   4. IdempotencyMiddleware     (innermost — needs user state set by auth dependency)
+    application.add_middleware(IdempotencyMiddleware)
+    application.add_middleware(AuditContextMiddleware)
+    application.add_middleware(StructuredLoggingMiddleware)
+    application.add_middleware(RequestIDMiddleware)
 
     # ── All domain routers via api/router.py aggregation ──
     application.include_router(api_router)
