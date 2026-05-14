@@ -5,16 +5,19 @@ import { useTranslations } from "next-intl";
 import { useRouter, Link } from "@/i18n/navigation";
 import { login, googleLogin } from "@/lib/api/auth-client";
 import { useAuthStore } from "@/lib/store/auth";
-import { resolvePostAuthPath } from "@/lib/auth-flow";
+import { resolvePostAuthPath, resolveActiveRole } from "@/lib/auth-flow";
 import { Input } from "@/components/forms/Input";
 import { Button } from "@/components/forms/Button";
 import { FormError } from "@/components/forms/FormError";
 import GoogleButton from "@/components/auth/GoogleButton";
+import RoleToggle from "@/components/auth/RoleToggle";
 
 export default function LoginPage() {
   const t = useTranslations("login");
+  const tToggle = useTranslations("roleToggle");
   const router = useRouter();
   const setSession = useAuthStore((s) => s.setSession);
+  const roleIntent = useAuthStore((s) => s.roleIntent);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -22,21 +25,51 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
 
   async function handleSession(data: Awaited<ReturnType<typeof login>>) {
+    const roles = data.roles ?? [];
+    const intent = roleIntent ?? "client";
+
+    // Admin overrides any intent — always go to admin dashboard.
+    if (roles.includes("admin")) {
+      setSession({
+        access_token: data.access_token ?? null,
+        refresh_token: data.refresh_token ?? null,
+        onboarding_token: data.onboarding_token ?? null,
+        roles,
+        active_role: "admin",
+        next_step: data.next_step ?? null,
+      });
+      const adminUrl =
+        process.env.NEXT_PUBLIC_ADMIN_URL ?? "http://localhost:3000";
+      window.location.href = `${adminUrl}/dashboard`;
+      return;
+    }
+
+    // Onboarding flows skip intent validation (no roles yet, just an onboarding_token).
+    const isOnboarding =
+      data.next_step === "complete_profile" ||
+      (data.onboarding_token && !data.access_token);
+
+    if (!isOnboarding && roles.length > 0 && !roles.includes(intent)) {
+      setError(
+        tToggle("wrongRole", {
+          role:
+            intent === "detailer" ? tToggle("provider") : tToggle("client"),
+        })
+      );
+      return;
+    }
+
+    const active = resolveActiveRole(roles, intent);
     setSession({
       access_token: data.access_token ?? null,
       refresh_token: data.refresh_token ?? null,
       onboarding_token: data.onboarding_token ?? null,
-      roles: data.roles ?? [],
+      roles,
+      active_role: active,
       next_step: data.next_step ?? null,
     });
 
-    const { path, externalAdmin } = resolvePostAuthPath(data);
-    if (externalAdmin) {
-      const adminUrl =
-        process.env.NEXT_PUBLIC_ADMIN_URL ?? "http://localhost:3000";
-      window.location.href = `${adminUrl}${path}`;
-      return;
-    }
+    const { path } = resolvePostAuthPath(data);
     router.push(path);
   }
 
@@ -92,6 +125,8 @@ export default function LoginPage() {
         </div>
 
         <div className="space-y-4 rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm">
+          <RoleToggle labelKey="signInAs" />
+
           <GoogleButton
             label={t("continueGoogle")}
             onSuccess={handleGoogle}

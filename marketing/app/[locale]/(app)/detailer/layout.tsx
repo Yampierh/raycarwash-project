@@ -3,7 +3,6 @@
 import { useEffect } from "react";
 import { useRouter } from "@/i18n/navigation";
 import { useAuthStore } from "@/lib/store/auth";
-import { effectiveRoleOf } from "@/lib/auth";
 
 export default function DetailerLayout({
   children,
@@ -13,21 +12,20 @@ export default function DetailerLayout({
   const router = useRouter();
   const hydrated = useAuthStore((s) => s.hydrated);
   const roles = useAuthStore((s) => s.roles);
-  const effective = effectiveRoleOf(roles);
+  const activeRole = useAuthStore((s) => s.activeRole);
 
   useEffect(() => {
     if (!hydrated || roles.length === 0) return;
-    if (effective === "client") {
+    if (activeRole === "client") {
       router.replace("/client/home");
-    } else if (effective === "admin") {
+    } else if (activeRole === "admin") {
       const adminUrl =
         process.env.NEXT_PUBLIC_ADMIN_URL ?? "http://localhost:3000";
       window.location.href = `${adminUrl}/dashboard`;
     }
-    // effective === "detailer" or null: let AppShell handle.
-  }, [hydrated, effective, roles.length, router]);
+  }, [hydrated, activeRole, roles.length, router]);
 
   if (!hydrated) return null;
-  if (roles.length > 0 && effective !== "detailer") return null;
+  if (roles.length > 0 && activeRole && activeRole !== "detailer") return null;
   return <>{children}</>;
 }

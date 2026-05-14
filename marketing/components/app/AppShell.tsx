@@ -4,7 +4,6 @@ import { useEffect } from "react";
 import { useTranslations } from "next-intl";
 import { useRouter, usePathname, Link } from "@/i18n/navigation";
 import { useAuthStore } from "@/lib/store/auth";
-import { effectiveRoleOf } from "@/lib/auth";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { Button } from "@/components/forms/Button";
 import {
@@ -33,7 +32,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const hydrated = useAuthStore((s) => s.hydrated);
   const isAuthed = useAuthStore((s) => s.isAuthenticated());
-  const roles = useAuthStore((s) => s.roles);
+  const activeRole = useAuthStore((s) => s.activeRole);
   const clear = useAuthStore((s) => s.clear);
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -50,7 +49,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }
   if (!isAuthed) return null;
 
-  const isDetailer = effectiveRoleOf(roles) === "detailer";
+  const isDetailer = activeRole === "detailer";
 
   const links: NavLink[] = isDetailer
     ? [

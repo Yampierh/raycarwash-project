@@ -10,6 +10,9 @@ export type NextStep =
   | "ready"
   | null;
 
+export type RoleIntent = "client" | "detailer";
+export type ActiveRole = "client" | "detailer" | "admin";
+
 export type AuthUser = {
   id?: string;
   email?: string;
@@ -24,6 +27,10 @@ export type AuthState = {
   onboardingToken: string | null;
   role: string | null;
   roles: string[];
+  /** User's last picked entry mode (persists across logout for UX). */
+  roleIntent: RoleIntent | null;
+  /** The role the user is currently operating as in this session. */
+  activeRole: ActiveRole | null;
   user: AuthUser | null;
   nextStep: NextStep;
   hydrated: boolean;
@@ -33,9 +40,11 @@ export type AuthState = {
     refresh_token?: string | null;
     onboarding_token?: string | null;
     roles?: string[] | null;
+    active_role?: ActiveRole | null;
     next_step?: NextStep;
     user?: AuthUser | null;
   }) => void;
+  setRoleIntent: (intent: RoleIntent) => void;
   setUser: (user: AuthUser | null) => void;
   clear: () => void;
   isAuthenticated: () => boolean;
@@ -49,6 +58,8 @@ export const useAuthStore = create<AuthState>()(
       onboardingToken: null,
       role: null,
       roles: [],
+      roleIntent: null,
+      activeRole: null,
       user: null,
       nextStep: null,
       hydrated: false,
@@ -66,28 +77,34 @@ export const useAuthStore = create<AuthState>()(
             role: access ? extractRole(access) : state.role,
             // Preserve existing roles when not provided (e.g. refresh token flow
             // returns no roles list). Empty array is a valid explicit "no roles".
-            roles:
-              tokens.roles != null
-                ? tokens.roles
-                : state.roles,
+            roles: tokens.roles != null ? tokens.roles : state.roles,
+            activeRole:
+              tokens.active_role !== undefined
+                ? tokens.active_role
+                : state.activeRole,
             user: tokens.user !== undefined ? tokens.user : state.user,
             nextStep:
               tokens.next_step !== undefined ? tokens.next_step : state.nextStep,
           };
         }),
 
+      setRoleIntent: (intent) => set({ roleIntent: intent }),
+
       setUser: (user) => set({ user }),
 
       clear: () =>
-        set({
+        set((state) => ({
           accessToken: null,
           refreshToken: null,
           onboardingToken: null,
           role: null,
           roles: [],
+          activeRole: null,
           user: null,
           nextStep: null,
-        }),
+          // Keep roleIntent across logout — it's a UX preference, not auth state.
+          roleIntent: state.roleIntent,
+        })),
 
       isAuthenticated: () => {
         const token = get().accessToken;
@@ -102,6 +119,8 @@ export const useAuthStore = create<AuthState>()(
         refreshToken: s.refreshToken,
         onboardingToken: s.onboardingToken,
         roles: s.roles,
+        roleIntent: s.roleIntent,
+        activeRole: s.activeRole,
         user: s.user,
         nextStep: s.nextStep,
       }),
@@ -113,6 +132,7 @@ export const useAuthStore = create<AuthState>()(
               state.accessToken = null;
               state.role = null;
               state.roles = [];
+              state.activeRole = null;
             } else {
               state.role = extractRole(state.accessToken);
             }

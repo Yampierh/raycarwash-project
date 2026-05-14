@@ -1,5 +1,5 @@
 import type { LoginResponse, SocialAuthResponse } from "@/lib/api/auth-client";
-import { effectiveRoleOf } from "@/lib/auth";
+import type { ActiveRole, RoleIntent } from "@/lib/store/auth";
 
 const SIGNUP_ROLE_KEY = "raycarwash_signup_role";
 
@@ -22,6 +22,29 @@ export function clearSignupRole() {
 }
 
 /**
+ * Pick the activeRole to commit to the session after a successful auth.
+ * - admin role overrides everything (admins always land in the admin dashboard).
+ * - if the user has the chosen intent, use it.
+ * - if the user has exactly one role, use that role (intent doesn't apply).
+ * - else null (caller should redirect to /login with a clear error).
+ */
+export function resolveActiveRole(
+  roles: string[],
+  intent: RoleIntent | null
+): ActiveRole | null {
+  if (roles.includes("admin")) return "admin";
+  const pref: RoleIntent = intent ?? "client";
+  if (roles.includes(pref)) return pref;
+  if (roles.length === 1) {
+    const only = roles[0];
+    if (only === "client" || only === "detailer" || only === "admin") {
+      return only;
+    }
+  }
+  return null;
+}
+
+/**
  * Decide where to send the user after an auth event (login, register, social).
  * Returns a path relative to the locale (consumed by next-intl router.push).
  */
@@ -30,13 +53,13 @@ export function resolvePostAuthPath(
 ): { path: string; externalAdmin?: boolean } {
   const access = data.access_token;
   const next = data.next_step;
-  const effective = effectiveRoleOf(data.roles);
+  const roles = data.roles ?? [];
 
   if (next === "complete_profile" || (data.onboarding_token && !access)) {
     return { path: "/onboarding" };
   }
 
-  if (effective === "admin") {
+  if (roles.includes("admin")) {
     return { path: "/dashboard", externalAdmin: true };
   }
 

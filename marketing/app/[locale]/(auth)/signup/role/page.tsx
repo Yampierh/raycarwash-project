@@ -4,7 +4,11 @@ import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useRouter } from "@/i18n/navigation";
 import { useAuthStore } from "@/lib/store/auth";
-import { saveSignupRole, type SignupRole } from "@/lib/auth-flow";
+import {
+  saveSignupRole,
+  getSignupRole,
+  type SignupRole,
+} from "@/lib/auth-flow";
 import { User, Wrench, ArrowRight } from "lucide-react";
 import { Button } from "@/components/forms/Button";
 import clsx from "clsx";
@@ -19,8 +23,14 @@ export default function SignupRolePage() {
   const [selected, setSelected] = useState<SignupRole | null>(null);
 
   useEffect(() => {
-    if (hydrated && !onboardingToken && !accessToken) {
+    if (!hydrated) return;
+    if (!onboardingToken && !accessToken) {
       router.replace("/signup");
+      return;
+    }
+    // The signup toggle already captured the choice — skip this step.
+    if (getSignupRole()) {
+      router.replace("/onboarding");
     }
   }, [hydrated, onboardingToken, accessToken, router]);
 

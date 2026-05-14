@@ -8,7 +8,11 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { completeProfile } from "@/lib/api/auth-client";
 import { useAuthStore } from "@/lib/store/auth";
-import { getSignupRole, clearSignupRole } from "@/lib/auth-flow";
+import {
+  getSignupRole,
+  clearSignupRole,
+  resolveActiveRole,
+} from "@/lib/auth-flow";
 import { Input } from "@/components/forms/Input";
 import { Button } from "@/components/forms/Button";
 import { FormError } from "@/components/forms/FormError";
@@ -55,11 +59,14 @@ export default function OnboardingPage() {
         phone_number: values.phone_number,
         service_type: role === "detailer" ? "detailer" : null,
       });
+      const roles = data.roles ?? [];
+      const active = resolveActiveRole(roles, role ?? "client");
       setSession({
         access_token: data.access_token ?? null,
         refresh_token: data.refresh_token ?? null,
         onboarding_token: null,
-        roles: data.roles ?? [],
+        roles,
+        active_role: active,
         next_step: data.next_step ?? null,
       });
       clearSignupRole();

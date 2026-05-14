@@ -8,11 +8,16 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { register as registerUser, googleLogin } from "@/lib/api/auth-client";
 import { useAuthStore } from "@/lib/store/auth";
-import { resolvePostAuthPath } from "@/lib/auth-flow";
+import {
+  resolvePostAuthPath,
+  resolveActiveRole,
+  saveSignupRole,
+} from "@/lib/auth-flow";
 import { Input } from "@/components/forms/Input";
 import { Button } from "@/components/forms/Button";
 import { FormError } from "@/components/forms/FormError";
 import GoogleButton from "@/components/auth/GoogleButton";
+import RoleToggle from "@/components/auth/RoleToggle";
 
 const schema = z.object({
   email: z.email("Invalid email address"),
@@ -27,6 +32,7 @@ export default function SignupPage() {
   const t = useTranslations("signup");
   const router = useRouter();
   const setSession = useAuthStore((s) => s.setSession);
+  const roleIntent = useAuthStore((s) => s.roleIntent);
   const [error, setError] = useState<string | null>(null);
 
   const {
@@ -39,6 +45,9 @@ export default function SignupPage() {
     setError(null);
     try {
       const data = await registerUser(values.email, values.password);
+      const intent = roleIntent ?? "client";
+      // Persist the picked role for /onboarding to read as service_type.
+      saveSignupRole(intent);
       setSession({
         access_token: data.access_token ?? null,
         refresh_token: data.refresh_token ?? null,
@@ -46,7 +55,8 @@ export default function SignupPage() {
         roles: data.roles ?? [],
         next_step: data.next_step ?? null,
       });
-      router.push("/signup/role");
+      // Skip /signup/role because the toggle already captured the choice.
+      router.push("/onboarding");
     } catch (err: unknown) {
       const msg =
         (err as { response?: { data?: { detail?: string } } })?.response?.data
@@ -63,23 +73,42 @@ export default function SignupPage() {
     setError(null);
     try {
       const data = await googleLogin(args);
+      const roles = data.roles ?? [];
+      const intent = roleIntent ?? "client";
+
+      if (data.is_new_user) {
+        saveSignupRole(intent);
+        setSession({
+          access_token: data.access_token ?? null,
+          refresh_token: data.refresh_token ?? null,
+          onboarding_token: data.onboarding_token ?? null,
+          roles,
+          next_step: data.next_step ?? null,
+        });
+        router.push("/onboarding");
+        return;
+      }
+
+      // Existing user via Google — validate intent against roles.
+      if (!roles.includes("admin") && roles.length > 0 && !roles.includes(intent)) {
+        setError(t("error"));
+        return;
+      }
+      const active = resolveActiveRole(roles, intent);
       setSession({
         access_token: data.access_token ?? null,
         refresh_token: data.refresh_token ?? null,
         onboarding_token: data.onboarding_token ?? null,
-        roles: data.roles ?? [],
+        roles,
+        active_role: active,
         next_step: data.next_step ?? null,
       });
-      if (data.is_new_user) {
-        router.push("/signup/role");
-      } else {
-        const { path, externalAdmin } = resolvePostAuthPath(data);
-        if (externalAdmin) {
-          window.location.href = `${process.env.NEXT_PUBLIC_ADMIN_URL ?? ""}${path}`;
-          return;
-        }
-        router.push(path);
+      const { path, externalAdmin } = resolvePostAuthPath(data);
+      if (externalAdmin) {
+        window.location.href = `${process.env.NEXT_PUBLIC_ADMIN_URL ?? ""}${path}`;
+        return;
       }
+      router.push(path);
     } catch (err: unknown) {
       const msg =
         (err as { response?: { data?: { detail?: string } } })?.response?.data
@@ -99,6 +128,8 @@ export default function SignupPage() {
         </div>
 
         <div className="space-y-4 rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm">
+          <RoleToggle labelKey="signUpAs" />
+
           <GoogleButton
             label={t("continueGoogle")}
             onSuccess={handleGoogle}

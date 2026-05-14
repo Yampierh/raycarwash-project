@@ -207,6 +207,13 @@
     },
     "copyright": "© {year} RayCarWash. Todos los derechos reservados."
   },
+  "roleToggle": {
+    "client": "Cliente",
+    "provider": "Provider",
+    "signInAs": "Ingresar como",
+    "signUpAs": "Registrarme como",
+    "wrongRole": "Esta cuenta no es {role}. Cambiá el modo arriba o usá otra cuenta."
+  },
   "login": {
     "title": "Bienvenido de vuelta",
     "sub": "Ingresá a tu cuenta de RayCarWash.",
