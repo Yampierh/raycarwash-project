@@ -439,6 +439,7 @@
     "matchError": "No pudimos encontrar detailers. Probá con otra fecha o dirección.",
     "continueToPayment": "Continuar al pago",
     "confirmError": "No pudimos crear la reserva. Probá de nuevo.",
+    "slotTaken": "Ese horario se acaba de ocupar. Refrescamos los horarios disponibles — elegí otro.",
     "availableSlots": "Horarios disponibles",
     "date": "Fecha",
     "address": "Dirección del servicio",

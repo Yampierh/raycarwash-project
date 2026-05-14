@@ -439,6 +439,7 @@
     "matchError": "Couldn't find matching detailers. Try a different date or address.",
     "continueToPayment": "Continue to payment",
     "confirmError": "Couldn't create the booking. Please try again.",
+    "slotTaken": "That time was just taken. We refreshed the available slots — pick another time.",
     "availableSlots": "Available times",
     "date": "Date",
     "address": "Service address",

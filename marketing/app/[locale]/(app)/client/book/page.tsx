@@ -105,12 +105,14 @@ export default function BookPage() {
     );
   }
 
-  async function handleSearchMatches() {
+  async function handleSearchMatches({
+    keepDetailer = false,
+  }: { keepDetailer?: boolean } = {}) {
     if (!serviceId || vehicleIds.length === 0 || !selectedVehicles.length) return;
     setMatchError(null);
     setMatchLoading(true);
     setMatches([]);
-    setSelectedDetailerId(null);
+    if (!keepDetailer) setSelectedDetailerId(null);
     setSelectedSlot(null);
     try {
       const sizes = selectedVehicles
@@ -125,6 +127,15 @@ export default function BookPage() {
         addon_ids: addonIds.length > 0 ? addonIds.join(",") : undefined,
       });
       setMatches(results);
+      // If we were preserving the detailer but they dropped off the new
+      // results, fall back to letting the user pick fresh.
+      if (
+        keepDetailer &&
+        selectedDetailerId &&
+        !results.some((r) => r.user_id === selectedDetailerId)
+      ) {
+        setSelectedDetailerId(null);
+      }
       setStep(2);
     } catch (err: unknown) {
       const msg =
@@ -168,10 +179,22 @@ export default function BookPage() {
       setAmountCents(intent.amount_cents);
       setStep(3);
     } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail ?? t("confirmError");
-      setConfirmError(typeof msg === "string" ? msg : t("confirmError"));
+      const response = (err as { response?: { status?: number; data?: { detail?: string } } })?.response;
+      const status = response?.status;
+      const backendMsg = response?.data?.detail;
+
+      // 409 = the picked slot just got taken (or conflicts with travel buffer).
+      // Drop the stale selection and refresh /matching keeping the detailer
+      // pick when possible, so the user just re-picks a slot.
+      if (status === 409) {
+        setSelectedSlot(null);
+        setConfirmError(t("slotTaken"));
+        void handleSearchMatches({ keepDetailer: true });
+        return;
+      }
+
+      const msg = typeof backendMsg === "string" ? backendMsg : t("confirmError");
+      setConfirmError(msg);
     } finally {
       setConfirmLoading(false);
     }
@@ -408,7 +431,7 @@ export default function BookPage() {
               size="lg"
               loading={matchLoading}
               disabled={!canProceedFromStep1}
-              onClick={handleSearchMatches}
+              onClick={() => handleSearchMatches()}
             >
               {t("findMatches")}
             </Button>
@@ -446,6 +469,7 @@ export default function BookPage() {
                       onClick={() => {
                         setSelectedDetailerId(m.user_id);
                         setSelectedSlot(null);
+                        setConfirmError(null);
                       }}
                       className="block w-full p-4 text-left"
                     >
@@ -490,7 +514,10 @@ export default function BookPage() {
                               <li key={s.start_time}>
                                 <button
                                   type="button"
-                                  onClick={() => setSelectedSlot(s)}
+                                  onClick={() => {
+                                    setSelectedSlot(s);
+                                    setConfirmError(null);
+                                  }}
                                   className={clsx(
                                     "rounded-lg border px-3 py-1.5 text-xs font-medium transition",
                                     isSel
