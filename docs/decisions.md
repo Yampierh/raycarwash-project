@@ -64,6 +64,65 @@ Detailer locations indexed at H3 resolution 7 in Redis + PostgreSQL.
 GPS updates are deduplicated before writing to DB: skip if moved < N meters
 AND heading change < N degrees. Prevents DB thrash from stationary detailers.
 
+### RS256 JWT + JWKS (Sprint 7)
+
+JWT signing moved from HS256 shared secret to RS256 asymmetric. Private key signs
+only on the auth service; any internal service can verify tokens by pulling the
+public key set from `GET /.well-known/jwks.json`. Lets future microservices verify
+tokens without distributing a secret.
+
+### Stateful email-verification + WebAuthn challenge tokens (Sprint 7)
+
+Email-verification tokens are now DB-backed in `email_verification_tokens`
+(single-use, revocable) instead of stateless JWT — prevents replay after logout.
+WebAuthn challenges are stored in Redis (`webauthn_challenge:{session_id}`, TTL 5 min)
+and consumed on verify.
+
+### Auth router split (Sprint 7)
+
+`domains/auth/router.py` (one giant file) was split into `domains/auth/routers/`
+sub-routers by concern: `core`, `social`, `webauthn`, `sessions`, `password`,
+`email_verification`. Assembled into a single `auth_router` in `routers/__init__.py`.
+Makes ownership and route audits much faster.
+
+### Onboarding-completion lockout (Sprint 7)
+
+`PUT /auth/complete-profile` returns 403 once `onboarding_status == "completed"`.
+Without this, a logged-in client could call complete-profile with `role=detailer`
+and self-promote to the detailer side, bypassing KYC.
+
+### Default admin user seeded on first startup (Sprint 8)
+
+`app/db/seed_rbac.py::_seed_admin_user` creates `admin@raycarwash.com` / `Admin1234!`
+on first boot if no user with that email exists. Idempotent and dev-only —
+the password must be changed before deploying to production.
+
+### Push notifications via Expo Push API (Sprint 8)
+
+Chose Expo Push over Firebase to avoid maintaining a Firebase project on the
+managed-Expo workflow. Tokens (`ExponentPushToken[…]`) are stored in
+`device_tokens` and dispatched via in-process event-bus handlers
+(`domains/notifications/handlers.py`) on every appointment-state transition.
+
+### Mobile UI consistency system (Sprint 9)
+
+All 21 screens were standardized onto a shared component library at
+`frontend/src/components/` (Button, Card, StatusBadge, EmptyState, SectionHeader,
+Typography, AnimatedInput) plus semantic theme tokens
+(`Colors.bg/textColor/border/status`, `Spacing`, `Radius`, `TypographyScale`).
+Removed 50+ duplicated inline button/pill/empty-state definitions and replaced
+ad-hoc `fontWeight: "bold"`, hex color literals, and inconsistent padding
+(16px ↔ 20px) with named tokens. Legacy `Colors.*` flat keys are preserved
+for backward compatibility.
+
+### Admin force-status override (Sprint 9)
+
+`PATCH /api/v1/admin/appointments/{id}/status` lets an admin set any status,
+bypassing the normal FSM transitions. Necessary for ops recovery (stuck
+appointments, missed COMPLETED, disputed cancellations). Every override writes
+to the audit log; the FSM remains authoritative for normal client/detailer
+calls.
+
 ---
 
 ## Bugs found and fixed
@@ -139,14 +198,51 @@ AND heading change < N degrees. Prevents DB thrash from stationary detailers.
 | WebSocket real-time tracking (ARRIVED state, GPS) | ✅ Done |
 | Test suite stabilized (auth: 69/69, appointments: 19/19) | ✅ Done |
 
-### Pending (Sprint 7)
+### Sprint 7 deliverables
 
-- Push notifications (Expo Notifications / FCM)
-- Admin dashboard endpoints
+| Feature | Status |
+|---|---|
+| RS256 JWT + JWKS public-key verification | ✅ Done |
+| Stateful email-verification tokens (replaces stateless JWT) | ✅ Done |
+| WebAuthn challenges in Redis (TTL 5 min) | ✅ Done |
+| Auth router split into `domains/auth/routers/*` by concern | ✅ Done |
+| `domains/admin` + 16 RBAC endpoints (users / roles / permissions) | ✅ Done |
+| Next.js 15 admin dashboard (`web/`) with auth-gated pages | ✅ Done |
+| Onboarding-completion lockout (prevents role escalation) | ✅ Done |
+| Lazy-loading fix for `get_current_user()` user_roles | ✅ Done |
+| `test_auth.py` expanded to 70/70 (includes role-escalation test) | ✅ Done |
+
+### Sprint 8 deliverables
+
+| Feature | Status |
+|---|---|
+| Push notifications via Expo Push API (`domains/notifications`) | ✅ Done |
+| Event-bus → push triggers on every appointment state transition | ✅ Done |
+| `usePushNotifications` hook + `clearAuthTokens()` unregister-on-logout | ✅ Done |
+| Default admin user seeded on first startup | ✅ Done |
+| `test_user_flows.py` (17/17) + `test_admin.py` (27/27) | ✅ Done |
+| `expo-device` dependency added (required by push hook) | ✅ Done |
+
+### Sprint 9 deliverables
+
+| Feature | Status |
+|---|---|
+| Admin appointments queue + force-status override (3 endpoints) | ✅ Done |
+| Admin detailer verifications queue (approve / reject with reason) | ✅ Done |
+| Admin payments — ledger + 4-card revenue summary | ✅ Done |
+| Web dashboard: `/appointments`, `/verifications`, `/payments` + sidebar update | ✅ Done |
+| Shared mobile component system (Button, Card, StatusBadge, EmptyState, SectionHeader, Typography, AnimatedInput) | ✅ Done |
+| Semantic theme tokens (`Colors.bg/textColor/border/status`, `Spacing`, `Radius`, `TypographyScale`) | ✅ Done |
+| 21 screens refactored — 50+ inline buttons eliminated, padding/fontWeight/borderRadius standardized | ✅ Done |
+
+### Pending (Sprint 10)
+
+- TOTP / 2FA for admin accounts
+- Mechanic vertical: `ServiceCategory` enforcement, provider type on `ProviderProfile`, category-specific onboarding
+- Frontend: category-selection screen before matching
+- Test coverage for Sprint 9 admin endpoints (appointments / verifications / payments)
+- Public marketing site (`marketing/` Next.js 16 + next-intl workspace)
 - Fix remaining edge-case test failures (vehicles, detailers, matching)
-- Multiservice: ServiceCategory model, mechanic vertical, provider type on ProviderProfile
-- Category-specific onboarding fields (mechanics need certifications)
-- Frontend: category selection screen before matching
 
 ---
 

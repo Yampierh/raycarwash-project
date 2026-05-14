@@ -17,10 +17,14 @@ frontend/src/
 │   ├── types.ts            # RootStackParamList, UserRole enum, UserProfile interface
 │   └── navigationRef.ts    # Imperative navigation ref (use outside components)
 │
-├── screens/                # 17 screens total
-│   ├── Auth
+├── screens/                # 21 screens total
+│   ├── Boot / Auth
+│   │   ├── LoadingScreen.tsx           # Splash + token rehydrate, biometric / passkey quick-unlock
 │   │   ├── LoginScreen.tsx
-│   │   └── RegisterScreen.tsx
+│   │   ├── RegisterScreen.tsx
+│   │   ├── ForgotPasswordScreen.tsx
+│   │   ├── CompleteProfileScreen.tsx   # Bearer onboarding_token
+│   │   └── ProviderTypeScreen.tsx      # Service-type fork (Detailer | Continue as Client)
 │   ├── Client
 │   │   ├── HomeScreen.tsx              # Real-time WS: status banner + detailer location
 │   │   ├── ProfileScreen.tsx
@@ -41,7 +45,16 @@ frontend/src/
 │       ├── DetailerServicesScreen.tsx  # Toggle services on/off + custom price
 │       └── DetailerHomeScreen.tsx      # WS + GPS push, job timer, status buttons
 │
-├── services/               # 11 API service files
+├── components/             # Sprint 9 shared design system — never duplicate inline
+│   ├── Button.tsx          # 5 variants (primary/secondary/ghost/danger/outline)
+│   ├── Card.tsx
+│   ├── StatusBadge.tsx     # Uses Colors.status tokens — pass `status` prop
+│   ├── EmptyState.tsx
+│   ├── SectionHeader.tsx
+│   ├── Typography.tsx      # Wraps TypographyScale (h1, h2, h3, h4, body, label, caption)
+│   └── AnimatedInput.tsx   # Focus-animated text input with floating label
+│
+├── services/               # 13 API service files
 │   ├── api.ts              # Axios instances + JWT interceptors + WS_BASE_URL
 │   ├── auth.service.ts
 │   ├── user.service.ts
@@ -52,16 +65,29 @@ frontend/src/
 │   ├── detailer.service.ts
 │   ├── detailer-private.service.ts
 │   ├── payment.service.ts
-│   └── review.service.ts
+│   ├── review.service.ts
+│   ├── notification.service.ts # Expo Push token register / unregister
+│   └── rides.service.ts        # /api/v1/rides/* (v2 fare flow)
 │
 ├── hooks/
 │   ├── useAppointmentSocket.ts  # WS: auto-connect, backoff, heartbeat, callbacks
-│   └── useLocation.ts           # expo-location GPS hook
+│   ├── useLocation.ts           # expo-location GPS hook
+│   ├── useDeadReckoning.ts      # Smooths sparse GPS updates with Kalman filter
+│   ├── useWeather.ts            # Current weather lookup (used on Home for ASAP warnings)
+│   ├── usePushNotifications.ts  # Permission + Expo token register/unregister
+│   └── useAppNavigation.ts      # Typed wrapper around useNavigation()
 │
 ├── store/
 │   └── authStore.ts        # Zustand: synchronous JWT + roles for WS auth
 │
-└── theme/                  # Colors, typography, spacing
+├── utils/
+│   ├── storage.ts          # SecureStore wrappers: token, refresh, onboarding, push, biometric/passkey flags, registration-path
+│   ├── auth-redirect.ts    # navigateAfterAuth() — routes by role + onboarding state
+│   ├── formatters.ts       # Date / money formatters
+│   ├── pricing.ts          # Client-side mirror of pricing formula
+│   └── kalman.ts           # Kalman filter for GPS smoothing
+│
+└── theme/colors.ts         # Colors (legacy + semantic tokens) + Spacing + Radius + TypographyScale
 ```
 
 ---
@@ -230,11 +256,22 @@ EXPO_PUBLIC_API_URL=http://192.168.1.XX:8000
 | `axios` | HTTP client with interceptors |
 | `zustand` | Auth state (sync JWT for WS) |
 | `expo-secure-store` | Encrypted token storage |
+| `expo-local-authentication` | Biometric quick-unlock on splash |
 | `expo-location` | GPS for detailer location push |
 | `expo-auth-session` | OAuth2 (Google, Apple) |
+| `expo-apple-authentication` | Apple Sign-In |
+| `expo-notifications` | Push notification handling |
+| `expo-device` | Required by `usePushNotifications` to detect physical device |
+| `expo-haptics` | Tap feedback in shared `Button` |
+| `expo-image` | Memory-efficient image rendering |
+| `expo-linear-gradient` | LoadingScreen + accent surfaces |
+| `expo-splash-screen` | Native splash control |
+| `react-native-passkey` | WebAuthn passkey quick-unlock |
 | `react-native-calendars` | Availability calendar UI |
 | `react-native-paper` | UI components |
+| `react-native-reanimated` + `react-native-worklets` | Animations |
 | `@stripe/stripe-react-native` | Stripe payment + Identity |
+| `lucide-react-native` | Icon set |
 
 ---
 
@@ -246,3 +283,7 @@ EXPO_PUBLIC_API_URL=http://192.168.1.XX:8000
 - **Timestamps are UTC** — format for display in user's local timezone.
 - **VehicleSize is not sent by the client** — it's derived on the backend from `body_class`. Only send `body_class`.
 - **ASAP vs date mode** — ASAP: sort by `distance ASC, rating DESC`. Date: sort by `rating DESC, distance ASC`.
+- **Don't define inline buttons / status pills / empty states** — use `<Button>`, `<StatusBadge>`, `<EmptyState>` from `components/`. Sprint 9 standardized 50+ duplicated definitions; new inline copies regress the system.
+- **Use semantic tokens, not hex literals** — `Colors.bg.*`, `Colors.textColor.*`, `Colors.border.*`, `Spacing`, `Radius`, `TypographyScale`. Hex literals exist only in legacy keys kept for backward compatibility.
+- **`raycarwash_registration_path`** — SecureStore key set by `setRegistrationPath()` on the ProviderType screen; cleared by `clearAuthTokens()`. Used to remember whether the user picked "Detailer" or "Continue as client" across the onboarding flow.
+- **LoadingScreen resume rules** — if only `onboarding_token` is present (no access token), it navigates to `ProviderType` so the user finishes onboarding without re-logging in. Biometric cancel falls back to the stored access token before sending them to Login.

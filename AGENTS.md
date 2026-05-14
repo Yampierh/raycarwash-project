@@ -6,10 +6,12 @@
 Connects clients with mobile detailers who come to the client's location.
 
 - **Current vertical**: Car detailing (fully functional)
-- **Planned**: Multiservice — mechanics, accessories, inspections (Sprint 7)
+- **Planned (Sprint 10)**: Multiservice — mechanics, accessories, inspections + TOTP/2FA
 - **Market**: Fort Wayne, IN
 - **Backend**: FastAPI + PostgreSQL + Redis — DDD-lite architecture
-- **Frontend**: React Native + Expo + TypeScript
+- **Frontend**: React Native + Expo 54 + TypeScript (21 screens, shared component system)
+- **Admin**: Next.js 15 dashboard (`web/`) — users, roles, permissions, appointments, verifications, payments
+- **Marketing (WIP)**: `marketing/` — Next.js 16 + next-intl public site (Sprint 10)
 
 ---
 
@@ -194,17 +196,44 @@ DELETE /api/v1/admin/permissions/{id}                 # delete permission
 System roles (`is_system=True`): admin, detailer, client — cannot be deleted via API.
 Seeded permissions (18 total): read/write/delete across users, roles, permissions, appointments, providers, payments, reviews, services.
 
+**Default admin user** (seeded on first startup, idempotent):
+`admin@raycarwash.com` / `Admin1234!` — change before production. Created by `app/db/seed_rbac.py::_seed_admin_user`.
+
+### Admin API — Sprint 9 extensions (`/api/v1/admin/*`)
+
+```text
+GET   /api/v1/admin/appointments?page&per_page&status&start_date&end_date&search   # paginated
+GET   /api/v1/admin/appointments/{id}                                              # detail
+PATCH /api/v1/admin/appointments/{id}/status                                       # force status (admin override)
+
+GET   /api/v1/admin/verifications?verification_status=pending|approved|rejected    # detailer KYC queue
+POST  /api/v1/admin/verifications/{provider_id}/approve
+POST  /api/v1/admin/verifications/{provider_id}/reject                             # { reason }
+
+GET   /api/v1/admin/payments/summary?start_date&end_date                           # 4-card revenue summary
+GET   /api/v1/admin/payments/ledger?page&per_page&entry_type&start_date&end_date   # ledger entries
+```
+
+Force-status bypasses the FSM but still writes an audit record.
+
 ## Admin dashboard (web/)
 
 Next.js 15 app at `http://localhost:3000`. Start: `cd web && npm run dev`.
 
 Pages:
+
 - `/login` — admin email/password login; verifies JWT role == "admin"
 - `/dashboard` — stats cards (users, detailers, appointments, etc.)
 - `/dashboard/users` — paginated table, search, role filter, ban/unban toggle
 - `/dashboard/users/[id]` — user detail, role assignment/revocation, effective permissions
 - `/dashboard/roles` — role list + permission matrix (toggle checkboxes per resource)
 - `/dashboard/permissions` — catalog grouped by resource, create/delete form
+- `/dashboard/appointments` — paginated list with status/date/search filters
+- `/dashboard/appointments/[id]` — detail + force-status override
+- `/dashboard/verifications` — pending / approved / rejected tabs, approve + reject-with-reason modal
+- `/dashboard/payments` — ledger view with `entry_type` filter, 4-card revenue summary, date range picker
+
+> The `web/` workspace has a top-level instruction (`web/AGENTS.md`) noting that this version of Next.js may differ from training data — read `node_modules/next/dist/docs/` before writing code there.
 
 ---
 
@@ -259,6 +288,34 @@ Frontend: `usePushNotifications` hook in `src/hooks/` — requests permission, r
 
 ---
 
+## Mobile UI consistency system (Sprint 9)
+
+Shared component library at `frontend/src/components/`. All 21 screens were refactored to use these — never duplicate inline `<TouchableOpacity>` buttons, status pills, or empty states.
+
+| Component | Purpose |
+|---|---|
+| `Button` | 5 variants (primary, secondary, ghost, danger, outline) — replaces 50+ inline CTAs |
+| `Card` | Standard padded surface with border + radius |
+| `StatusBadge` | Pill using `Colors.status` tokens — pass `status` prop, styling is automatic |
+| `EmptyState` | Icon + title + subtitle + optional action button |
+| `SectionHeader` | Title + optional rightSlot (e.g. "See all" link) |
+| `Typography` | Wraps `TypographyScale` — `<Typography variant="h2">` etc. |
+| `AnimatedInput` | Focus-animated text input with floating label |
+
+Theme tokens in `frontend/src/theme/colors.ts`:
+
+- `Colors.bg.{primary,secondary,elevated,input}` — backgrounds
+- `Colors.textColor.{primary,secondary,tertiary,muted}` — text
+- `Colors.border.{default,subtle}` — borders
+- `Colors.status.{pending,confirmed,arrived,in_progress,completed,cancelled_by_*,no_show}` — status pills with `{ bg, text, border }`
+- `Spacing` — `xs:4, sm:8, md:12, lg:16, xl:20, xxl:24`
+- `Radius` — `sm:8, md:12, lg:16, xl:20`
+- `TypographyScale` — `h1, h2, h3, h4, body, label, caption` with paired `fontSize` + `fontWeight`
+
+Legacy keys (`Colors.background`, `Colors.card`, `Colors.primary`, `Colors.text`, `Colors.secondaryText`) are preserved for backward compatibility — prefer the semantic tokens in new code.
+
+---
+
 ## Test status
 
 ```text
@@ -270,6 +327,8 @@ tests/test_detailers.py    ⚠️  edge cases (profile fixture)
 tests/test_matching.py     ⚠️  requires real Redis for H3 spatial tests
 tests/test_vehicles.py     ⚠️  body_class / onboarding edge cases
 ```
+
+> Sprint 9 admin extensions (appointments / verifications / payments) ship without dedicated tests — the existing `test_admin.py` covers users/roles/permissions only. Adding coverage is planned for Sprint 10.
 
 Run core suite:
 

@@ -47,24 +47,25 @@ raycarwash-project/
 │       ├── core/                   # config.py, security.py, limiter.py
 │       └── db/                     # seed.py, seed_rbac.py (roles + permissions), detailer_seed.py
 │
-├── frontend/                       # React Native · Expo · TypeScript
+├── frontend/                       # React Native · Expo 54 · TypeScript
 │   └── src/
 │       ├── screens/                # 21 screen components
-│       ├── services/               # API service files
-│       ├── hooks/                  # useAppointmentSocket
+│       ├── services/               # 13 API service files (auth, user, vehicle, appointment, detailer, payment, review, notification, rides, …)
+│       ├── components/             # Shared design system: Button, Card, EmptyState, SectionHeader, StatusBadge, Typography, AnimatedInput
+│       ├── hooks/                  # useAppointmentSocket, useLocation, useDeadReckoning, useWeather, usePushNotifications, useAppNavigation
 │       ├── store/                  # authStore (Zustand)
 │       ├── navigation/             # RootStack, MainTabs, DetailerTabs
-│       └── theme/
+│       ├── utils/                  # storage (SecureStore), auth-redirect, formatters, pricing, kalman
+│       └── theme/colors.ts         # Semantic tokens: bg, textColor, border, status + Spacing/Radius/TypographyScale
 │
 ├── web/                            # Next.js 15 · TypeScript · Tailwind — Admin dashboard
 │   └── app/
 │       ├── login/                  # Admin login page
-│       └── dashboard/              # Overview · Users · Roles · Permissions
+│       └── dashboard/              # Overview · Users · Roles · Permissions · Appointments · Verifications · Payments
 │
 ├── docker-compose.yml
 ├── AGENTS.md                       # Full technical context for AI agents
-├── API_GUIDE.md                    # REST + WebSocket reference
-└── AUDIT_REPORT.md                 # Bug log and test coverage status
+└── docs/                           # backend.md · frontend.md · api.md · decisions.md
 ```
 
 ---
@@ -97,6 +98,9 @@ npm run dev
 # 6. (Optional) Start admin dashboard
 cd web && npm install && npm run dev
 ```
+
+> **First-time startup** seeds a default admin user: `admin@raycarwash.com` / `Admin1234!`
+> Idempotent — only created if no user with that email exists. Change the password before deploying.
 
 | Service | URL |
 |---|---|
@@ -243,7 +247,9 @@ The backend was refactored from a monolithic `app/` structure into a Domain-Driv
 | 5 | ✅ Done | Addons, multi-vehicle bookings, smart matching, email service |
 | 6 | ✅ Done | DDD-lite refactor, WebAuthn passkeys, Stripe Identity, H3 geospatial, auto-assignment, WebSocket real-time |
 | 7 | ✅ Done | Auth hardening: RS256 JWT, stateful email/WebAuthn tokens, lazy loading fix, auth router split, admin domain + dashboard |
-| 8 | 🚧 In progress | Push notifications (Expo Push API ✅), user flow + admin tests 44/44 ✅, TOTP/2FA, mechanic vertical |
+| 8 | ✅ Done | Push notifications (Expo Push API), default admin user seed, user flow + admin tests 44/44 |
+| 9 | ✅ Done | Admin panel: appointments / verifications / payments queues + 9 new admin endpoints. Mobile UI consistency system: 7 shared components (Button, Card, StatusBadge, EmptyState, SectionHeader, Typography, AnimatedInput) + semantic tokens (Spacing, Radius, TypographyScale, Colors.status) refactor across all 21 screens |
+| 10 | 🗺️ Planned | TOTP/2FA, mechanic vertical (multiservice), public marketing site (`marketing/` Next.js workspace) |
 
 ---
 

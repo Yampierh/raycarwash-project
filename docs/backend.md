@@ -15,17 +15,30 @@ backend/
 ├── api/router.py               # Aggregates all domain routers into one APIRouter
 │
 ├── domains/
-│   ├── auth/                   # JWT, OAuth2 social, WebAuthn passkeys, lockout
-│   │   ├── models.py           # Role, RefreshToken, PasswordResetToken, WebAuthnCredential
+│   ├── auth/                   # RS256 JWT, OAuth2 social, WebAuthn passkeys, lockout
+│   │   ├── models.py           # Role, Permission, RolePermission, RefreshToken, PasswordResetToken, WebAuthnCredential, EmailVerificationToken
 │   │   ├── schemas.py          # LoginResponse, RegisterRequest, TokenResponse, …
 │   │   ├── service.py          # AuthService, get_current_user, require_role
-│   │   ├── router.py           # /auth/* (register, login, social, passkeys, sessions)
-│   │   ├── wellknown_router.py # /.well-known/apple-app-site-association
+│   │   ├── routers/            # Split by concern (replaces old router.py)
+│   │   │   ├── __init__.py     # Assembles auth_router from sub-routers
+│   │   │   ├── core.py         # register, login, logout, token, refresh, me, update, identify, verify, complete-profile
+│   │   │   ├── social.py       # /auth/google, /auth/apple
+│   │   │   ├── webauthn.py     # /auth/webauthn/* — passkey register/auth + CRUD
+│   │   │   ├── sessions.py     # /auth/sessions list + revoke
+│   │   │   ├── password.py     # /auth/password-reset, /password-reset/confirm
+│   │   │   └── email_verification.py  # /auth/email/verify, /email/resend-verification
+│   │   ├── wellknown_router.py # /.well-known/apple-app-site-association + /.well-known/jwks.json
 │   │   ├── refresh_token_repository.py
 │   │   ├── password_reset_token_repository.py
+│   │   ├── email_verification_token_repository.py
 │   │   ├── webauthn_repository.py
 │   │   ├── auth_provider_repository.py
 │   │   └── webauthn_service.py
+│   │
+│   ├── admin/                  # Admin dashboard API — /api/v1/admin/*
+│   │   ├── repository.py       # AdminRepository — users, roles, permissions, appointments, verifications, ledger
+│   │   ├── router.py           # 22 endpoints behind require_role("admin")
+│   │   └── schemas.py          # AdminStats, AdminUserRead, AdminAppointmentDetail, AdminLedgerEntryRead, …
 │   │
 │   ├── users/                  # Registration, profiles, onboarding
 │   │   ├── models.py           # User, ClientProfile, OnboardingStatus
@@ -80,6 +93,14 @@ backend/
 │   │   ├── service.py
 │   │   └── router.py           # /api/v1/reviews
 │   │
+│   ├── notifications/          # Push notifications via Expo Push API
+│   │   ├── models.py           # DeviceToken
+│   │   ├── schemas.py
+│   │   ├── repository.py       # DeviceTokenRepository (upsert, delete_by_token)
+│   │   ├── service.py          # Expo Push API client
+│   │   ├── handlers.py         # Event bus handlers (appointment.* → push)
+│   │   └── router.py           # POST/DELETE /api/v1/notifications/device-token
+│   │
 │   ├── realtime/               # Redis Pub/Sub WebSocket rooms
 │   │   ├── connection_manager.py  # ConnectionManager
 │   │   └── router.py           # WS /ws/appointments/{id}, /ws/user/{id}
@@ -126,16 +147,17 @@ backend/
 
 ## Startup sequence (lifespan)
 
-1. `create_all()` — create tables idempotently (production: use `alembic upgrade head`)
-2. Seed RBAC roles (admin, detailer, client)
-3. Seed service categories
-4. Seed specialties
-5. Seed service catalogue (13 services with per-size prices)
-6. Seed addons (15 add-ons)
-7. Seed test detailers (6 Fort Wayne detailers)
-8. Init Redis pool (real Redis or fakeredis fallback)
-9. Init `ConnectionManager` WebSocket manager
-10. Start 4 background workers (location, assignment, ledger seal, token cleanup)
+1. Register event bus handlers (push-notification dispatchers in `domains/notifications/handlers.py`)
+2. `create_all()` — create tables idempotently (production: use `alembic upgrade head`)
+3. Seed RBAC roles + permissions + **default admin user** (`admin@raycarwash.com` / `Admin1234!`, only if missing)
+4. Seed service categories
+5. Seed specialties
+6. Seed service catalogue (13 services with per-size prices)
+7. Seed addons (15 add-ons)
+8. Seed test detailers (6 Fort Wayne detailers)
+9. Init Redis pool (real Redis or fakeredis fallback)
+10. Init `ConnectionManager` WebSocket manager
+11. Start 4 background workers (location, assignment, ledger seal, token cleanup)
 
 ---
 
@@ -259,17 +281,22 @@ PUT /auth/complete-profile   Bearer <onboarding_token>
 
 ### Token types
 
-| Type | TTL | Scope |
-|---|---|---|
-| `access` | 30 min | All protected endpoints |
-| `refresh` | 7 days | `POST /auth/refresh` only |
-| `onboarding` | 30 min | `PUT /auth/complete-profile` only |
+| Type | TTL | Signing | Scope |
+|---|---|---|---|
+| `access` | 30 min | RS256 (JWKS-verifiable) | All protected endpoints |
+| `refresh` | 7 days | Opaque, stored as SHA-256 hash (single-use, family-revocation) | `POST /auth/refresh` only |
+| `onboarding` | 30 min | RS256 | `PUT /auth/complete-profile` only |
+| `email_verification` | 24 h | Stateful (DB-backed, single-use) | `POST /auth/email/verify` only |
+| WebAuthn challenges | 5 min | Stateful (Redis) | One-shot, consumed on verify |
+
+JWT signing: **RS256 asymmetric**. Private key in `JWT_PRIVATE_KEY` signs; any service can verify via `GET /.well-known/jwks.json` (public key set, no shared secret).
 
 ### Security properties
 
 - JWT `type` claim prevents cross-type token reuse
 - bcrypt via passlib
 - `dummy_verify()` — timing-safe even for nonexistent users
+- `PUT /auth/complete-profile` returns 403 if `onboarding_status == "completed"` — prevents post-login role escalation to detailer without KYC
 - Rate limits: 10/min on identify/verify/token · 5/min on refresh/social
 - SQL injection protected via SQLAlchemy ORM (parameterized)
 - Stripe webhook HMAC-SHA256 (`Stripe-Signature`)
@@ -311,8 +338,12 @@ python -m pytest tests/test_auth.py tests/test_appointments.py -q  # core flow
 
 | Suite | Tests | Status |
 |---|---|---|
-| `test_auth.py` | 69 | ✅ all pass |
+| `test_auth.py` | 70 | ✅ all pass (incl. role-escalation security test) |
 | `test_appointments.py` | 19 | ✅ all pass |
+| `test_user_flows.py` | 17 | ✅ all pass (client + detailer registration guard rails) |
+| `test_admin.py` | 27 | ✅ all pass (users / roles / permissions endpoints) |
 | `test_detailers.py` | — | ⚠️ edge cases pending |
 | `test_matching.py` | — | ⚠️ requires real Redis for spatial |
 | `test_vehicles.py` | — | ⚠️ body_class edge cases pending |
+
+> Sprint 9 admin endpoints (`/appointments`, `/verifications`, `/payments`) are not yet covered by `test_admin.py`.

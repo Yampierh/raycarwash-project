@@ -366,6 +366,85 @@ GET /api/v1/reviews/detailer/{id}
 
 ---
 
+## Notifications (`/api/v1/notifications`)
+
+Push notifications via the Expo Push API — tokens have format `ExponentPushToken[…]`.
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| POST | `/api/v1/notifications/device-token` | Bearer | Register / refresh the current device's push token. Call after login |
+| DELETE | `/api/v1/notifications/device-token` | Bearer | Unregister a push token. Call on logout |
+
+Body (both verbs):
+
+```json
+{ "token": "ExponentPushToken[…]", "platform": "ios" | "android" }
+```
+
+Event-bus → push triggers (in `domains/notifications/handlers.py`):
+
+| Event | Recipient | Notification |
+|---|---|---|
+| appointment.created (PENDING) | detailer | "New booking request" |
+| CONFIRMED | client | "Booking confirmed!" |
+| ARRIVED | client | "Your detailer has arrived" |
+| IN_PROGRESS | client | "Service in progress" |
+| COMPLETED | client | "All done! ⭐" |
+| CANCELLED_BY_CLIENT | detailer | "Appointment cancelled" |
+| CANCELLED_BY_DETAILER | client | "Appointment cancelled" |
+
+---
+
+## Admin (`/api/v1/admin/*`)
+
+All endpoints require a Bearer token whose user has the `admin` role. Responses always go through `require_role("admin")`.
+
+### Stats / Users / Roles / Permissions
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/admin/stats` | Platform-wide counters (`total_users`, `total_detailers`, `pending_verification`, …) |
+| GET | `/api/v1/admin/users?page&per_page&search&role` | Paginated user list |
+| GET | `/api/v1/admin/users/{id}` | User detail with roles + effective permissions |
+| PATCH | `/api/v1/admin/users/{id}` | Set `is_active` (ban/unban) |
+| GET | `/api/v1/admin/users/{id}/roles` | List roles for the user |
+| POST | `/api/v1/admin/users/{id}/roles` | Assign role — `{ role_id }` |
+| DELETE | `/api/v1/admin/users/{id}/roles/{role_id}` | Revoke role |
+| GET | `/api/v1/admin/roles` | All roles with permissions |
+| POST | `/api/v1/admin/roles` | Create role — `{ name, description }` |
+| PATCH | `/api/v1/admin/roles/{id}` | Update role (non-system only) |
+| DELETE | `/api/v1/admin/roles/{id}` | Soft-delete role (non-system only) |
+| POST | `/api/v1/admin/roles/{id}/permissions` | Assign permission — `{ permission_id }` |
+| DELETE | `/api/v1/admin/roles/{id}/permissions/{permission_id}` | Revoke permission |
+| GET | `/api/v1/admin/permissions` | Permission catalog (18 seeded) |
+| POST | `/api/v1/admin/permissions` | Create permission — `{ name, resource, action, description }` |
+| DELETE | `/api/v1/admin/permissions/{id}` | Delete permission (removes from all roles) |
+
+### Appointments (Sprint 9)
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/admin/appointments?page&per_page&status&start_date&end_date&search` | Paginated cross-tenant list |
+| GET | `/api/v1/admin/appointments/{id}` | Full detail |
+| PATCH | `/api/v1/admin/appointments/{id}/status` | Force status — `{ new_status }` — bypasses FSM but writes audit record |
+
+### Verifications (Sprint 9 — detailer KYC queue)
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/admin/verifications?verification_status=pending\|approved\|rejected` | Verification queue |
+| POST | `/api/v1/admin/verifications/{provider_id}/approve` | Approve KYC |
+| POST | `/api/v1/admin/verifications/{provider_id}/reject` | Reject — `{ reason }` |
+
+### Payments (Sprint 9)
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/admin/payments/summary?start_date&end_date` | 4-card summary (gross, refunds, payouts, commission) |
+| GET | `/api/v1/admin/payments/ledger?page&per_page&entry_type&start_date&end_date` | Append-only ledger entries (`entry_type`: `CAPTURE \| REFUND \| PAYOUT \| CHARGE_COMMISSION \| AUTHORIZATION`) |
+
+---
+
 ## Stripe Webhook
 
 ```
