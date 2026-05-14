@@ -24,6 +24,7 @@ import {
   FileText,
   Star,
   Loader2,
+  Clock,
 } from "lucide-react";
 import clsx from "clsx";
 
@@ -154,6 +155,20 @@ export default function ClientAppointmentDetail({
           />
         }
       />
+
+      {(data.status === "pending" || data.status === "searching") && (
+        <div className="mb-6 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+          <Clock className="mt-0.5 size-5 shrink-0 text-amber-600" />
+          <div>
+            <h3 className="text-sm font-semibold text-amber-900">
+              {t("pendingBanner.title")}
+            </h3>
+            <p className="mt-1 text-xs leading-relaxed text-amber-800">
+              {t("pendingBanner.body")}
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="rounded-2xl border border-zinc-200 bg-white p-6">
         <DataRow

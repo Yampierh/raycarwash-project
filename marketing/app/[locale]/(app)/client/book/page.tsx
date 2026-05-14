@@ -8,8 +8,6 @@ import { useServices } from "@/lib/hooks/useServices";
 import { useAddons } from "@/lib/hooks/useAddons";
 import { findMatches, type MatchingResult, type TimeSlot } from "@/lib/api/matching";
 import { createAppointment } from "@/lib/api/appointments";
-import { createPaymentIntent } from "@/lib/api/payments";
-import { CheckoutForm } from "@/components/app/CheckoutForm";
 import { PageHeader } from "@/components/app/PageHeader";
 import { EmptyState } from "@/components/app/EmptyState";
 import { Input } from "@/components/forms/Input";
@@ -33,7 +31,7 @@ import clsx from "clsx";
 // Fort Wayne, IN center — fallback if geolocation isn't available.
 const FALLBACK_COORDS = { lat: 41.0793, lng: -85.1394 };
 
-type Step = 0 | 1 | 2 | 3;
+type Step = 0 | 1 | 2;
 
 export default function BookPage() {
   const t = useTranslations("book");
@@ -65,10 +63,7 @@ export default function BookPage() {
   const [selectedDetailerId, setSelectedDetailerId] = useState<string | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null);
 
-  // Checkout state
-  const [appointmentId, setAppointmentId] = useState<string | null>(null);
-  const [clientSecret, setClientSecret] = useState<string | null>(null);
-  const [amountCents, setAmountCents] = useState<number | null>(null);
+  // Confirm state
   const [confirmLoading, setConfirmLoading] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
 
@@ -172,12 +167,10 @@ export default function BookPage() {
           addon_ids: addonIds,
         })),
       });
-      setAppointmentId(appt.id);
-
-      const intent = await createPaymentIntent(appt.id);
-      setClientSecret(intent.client_secret);
-      setAmountCents(intent.amount_cents);
-      setStep(3);
+      // Payment happens later, once the detailer confirms (status -> CONFIRMED).
+      // For now, drop the user on the appointment detail where they can track it.
+      router.push(`/client/appointments/${appt.id}`);
+      return;
     } catch (err: unknown) {
       const response = (err as { response?: { status?: number; data?: { detail?: string } } })?.response;
       const status = response?.status;
@@ -198,11 +191,6 @@ export default function BookPage() {
     } finally {
       setConfirmLoading(false);
     }
-  }
-
-  function handlePaymentSuccess() {
-    if (!appointmentId) return;
-    router.push(`/client/appointments/${appointmentId}`);
   }
 
   const hasVehicles = (vehicles?.length ?? 0) > 0;
@@ -565,44 +553,9 @@ export default function BookPage() {
               disabled={!selectedDetailerId || !selectedSlot}
               onClick={handleConfirmBooking}
             >
-              {t("continueToPayment")}
+              {t("confirmBooking")}
             </Button>
           </div>
-        </section>
-      )}
-
-      {/* STEP 3: Stripe checkout */}
-      {step === 3 && clientSecret && amountCents !== null && (
-        <section className="space-y-6">
-          <SummaryCard
-            service={selectedService?.name ?? "—"}
-            vehiclesCount={selectedVehicles.length}
-            address={serviceAddress}
-            slotLabel={
-              selectedSlot
-                ? dateFormatter.format(new Date(selectedSlot.start_time))
-                : null
-            }
-            detailerName={selectedDetailer?.full_name ?? null}
-            priceCents={amountCents}
-            t={t}
-          />
-
-          <SectionCard
-            icon={<Sparkles className="size-5" />}
-            title={t("steps.pay")}
-          >
-            <CheckoutForm
-              clientSecret={clientSecret}
-              amountCents={amountCents}
-              returnUrl={
-                typeof window !== "undefined"
-                  ? `${window.location.origin}/client/appointments/${appointmentId}`
-                  : ""
-              }
-              onSuccess={handlePaymentSuccess}
-            />
-          </SectionCard>
         </section>
       )}
     </div>
@@ -615,7 +568,6 @@ function Steps({ current }: { current: Step }) {
     t("steps.service"),
     t("steps.date"),
     t("steps.match"),
-    t("steps.pay"),
   ];
   return (
     <ol className="mb-8 flex items-center gap-2">

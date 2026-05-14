@@ -437,7 +437,7 @@
     "startingAt": "Desde",
     "findMatches": "Buscar detailers disponibles",
     "matchError": "No pudimos encontrar detailers. Probá con otra fecha o dirección.",
-    "continueToPayment": "Continuar al pago",
+    "confirmBooking": "Confirmar reserva",
     "confirmError": "No pudimos crear la reserva. Probá de nuevo.",
     "slotTaken": "Ese horario se acaba de ocupar. Refrescamos los horarios disponibles — elegí otro.",
     "availableSlots": "Horarios disponibles",
@@ -486,6 +486,10 @@
     "back": "Volver a turnos",
     "backToHome": "Volver al inicio",
     "loadError": "No pudimos cargar este turno.",
+    "pendingBanner": {
+      "title": "Esperando confirmación del detailer",
+      "body": "Mandamos tu solicitud de reserva. El detailer la va a aceptar pronto — vas a ver el cambio de estado acá y vas a poder pagar cuando esté confirmada."
+    },
     "scheduled": "Programado para",
     "detailer": "Detailer",
     "searching": "Buscando detailer",
