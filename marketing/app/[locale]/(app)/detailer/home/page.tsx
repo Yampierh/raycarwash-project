@@ -45,7 +45,7 @@ export default function DetailerHomePage() {
   const locale = useLocale();
   const { data: me, isLoading, mutate } = useDetailerMe();
   const { data: jobsRaw } = useSWR("/appointments/mine", () =>
-    listMyAppointments()
+    listMyAppointments({ as: "detailer" })
   );
   const { data: verification } = useSWR(
     "/detailers/verification/status",

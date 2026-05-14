@@ -257,10 +257,13 @@ class AppointmentService:
         payload: AppointmentCreate,
         client: User,
     ) -> Appointment:
-        if client.is_detailer():
+        # Booking requires the client role. Users who *also* hold the detailer
+        # role are allowed — the self-booking check below covers the only case
+        # we actually need to prevent (a detailer booking themselves).
+        if not client.is_client():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Detailers cannot create client bookings. Use a CLIENT account.",
+                detail="Only clients can create bookings.",
             )
         if payload.detailer_id == client.id:
             raise HTTPException(

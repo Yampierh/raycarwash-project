@@ -217,6 +217,15 @@ async def update_appointment_status(
 async def list_my_appointments(
     page: int = Query(default=1, ge=1, description="Page number (1-based)."),
     page_size: int = Query(default=20, ge=1, le=100, description="Items per page."),
+    as_role: str | None = Query(
+        default=None,
+        alias="as",
+        pattern="^(client|detailer)$",
+        description=(
+            "For dual-role users, disambiguate which side to list. "
+            "If omitted, defaults to detailer for users with that role, otherwise client."
+        ),
+    ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
@@ -226,11 +235,34 @@ async def list_my_appointments(
     Role-aware branching happens here (not in the service layer):
       CLIENT   → filters by client_id
       DETAILER → filters by detailer_id
+      Dual-role users pass `?as=client` or `?as=detailer` to choose.
     """
     repo   = AppointmentRepository(db)
     offset = (page - 1) * page_size
 
-    if current_user.is_detailer():
+    # Resolve the effective listing role.
+    if as_role == "client":
+        if not current_user.is_client():
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have the client role on this account.",
+            )
+        items, total = await repo.get_by_client(
+            current_user.id, offset=offset, limit=page_size
+        )
+    elif as_role == "detailer":
+        if not current_user.is_detailer():
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have the detailer role on this account.",
+            )
+        items, total = await repo.get_by_detailer(
+            current_user.id, offset=offset, limit=page_size
+        )
+    elif current_user.is_detailer():
+        # Backwards-compat default for clients without an explicit `as`:
+        # preserve the historical behavior where having the detailer role
+        # short-circuited to the detailer listing.
         items, total = await repo.get_by_detailer(
             current_user.id, offset=offset, limit=page_size
         )

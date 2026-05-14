@@ -59,6 +59,8 @@ export async function listMyAppointments(params?: {
   page?: number;
   per_page?: number;
   status?: AppointmentStatus;
+  /** For dual-role users: which side to list. */
+  as?: "client" | "detailer";
 }) {
   const res = await apiClient.get<Paginated<Appointment> | Appointment[]>(
     "/appointments/mine",

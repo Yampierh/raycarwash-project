@@ -24,7 +24,8 @@ export default function DetailerEarningsPage() {
   const { data: me } = useDetailerMe();
   const { data: jobsRaw, isLoading } = useSWR(
     "/appointments/mine?completed",
-    () => listMyAppointments({ status: "completed", per_page: 50 })
+    () =>
+      listMyAppointments({ status: "completed", per_page: 50, as: "detailer" })
   );
 
   const completed = flatten(jobsRaw).filter((a) => a.status === "completed");
