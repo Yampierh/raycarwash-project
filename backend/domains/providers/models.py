@@ -5,12 +5,20 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 
 from sqlalchemy import (
-    Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text,
+    BigInteger, Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy_utils import EncryptedType
 
+from app.core.config import get_settings
 from infrastructure.db.base import Base, TimestampMixin
+
+
+def _provider_encryption_key() -> bytes:
+    """Reuse the User-level ENCRYPTION_KEY for provider PII (insurance, tax_id)."""
+    import base64
+    return base64.b64decode(get_settings().ENCRYPTION_KEY)
 
 
 class ProviderProfile(TimestampMixin, Base):
@@ -83,6 +91,35 @@ class ProviderProfile(TimestampMixin, Base):
     h3_index_r9: Mapped[str | None] = mapped_column(String(20), nullable=True)
     response_rate: Mapped[Decimal] = mapped_column(
         Numeric(5, 4), nullable=False, default=Decimal("0"), server_default="0",
+    )
+
+    # ── Profile Hub `provider` block (Phase 1) ──
+    # Public-facing fields distinct from KYC legal data above. `display_name`
+    # and `business_name` are what other users see; `legal_full_name` stays
+    # internal to verification.
+    display_name: Mapped[str | None]  = mapped_column(String(80), nullable=True)
+    business_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    tagline: Mapped[str | None]       = mapped_column(String(140), nullable=True)
+    social_links: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    cover_photo_s3_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # PII — encrypted at rest with the same ENCRYPTION_KEY as User.full_name.
+    insurance_policy_number_encrypted: Mapped[str | None] = mapped_column(
+        EncryptedType(String(120), _provider_encryption_key), nullable=True,
+    )
+    tax_id_encrypted: Mapped[str | None] = mapped_column(
+        EncryptedType(String(60), _provider_encryption_key), nullable=True,
+    )
+
+    # Stripe Connect / payout target — Phase 5+.
+    payout_method_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    # Denormalized counters maintained by the m_020 trigger (Phase 9).
+    total_services_completed: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0",
+    )
+    earnings_lifetime_cents: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0",
     )
 
     user: Mapped[User] = relationship("User", back_populates="provider_profile")

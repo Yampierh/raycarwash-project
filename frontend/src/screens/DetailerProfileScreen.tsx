@@ -18,12 +18,12 @@ import Button from "../components/Button";
 import SectionHeader from "../components/SectionHeader";
 import { APP_CONFIG } from "../config/app.config";
 import { useAppNavigation } from "../hooks/useAppNavigation";
+import { useMe } from "../hooks/useMe";
 import { logout } from "../services/auth.service";
 import {
   getMyDetailerProfile,
   toggleAcceptingBookings,
 } from "../services/detailer-private.service";
-import { getUserProfile } from "../services/user.service";
 import { Colors } from "../theme/colors";
 import { formatPrice, getInitials, getMemberStatus } from "../utils/formatters";
 
@@ -44,8 +44,15 @@ function MenuOption({ icon, label, value, onPress, danger }: MenuRow) {
 
 export default function DetailerProfileScreen() {
   const navigation = useAppNavigation();
-  const [userName, setUserName] = useState<string | undefined>();
-  const [userEmail, setUserEmail] = useState<string | undefined>();
+
+  // User name/email come from the Profile Hub (ADR-002b). Detailer-specific
+  // stats (earnings, specialties, radius) still go through the legacy
+  // /api/v1/detailers/me endpoint — Phase 5 promotes those into the Hub's
+  // `provider` block.
+  const meQuery = useMe(["profile"]);
+  const userName  = meQuery.data?.data.profile?.full_name ?? undefined;
+  const userEmail = meQuery.data?.data.user.email ?? undefined;
+
   const [accepting, setAccepting] = useState(false);
   const [togglingStatus, setTogglingStatus] = useState(false);
   const [stats, setStats] = useState({ earnings: 0, jobs: 0, rating: 0, reviews: 0, years: 0, radius: 10, specialties: [] as string[], since: "" });
@@ -54,9 +61,10 @@ export default function DetailerProfileScreen() {
 
   async function loadData() {
     try {
-      const [user, profile] = await Promise.all([getUserProfile(), getMyDetailerProfile()]);
-      setUserName(user.full_name);
-      setUserEmail(user.email);
+      const [profile] = await Promise.all([
+        getMyDetailerProfile(),
+        meQuery.refetch(),
+      ]);
       setAccepting(profile.is_accepting_bookings);
       setStats({
         earnings: profile.total_earnings_cents, jobs: profile.total_services,
