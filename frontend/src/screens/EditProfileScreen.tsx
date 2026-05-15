@@ -12,6 +12,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import AvatarPicker from "../components/AvatarPicker";
 import Button from "../components/Button";
 import { ApiError } from "../lib/api-error";
 import { useMe, useUpdateProfile } from "../hooks/useMe";
@@ -150,14 +151,12 @@ export default function EditProfileScreen({ navigation, route }: any) {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.avatarSection}>
-            <View style={styles.avatarInitials}>
-              <Text style={styles.initialsText}>
-                {form.full_name
-                  ? form.full_name.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase()
-                  : "U"}
-              </Text>
-            </View>
-            <Text style={styles.avatarHint}>Profile photo coming soon</Text>
+            <AvatarPicker
+              currentUrl={hubProfile?.avatar_url ?? null}
+              fullName={form.full_name}
+              size={90}
+            />
+            <Text style={styles.avatarHint}>Tap to change your profile photo</Text>
           </View>
 
           <Text style={styles.sectionLabel}>PERSONAL INFORMATION</Text>

@@ -24,6 +24,7 @@ from domains.matching.router         import router as matching_router
 from domains.providers.router        import router as detailer_router
 from domains.providers.verification_router import router as verification_router
 from domains.users.router            import router as user_router
+from domains.users.avatar_router     import router as user_avatar_router
 from domains.admin.router            import router as admin_router
 from domains.notifications.router   import router as notifications_router
 
@@ -76,6 +77,9 @@ api_router.include_router(review_router)
 
 # Users — /api/v1/users/*
 api_router.include_router(user_router)
+
+# Users — /api/v1/users/me/avatar/* + /cover/* (Phase 2)
+api_router.include_router(user_avatar_router)
 
 # Admin dashboard — /api/v1/admin/*
 api_router.include_router(admin_router)
