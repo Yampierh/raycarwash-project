@@ -57,7 +57,19 @@ export type RootStackParamList = {
     lat: number;
     lng: number;
   };
-  EditProfile: { user: UserProfile; focusAddress?: boolean };
+  EditProfile: { user?: UserProfile; focusAddress?: boolean } | undefined;
+
+  // Security center (Phase 3)
+  Security: undefined;
+  ChangeEmail: undefined;
+  ChangePhone: undefined;
+  // TODO(phase 3 follow-up): add ChangePassword, TwoFactorSetup,
+  // Passkeys, Sessions screens. SecurityScreen already navigates to
+  // these names; they need the routes to exist before that compiles.
+  ChangePassword: undefined;
+  TwoFactorSetup: undefined;
+  Passkeys: undefined;
+  Sessions: undefined;
 
   // Detailer onboarding / services
   DetailerOnboarding: undefined;

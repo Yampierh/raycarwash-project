@@ -20,6 +20,8 @@ from domains.auth.models import (  # noqa: F401
     WebAuthnCredential, AuthProvider,
     UserLoginHistory,
 )
+from domains.auth.totp_credential import TotpCredential  # noqa: F401
+from domains.users.pending_contact_change import PendingContactChange  # noqa: F401
 from domains.users.models import User, ClientProfile, OnboardingStatus  # noqa: F401
 from domains.providers.models import ProviderProfile  # noqa: F401
 from domains.vehicles.models import Vehicle, VehicleSize  # noqa: F401

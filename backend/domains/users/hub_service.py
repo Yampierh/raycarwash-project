@@ -205,11 +205,20 @@ class ProfileHubService:
         # doesn't exist yet (Phase 4) — return 0.
         vehicles_total = await self._count_vehicles(user.id)
         return StatsBlock(
+            # TODO(phase 9 m_020): total_appointments_count / total_spent_cents
+            # are denormalized fields maintained by a PostgreSQL trigger that
+            # fires on appointments status=completed and payment_ledger CAPTURE
+            # entries. Phase 1 reads them as 0 for pre-trigger data.
             total_bookings=(cp.total_appointments_count if cp else 0),
             total_spent_cents=(cp.total_spent_cents if cp else 0),
-            favorite_provider_id=None,  # Phase 4
+            # TODO(phase 4 m_008): wire to ClientFavorite (most-used or
+            # explicit-pinned provider). Today there is no concept of a
+            # favorite_provider on the schema — Phase 4 introduces it.
+            favorite_provider_id=None,
             vehicles_total=vehicles_total,
-            favorites_total=0,           # Phase 4 (ClientFavorite)
+            # TODO(phase 4 m_008): count from ClientFavorite once the table
+            # lands.
+            favorites_total=0,
             member_since=member_since,
         )
 
@@ -225,8 +234,9 @@ class ProfileHubService:
         )
 
     def _build_notifications_block(self, user: User) -> NotificationsBlock:
-        # NotificationPreference table lands in Phase 7. For now, surface an
-        # empty block so the frontend can mount the screen without errors.
+        # TODO(phase 7 m_014): read from NotificationPreference table (channel ×
+        # topic matrix + quiet hours). The frontend already renders the empty
+        # placeholder so wiring the real source is a drop-in replacement.
         return NotificationsBlock(preferences={})
 
     # ────── Provider block ──────────────────────────────────────────────────
@@ -275,16 +285,21 @@ class ProfileHubService:
         ]
 
     async def _build_addresses_block(self, user: User) -> list[AddressSummary]:
-        # UserAddress table lands in Phase 4 (m_006). Empty list keeps the
-        # frontend's address screen renderable today.
+        # TODO(phase 4 m_006): replace this stub with a SELECT against the
+        # user_addresses table. The current empty list keeps the
+        # frontend's AddressesScreen renderable today; the GET /users/me?
+        # include=addresses contract is already final.
         return []
 
     async def _build_payment_methods_block(self, user: User) -> list[PaymentMethodSummary]:
-        # PaymentMethod table lands in Phase 4 (m_007).
+        # TODO(phase 4 m_007): replace with a SELECT against payment_methods
+        # (mirrored from Stripe via webhook). Currency / brand / last4 already
+        # in the response schema.
         return []
 
     async def _build_favorites_block(self, user: User) -> list[FavoriteProviderSummary]:
-        # ClientFavorite table lands in Phase 4 (m_008).
+        # TODO(phase 4 m_008): replace with a JOIN client_favorites →
+        # provider_profiles → users to return display_name + avatar_url.
         return []
 
     # ────── Security + sessions (step-up gated) ─────────────────────────────
@@ -320,9 +335,16 @@ class ProfileHubService:
         ) or 0
         return SecurityBlock(
             has_password=bool(user.password_hash),
-            two_factor_enabled=False,  # TotpCredential lands in Phase 3
+            # TODO(phase 3 m_005b): read from TotpCredential.enabled once the
+            # table lands. Today every account reports False because there's
+            # no TOTP storage.
+            two_factor_enabled=False,
             passkeys_count=int(passkeys_count),
-            last_password_change=None,  # Audit-derived; Phase 3
+            # TODO(phase 3): derive from audit_log
+            # WHERE action=PASSWORD_CHANGED, actor=user, ORDER BY created_at
+            # DESC LIMIT 1. Requires the password-change endpoint to actually
+            # log that action (Phase 3 chunk wiring).
+            last_password_change=None,
             last_login_at=last_login_at,
             step_up_required=False,
             active_sessions_count=int(sessions_count),
@@ -359,7 +381,13 @@ class ProfileHubService:
                 user_agent=getattr(login, "user_agent", None),
                 ip_address=getattr(login, "ip_address", None),
                 ip_location=getattr(login, "ip_location", None),
-                is_current=False,  # Set true if the family matches the current request's refresh — Phase 3 wiring.
+                # TODO(phase 3): determine is_current by matching t.family_id
+                # against the refresh token used to mint the request's access
+                # token. Needs AuthService to surface the family on
+                # request.state. Today every session reports False, which is
+                # safe but means the frontend "this device" indicator is
+                # always missing.
+                is_current=False,
                 created_at=t.created_at,
                 last_seen_at=getattr(login, "login_at", None),
             ))
@@ -382,8 +410,16 @@ class ProfileHubService:
         Generate a download URL for an S3 key. In dev we know
         LocalStorageAdapter serves files under /storage/{bucket}/{key}, so
         we build the URL synchronously without awaiting the async signer.
-        In production S3StorageAdapter will need to sign on the request
-        path — Phase 2 (Avatar) wires the async path.
+
+        TODO(prod) — when S3StorageAdapter ships, this needs to call
+        `await adapter.generate_download_url(s3_key, ttl_seconds=86_400)`
+        instead of constructing the path manually. Today the sync path
+        works because LocalStorageAdapter ignores `ttl_seconds` and
+        returns the same /storage/<bucket>/<key> regardless. The async
+        version requires either (a) refactoring `_build_profile_block` to
+        be async too, or (b) caching pre-signed URLs in the hub cache
+        layer. See plan §9 (Redis caching) — the cache key already
+        includes `token_version` which invalidates when the key rotates.
         """
         if not s3_key:
             return None

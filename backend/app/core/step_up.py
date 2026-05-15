@@ -106,29 +106,33 @@ async def is_step_up_recent(request: Request, user: User) -> bool:
     return False
 
 
+from fastapi import Depends
+
+# Local imports — verified no circular reference: auth.service doesn't
+# import step_up, and step_up was historically imported before
+# auth.service in the legacy main.py, so we can safely reach into it.
+from domains.auth.service import get_current_user
+
+
 async def require_step_up(
     request: Request,
-    # `get_current_user` is registered as a dependency by AuthService; routers chain it.
-    # We accept `request.state.user` directly so this helper stays decoupled from auth's
-    # dependency tree (avoids circular imports).
+    current_user: User = Depends(get_current_user),
 ) -> User:
     """
-    FastAPI dependency. Use as:
+    FastAPI dependency for endpoints that need recent re-auth (≤
+    STEP_UP_TTL_MINUTES).
 
+    Resolves the authenticated user via `get_current_user`, then checks
+    Redis (primary) + `User.last_step_up_at` (fallback). Raises
+    `StepUpRequiredError` (401 `step_up_required`) if neither layer
+    shows a recent auth event.
+
+    Usage:
         @router.post("/sensitive")
         async def handler(user = Depends(require_step_up)):
             ...
-
-    The caller must have already populated `request.state.user` (auth middleware does this).
     """
-    user: User | None = getattr(request.state, "user", None)
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"code": "authentication_required", "message": "Authentication required."},
-        )
-
-    if not await is_step_up_recent(request, user):
+    request.state.user = current_user
+    if not await is_step_up_recent(request, current_user):
         raise StepUpRequiredError()
-
-    return user
+    return current_user

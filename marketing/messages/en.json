@@ -8,6 +8,8 @@
     "home": "Home",
     "how": "How it works",
     "services": "Services",
+    "about": "About",
+    "contact": "Contact",
     "detailers": "For detailers",
     "faq": "FAQ",
     "login": "Log in",
@@ -162,7 +164,15 @@
       },
       {
         "q": "How are detailers vetted?",
-        "a": "Identity verification through Stripe Identity, insurance check, plus a portfolio review before activation. Ongoing rating-based quality control after that."
+        "a": "Every detailer goes through identity verification, background check, and portfolio review before accepting jobs. Learn more about our vetting process."
+      },
+      {
+        "q": "Is my vehicle insured during service?",
+        "a": "Yes. Your vehicle is protected during every service. We have coverage for damage caused by the detailer. See our insurance policy for details."
+      },
+      {
+        "q": "What if something goes wrong?",
+        "a": "Open a dispute in the app within 48 hours. Our team will review and ensure fair resolution, which may include a re-service or refund."
       },
       {
         "q": "How does payment work?",
@@ -198,6 +208,7 @@
     "links": {
       "how": "How it works",
       "services": "Services",
+      "about": "About",
       "detailers": "Become a detailer",
       "faq": "FAQ",
       "login": "Login",
@@ -317,6 +328,37 @@
       "consent": "Please accept both consents to continue.",
       "atLeastOneService": "Pick at least one service to offer."
     }
+  },
+  "about": {
+    "kicker": "About us",
+    "h1": "Mobile detailing, reimagined.",
+    "intro": "RayCarWash brings professional car care directly to your doorstep. We're transforming how people think about car maintenance — no more waiting in line at a wash bay or rearranging your schedule for a detailing appointment.",
+    "storyKicker": "Our story",
+    "storyH2": "Born from convenience",
+    "storyBody": [
+      "We started RayCarWash because we experienced the same frustration as everyone else: car care always seemed to require too much time and too many compromises. Whether it was finding someone to watch the kids while you waited at a wash, or blocking out half a day for a detail, traditional car care simply didn't fit modern life.",
+      "Our solution was simple: bring the detailer to the car. By connecting clients with vetted, independent detailers who bring everything needed to the client's location, we've eliminated the friction from car care — making it as easy as ordering a ride."
+    ],
+    "valuesKicker": "Our values",
+    "valuesH2": "What drives us",
+    "values": [
+      {
+        "title": "Convenience first",
+        "body": "Your time is valuable. We built our entire experience around fitting car care into your schedule, not the other way around."
+      },
+      {
+        "title": "Trust & safety",
+        "body": "Every detailer is background-checked and verified. Your property and vehicle are protected from day one."
+      },
+      {
+        "title": "Quality without compromise",
+        "body": "Professional-grade tools and products, delivered with the care you'd expect from seasoned experts."
+      }
+    ],
+    "ctaH2": "Ready for a cleaner car?",
+    "ctaSub": "Join thousands of satisfied customers across Fort Wayne.",
+    "ctaPrimary": "Download the app",
+    "ctaSecondary": "Become a detailer"
   },
   "app": {
     "signOut": "Sign out",

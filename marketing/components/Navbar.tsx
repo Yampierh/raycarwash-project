@@ -34,10 +34,11 @@ export default function Navbar() {
   }
 
   const navLinks = [
-    { href: "#how", label: t("how") },
-    { href: "#services", label: t("services") },
-    { href: "#detailers", label: t("detailers") },
-    { href: "#faq", label: t("faq") },
+    { href: "/#how", label: t("how") },
+    { href: "/#services", label: t("services") },
+    { href: "/about", label: t("about") },
+    { href: "/contact", label: t("contact") },
+    { href: "/detailers", label: t("detailers") },
   ];
 
   const showAuthState = hydrated && isAuthed;

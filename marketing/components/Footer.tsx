@@ -28,17 +28,22 @@ export default function Footer() {
             </h3>
             <ul className="mt-4 space-y-2 text-sm">
               <li>
-                <a href="#how" className="text-zinc-600 hover:text-zinc-900">
+                <a href="/#how" className="text-zinc-600 hover:text-zinc-900">
                   {t("links.how")}
                 </a>
               </li>
               <li>
-                <a href="#services" className="text-zinc-600 hover:text-zinc-900">
+                <a href="/#services" className="text-zinc-600 hover:text-zinc-900">
                   {t("links.services")}
                 </a>
               </li>
               <li>
-                <a href="#faq" className="text-zinc-600 hover:text-zinc-900">
+                <a href="/about" className="text-zinc-600 hover:text-zinc-900">
+                  {t("links.about")}
+                </a>
+              </li>
+              <li>
+                <a href="/#faq" className="text-zinc-600 hover:text-zinc-900">
                   {t("links.faq")}
                 </a>
               </li>
@@ -51,12 +56,28 @@ export default function Footer() {
             </h3>
             <ul className="mt-4 space-y-2 text-sm">
               <li>
-                <a
-                  href="#detailers"
+                <Link
+                  href="/detailers"
                   className="text-zinc-600 hover:text-zinc-900"
                 >
                   {t("links.detailers")}
-                </a>
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/about"
+                  className="text-zinc-600 hover:text-zinc-900"
+                >
+                  {t("links.about")}
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/contact"
+                  className="text-zinc-600 hover:text-zinc-900"
+                >
+                  {t("links.contact")}
+                </Link>
               </li>
               <li>
                 <Link
@@ -65,14 +86,6 @@ export default function Footer() {
                 >
                   {t("links.login")}
                 </Link>
-              </li>
-              <li>
-                <a
-                  href={`mailto:${email}`}
-                  className="text-zinc-600 hover:text-zinc-900"
-                >
-                  {t("links.contact")}
-                </a>
               </li>
             </ul>
           </div>

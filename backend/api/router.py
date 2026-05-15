@@ -10,6 +10,7 @@ from app.core.config import get_settings
 
 # All routers now imported directly from domains/ ↓
 from domains.auth.routers            import auth_router
+from domains.auth.security_router    import router as auth_security_router
 from domains.auth.wellknown_router   import router as wellknown_router
 from domains.appointments.router     import router as appointment_router
 from domains.payments.router         import router as payment_router
@@ -25,6 +26,7 @@ from domains.providers.router        import router as detailer_router
 from domains.providers.verification_router import router as verification_router
 from domains.users.router            import router as user_router
 from domains.users.avatar_router     import router as user_avatar_router
+from domains.users.contact_change_router import router as user_contact_router
 from domains.admin.router            import router as admin_router
 from domains.notifications.router   import router as notifications_router
 
@@ -38,6 +40,9 @@ api_router.include_router(webhook_router)
 
 # Auth domain — /auth/*
 api_router.include_router(auth_router)
+
+# Auth security center — /api/v1/auth/{security,history,two-fa,passkeys} (Phase 3)
+api_router.include_router(auth_security_router)
 
 # Service catalogue — /api/v1/services/*
 api_router.include_router(service_router)
@@ -80,6 +85,9 @@ api_router.include_router(user_router)
 
 # Users — /api/v1/users/me/avatar/* + /cover/* (Phase 2)
 api_router.include_router(user_avatar_router)
+
+# Users — /api/v1/users/me/email/* + /phone/* (Phase 3)
+api_router.include_router(user_contact_router)
 
 # Admin dashboard — /api/v1/admin/*
 api_router.include_router(admin_router)

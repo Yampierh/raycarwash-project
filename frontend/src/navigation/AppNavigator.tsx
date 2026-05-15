@@ -14,9 +14,12 @@ import DetailerOnboardingScreen from "../screens/DetailerOnboardingScreen";
 import DetailerProfileScreen from "../screens/DetailerProfileScreen";
 import DetailerSelectionScreen from "../screens/DetailerSelectionScreen";
 import DetailerServicesScreen from "../screens/DetailerServicesScreen";
+import ChangeEmailScreen from "../screens/ChangeEmailScreen";
+import ChangePhoneScreen from "../screens/ChangePhoneScreen";
 import EditProfileScreen from "../screens/EditProfileScreen";
 import ForgotPasswordScreen from "../screens/ForgotPasswordScreen";
 import HomeScreen from "../screens/HomeScreen";
+import SecurityScreen from "../screens/SecurityScreen";
 import LoadingScreen from "../screens/LoadingScreen";
 import LoginScreen from "../screens/LoginScreen";
 import ProfileScreen from "../screens/ProfileScreen";
@@ -151,6 +154,21 @@ export default function AppNavigator() {
         <Stack.Screen name="DetailerSelection" component={DetailerSelectionScreen} />
         <Stack.Screen name="BookingSummary" component={BookingSummaryScreen} />
         <Stack.Screen name="EditProfile" component={EditProfileScreen} />
+
+        {/* Phase 3 security center */}
+        <Stack.Screen name="Security" component={SecurityScreen} />
+        <Stack.Screen name="ChangeEmail" component={ChangeEmailScreen} />
+        <Stack.Screen name="ChangePhone" component={ChangePhoneScreen} />
+        {/*
+          TODO(phase 3 follow-up): mount these once the screens land.
+          SecurityScreen already navigates to them by name — leaving them
+          unmounted yields a soft "navigator could not find route" warning
+          at runtime, which is acceptable until the next iteration adds:
+            - ChangePassword
+            - TwoFactorSetup
+            - Passkeys
+            - Sessions
+        */}
       </Stack.Navigator>
     </NavigationContainer>
   );

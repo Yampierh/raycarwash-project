@@ -1,5 +1,6 @@
 import React from "react";
 import {
+  StyleProp,
   StyleSheet,
   TouchableOpacity,
   View,
@@ -10,7 +11,11 @@ interface CardProps {
   children: React.ReactNode;
   onPress?: () => void;
   padding?: number;
-  style?: ViewStyle;
+  // StyleProp<ViewStyle> accepts a single style object OR an array of them
+  // (with `null`/`false`/`undefined` short-circuits) — same as every other
+  // React Native built-in. The bare `ViewStyle` previously here broke
+  // composed-style callers like `style={[styles.x, isOn && styles.y]}`.
+  style?: StyleProp<ViewStyle>;
   activeOpacity?: number;
 }
 
