@@ -153,7 +153,7 @@ export default function DetailerSelectionScreen({ route, navigation }: any) {
               <Card
                 key={detailer.user_id}
                 onPress={() => handleSelectDetailer(detailer)}
-                style={[styles.detailerCard, isSelected && styles.detailerCardActive]}
+                style={[styles.detailerCard, isSelected ? styles.detailerCardActive : null]}
               >
                 <View style={styles.detailerRow}>
                   <View style={styles.detailerAvatar}>

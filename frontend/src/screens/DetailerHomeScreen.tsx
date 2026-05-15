@@ -410,7 +410,7 @@ export default function DetailerHomeScreen() {
                     onPress={() => handleStatusChange(activeJob, "completed")}
                     variant="primary"
                     size="md"
-                    icon="check-circle-outline"
+                    icon="checkmark-circle-outline"
                     style={{ flex: 1 }}
                   />
                 )}
@@ -466,7 +466,7 @@ export default function DetailerHomeScreen() {
                     onPress={() => handleStatusChange(nextJob, "confirmed")}
                     variant="primary"
                     size="md"
-                    icon="check"
+                    icon="checkmark"
                     style={{ flex: 1 }}
                   />
                 )}

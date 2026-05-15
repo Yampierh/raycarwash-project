@@ -28,8 +28,19 @@ def _build_adapter(bucket: str) -> FileStorageAdapter:
     """Cache one adapter instance per bucket — they're stateless."""
     env = get_settings().RAYCARWASH_ENV
     if env == "production":
-        # TODO(prod): from infrastructure.storage.s3 import S3StorageAdapter
-        # return S3StorageAdapter(bucket=bucket)
+        # TODO(prod) — `infrastructure/storage/s3.py` is not implemented.
+        # When implementing:
+        #   1. Create `class S3StorageAdapter` matching the FileStorageAdapter
+        #      Protocol in `infrastructure/storage/base.py`.
+        #   2. Use boto3 + `generate_presigned_url(ClientMethod="put_object")`
+        #      for `generate_upload_url`; HEAD for `head_object`;
+        #      `generate_presigned_url("get_object", ...)` for downloads.
+        #   3. Public bucket (`bucket=BUCKET_PUBLIC`) → CloudFront-signed URLs
+        #      with 24h TTL. Private bucket (`bucket=BUCKET_PRIVATE`) →
+        #      SSE-KMS + 1h presigned URLs. See plan §9, ADR-008.
+        #   4. Replace the raise below with:
+        #         from infrastructure.storage.s3 import S3StorageAdapter
+        #         return S3StorageAdapter(bucket=bucket)
         raise RuntimeError(
             "S3StorageAdapter is not implemented yet. "
             "Either implement infrastructure/storage/s3.py or set RAYCARWASH_ENV=development."
