@@ -8,6 +8,8 @@
     "home": "Inicio",
     "how": "Cómo funciona",
     "services": "Servicios",
+    "about": "Nosotros",
+    "contact": "Contacto",
     "detailers": "Para detailers",
     "faq": "Preguntas",
     "login": "Iniciar sesión",
@@ -162,7 +164,15 @@
       },
       {
         "q": "¿Cómo verifican a los detailers?",
-        "a": "Verificación de identidad con Stripe Identity, control de seguro y revisión de portfolio antes de activarse. Después seguimos midiendo calidad por reviews."
+        "a": "Cada detailer pasa por verificación de identidad, control de antecedentes y revisión de portfolio antes de aceptar trabajos. Conocé más sobre nuestro proceso."
+      },
+      {
+        "q": "¿Mi vehículo está asegurado durante el servicio?",
+        "a": "Sí. Tu vehículo está protegido durante cada servicio. Contamos con cobertura para daños causados por el detailer. Verificá nuestra póliza de seguro."
+      },
+      {
+        "q": "¿Qué pasa si algo sale mal?",
+        "a": "Abrí una disputa dentro de la app en menos de 48 horas. Nuestro equipo revisará y asegurará una resolución justa, que puede incluir un re-servicio o reembolso."
       },
       {
         "q": "¿Cómo funciona el pago?",
@@ -198,6 +208,7 @@
     "links": {
       "how": "Cómo funciona",
       "services": "Servicios",
+      "about": "Nosotros",
       "detailers": "Ser detailer",
       "faq": "Preguntas",
       "login": "Iniciar sesión",
@@ -317,6 +328,37 @@
       "consent": "Aceptá ambos consentimientos para continuar.",
       "atLeastOneService": "Elegí al menos un servicio."
     }
+  },
+  "about": {
+    "kicker": "Sobre nosotros",
+    "h1": "Detailing móvil, reinventado.",
+    "intro": "RayCarWash lleva el cuidado profesional de tu auto directamente a tu puerta. Estamos transformando cómo la gente piensa sobre el mantenimiento del auto — ya no más esperar en filas o organizar tu agenda para una cita de detailing.",
+    "storyKicker": "Nuestra historia",
+    "storyH2": "Nacimos de la conveniencia",
+    "storyBody": [
+      "Empezamos RayCarWash porque experimentamos la misma frustración que todos: el cuidado del auto siempre requería demasiado tiempo y demasiadas concesiones. Ya sea encontrar a alguien que cuide a los hijos mientras esperás en un lavado, o bloquear medio día para un detailing, el cuidado tradicional del auto simplemente no encaja en la vida moderna.",
+      "Nuestra solución fue simple: llevar el detailer al auto. Al conectar clientes con detailers verificados e independientes que traen todo lo necesario a la ubicación del cliente, eliminamos la fricción del cuidado del auto — haciéndolo tan fácil como pedir un ride."
+    ],
+    "valuesKicker": "Nuestros valores",
+    "valuesH2": "Lo que nos guía",
+    "values": [
+      {
+        "title": "Conveniencia primero",
+        "body": "Tu tiempo es valioso. Construimos toda nuestra experiencia alrededor de adaptar el cuidado del auto a tu agenda, no al revés."
+      },
+      {
+        "title": "Confianza y seguridad",
+        "body": "Cada detailer tiene verificación de antecedentes. Tu propiedad y vehículo están protegidos desde el primer día."
+      },
+      {
+        "title": "Calidad sin compromisos",
+        "body": "Herramientas y productos de grado profesional, entregados con el cuidado que esperarías de expertos experimentados."
+      }
+    ],
+    "ctaH2": "¿Listo para un auto más limpio?",
+    "ctaSub": "Unite a miles de clientes satisfechos en Fort Wayne.",
+    "ctaPrimary": "Descargar la app",
+    "ctaSecondary": "Ser detailer"
   },
   "app": {
     "signOut": "Cerrar sesión",

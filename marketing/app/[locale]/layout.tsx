@@ -16,6 +16,8 @@ export function generateStaticParams() {
   return routing.locales.map((locale) => ({ locale }));
 }
 
+const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || "https://raycarwash.com";
+
 export async function generateMetadata({
   params,
 }: {
@@ -25,14 +27,24 @@ export async function generateMetadata({
   if (!hasLocale(routing.locales, locale)) return {};
 
   const t = await getTranslations({ locale, namespace: "meta" });
+
+  const alternates: Metadata["alternates"] = {
+    languages: {},
+  };
+  for (const l of routing.locales) {
+    alternates.languages![l] = `${BASE_URL}/${l}`;
+  }
+
   return {
     title: t("title"),
     description: t("description"),
+    alternates,
     openGraph: {
       title: t("title"),
       description: t("description"),
       locale,
       type: "website",
+      url: `${BASE_URL}/${locale}`,
     },
     twitter: {
       card: "summary_large_image",
