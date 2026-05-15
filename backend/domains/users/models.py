@@ -182,6 +182,15 @@ class User(TimestampMixin, Base):
         "UserLoginHistory", back_populates="user",
         lazy="select", cascade="all, delete-orphan",
     )
+    # Phase 3 — Profile system contact verification + 2FA.
+    pending_contact_changes: Mapped[list["PendingContactChange"]] = relationship(
+        "PendingContactChange", back_populates="user",
+        lazy="select", cascade="all, delete-orphan",
+    )
+    totp_credential: Mapped["TotpCredential | None"] = relationship(
+        "TotpCredential", back_populates="user",
+        uselist=False, lazy="select", cascade="all, delete-orphan",
+    )
 
     def has_permission(self, permission_name: str) -> bool:
         for user_role in self.user_roles:
@@ -228,7 +237,9 @@ if TYPE_CHECKING:
     from domains.auth.models import (
         UserRoleAssociation, WebAuthnCredential, AuthProvider, UserLoginHistory,
     )
+    from domains.auth.totp_credential import TotpCredential
     from domains.providers.models import ProviderProfile
+    from domains.users.pending_contact_change import PendingContactChange
     from domains.vehicles.models import Vehicle
     from domains.appointments.models import Appointment
     from domains.reviews.models import Review
