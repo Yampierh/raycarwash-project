@@ -258,3 +258,134 @@ calls.
 - **Timestamps are UTC** — convert to local only for display. All DB values are UTC.
 - **Prices are cents** — always integer cents. Display: `/ 100`. Never floats.
 - **CORS** — frontend on port 8081, backend allows this by default. Update `ALLOWED_ORIGINS` for production.
+
+---
+
+## Profile system — Architectural Decision Records (Phase 0+)
+
+Materialized from `~/.claude/plans/estoy-construyendo-una-app-composed-kahan.md`.
+Each ADR is dated, status-tagged, and references the plan section it implements.
+
+### ADR-001: Strict separation `/api/v1/auth/*` vs `/api/v1/users/me/*`
+
+- **Status**: Accepted (2026-05-14).
+- **Context**: legacy endpoints fragment user data across `/auth/me`, `/auth/update`, `/api/v1/detailers/me`, `/api/v1/vehicles`, `/api/v1/notifications/device-token`. Frontend hits 3-4 endpoints just to open the profile screen.
+- **Decision**: split into two domains. `/api/v1/auth/*` owns credentials, sessions, passkeys, 2FA, and password change. `/api/v1/users/me/*` owns persona, preferences, vehicles, addresses, payment methods, GDPR, and provider sub-resources.
+- **Consequences**:
+  - (+) Strict SRP; independent testability; clean OpenAPI tags.
+  - (+) Frontend talks to one domain per intent.
+  - (-) Helpers must be cross-domain (e.g. `security` block in Profile Hub delegates to auth's `AuthBlockProvider`). Mitigated by composition, not inheritance.
+  - (-) Legacy endpoints stay live 2 sprints with `Deprecation` + `Sunset` headers (RFC 8594) before returning 410.
+- **Rejected alternatives**: aliasing `/users/me/security/*` to `/auth/*` (dilutes responsibility); aggregator namespace `/api/v1/profile/*` over the fragmented domains (still fragmented underneath).
+
+### ADR-002: `?include=` opt-in for sub-resources (superseded by ADR-002b)
+
+- **Status**: Accepted 2026-05-14, **Superseded by ADR-002b on 2026-05-15**.
+- **Context**: `GET /users/me` was growing into a pile of optional fields (`stats`, `security_summary`, `defaults`, ...) with COUNTs that made the default response slow.
+- **Decision**: default response is minimal; clients opt in to extras via `?include=stats,security_summary,defaults,provider_private,recent_activity`.
+- **Consequences**: fast default Hub, no breaking changes when new tokens ship, granular cache keys. Two requests in flight if both base + extras needed (React Query handles dedup).
+
+### ADR-002b: Profile Hub with composite block shape
+
+- **Status**: Accepted (2026-05-15). **Supersedes ADR-002.**
+- **Context**: ADR-002's payload was flat (loose fields). Scaling to 11+ sub-resources made the response hard to render block-by-block on the frontend.
+- **Decision**: `data` is a composite object — `{user, verification_badges, profile?, vehicles?, favorites?, sessions?, security?, provider?, addresses?, payment_methods?, preferences?, notifications?, stats?}`. Only `user` and `verification_badges` are always present. All others are opt-in via `?include=`. `meta.includes` echoes what was actually returned. Step-up applies to the sensitive tokens (`security`, `sessions`); `?on_step_up=skip` opts into degraded responses instead of 401.
+- **Consequences**:
+  - (+) Predictable, self-contained blocks; trivial to cache and render.
+  - (+) Frontend asks per-screen for exactly what it needs (`profile,stats` on launch; `security,sessions` only on SecurityScreen).
+  - (+) Granular step-up — sensitive tokens gate independently.
+  - (+) Future-friendly: `?fields[block]=...` (sparse fieldsets) can ship later without breaking changes.
+  - (-) Slightly heavier orchestration in `ProfileHubService` — mitigated with `to_hub_block(user)` adapters on each sub-service.
+- **Rejected alternatives**: flat shape (ADR-002 — does not scale visually); separate endpoints per block (`/users/me/profile`, `/users/me/security`) — re-introduces N+1 calls and breaks caching.
+
+### ADR-003: Refresh rotation on active-role switch
+
+- **Status**: Accepted (2026-05-14).
+- **Context**: `PATCH /users/me/active-role` changes the JWT `role` claim. Without rotation, a refresh stolen before the switch could keep issuing access tokens for the old role for up to `REFRESH_TOKEN_EXPIRE_DAYS` (7).
+- **Decision**: rotate the refresh token family on every successful switch — same flow as password change. New access + refresh are returned together.
+- **Consequences**:
+  - (+) Closes the stolen-refresh window for cross-role escalation.
+  - (-) Frontend must persist both new tokens to `SecureStore` after the call — same flow already used after `/auth/password/change`.
+- **Rejected alternatives**: leave refresh untouched (unacceptable risk); bump `token_version` (kills every session, too invasive for a routine switch).
+
+### ADR-004: Step-up auth with Redis primary + DB fallback
+
+- **Status**: Accepted (2026-05-14).
+- **Context**: `require_step_up()` reads a `last_auth_at` timestamp ≤5min old to decide whether to grant sensitive operations. Sole-Redis storage would mean a Redis outage blocks email/phone change, 2FA changes, and payment method add — even for users who literally just authenticated.
+- **Decision**: dual-layer. Redis key `auth:stepup:{user_id}` is primary (TTL = `STEP_UP_TTL_MINUTES`); column `users.last_step_up_at` is populated on every successful auth (login, password verify, OAuth verify, passkey verify) as fallback. The dependency tries Redis first, then DB.
+- **Consequences**:
+  - (+) Availability: Redis outage does not lock users out of profile operations they just authenticated for.
+  - (+) Same TTL threshold in both layers — no behavioral drift.
+  - (-) Every successful auth runs one extra `UPDATE users` — negligible.
+
+### ADR-005: Specialized histories beat a single feed
+
+- **Status**: Accepted (2026-05-14).
+- **Context**: a single `/users/me/activity` mixing appointments, payments, reviews, profile changes, and security events would force every consumer to filter by `type` and would resist DB indexing (each row type has different optimal indexes).
+- **Decision**: five specialized endpoints with purpose-built indexes:
+  - `/api/v1/auth/history` (logins + security AuditLog filtered)
+  - `/api/v1/users/me/appointments/history`
+  - `/api/v1/users/me/payments/history`
+  - `/api/v1/users/me/vehicles/history`
+  - `/api/v1/users/me/profile-changes`
+
+  Plus an optional `/api/v1/users/me/activity` *summary* that aggregates the first four — capped, not deep-paginatable.
+- **Consequences**:
+  - (+) Each list gets its own index; cursor pagination stays efficient.
+  - (+) Filters are first-class (`?status=`, `?vehicle_id=`, `?action=`).
+  - (+) Frontend renders one type per screen — no big if/elif tables.
+  - (-) More routes to maintain; mitigated by sharing the underlying services.
+- **Important**: the unified `/activity` feed *excludes* security events to keep `/auth/history` the single source of truth for that data.
+
+### ADR-006: Append-only audit_log with 90-day redaction
+
+- **Status**: Accepted (2026-05-14).
+- **Context**: `audit_logs.old_value` / `new_value` are JSONB and may contain PII (old email, old phone, old address) for every mutation. Left unbounded the table grows fast and violates GDPR data-minimization.
+- **Decision**: three retention tiers:
+  - 0-90 days → full JSONB.
+  - 90 days-3 years → sensitive fields redacted (`old_value` and `new_value` rewritten with a `{"redacted": true, "fields": [...]}` marker); structural fields (`action`, `entity_type`, `entity_id`, `actor_id`, `created_at`, `ip_address`) survive.
+  - >3 years → non-security/non-financial rows archived to Glacier and deleted from Postgres. Security and financial rows are retained indefinitely for compliance.
+- **Consequences**:
+  - (+) GDPR-compatible while keeping forensic chain.
+  - (+) Postgres `audit_logs` size stays bounded.
+  - (-) Forensics past 90 days requires restoring from Glacier.
+- **Worker**: `workers/audit_log_redactor.py` (Phase 9 or earlier).
+
+### ADR-007: Response envelope is explicit, not middleware
+
+- **Status**: Accepted (2026-05-14).
+- **Context**: the `{data, meta, links}` envelope could be applied either as a global middleware that wraps any return value, or declared on each endpoint via `response_model=Envelope[T]`.
+- **Decision**: explicit `response_model=Envelope[T]` on every endpoint under `/api/v1/users/me/*` and Phase 0+ auth endpoints. Enforcement at startup via `EnvelopeRouter` (`app/core/envelope_router.py`) — registering a route without a compliant `response_model` raises `EnvelopeContractError` before the app boots. A CI test (`tests/test_envelope_compliance.py`) walks `app.router.routes` and fails if any non-legacy route slips through.
+- **Consequences**:
+  - (+) OpenAPI mirrors the wire shape with concrete types.
+  - (+) No per-request middleware overhead.
+  - (+) Mistakes fail loud and early.
+  - (-) Boilerplate per endpoint — mitigated by generics.
+
+### ADR-008: Two S3 buckets, separated by data sensitivity
+
+- **Status**: Accepted (2026-05-14).
+- **Decision**: two logical buckets behind `FileStorageAdapter`:
+  - `public-assets`: avatars, cover images, vehicle photos, provider portfolio. CloudFront-fronted, signed URLs valid 24 h.
+  - `private-docs`: KYC docs, insurance, data exports. SSE-KMS encrypted, no CDN, presigned URLs valid 1 h.
+
+  In development both map to `STORAGE_LOCAL_PATH/{bucket}/{key}` via `LocalStorageAdapter`. The dev `/dev/upload` endpoint validates an HMAC signature before writing.
+- **Consequences**:
+  - (+) PCI/PII surface contained to the private bucket and never crosses the CDN.
+  - (+) Public assets served fast through CloudFront without backend round-trips.
+  - (-) Two storage pipelines to provision — both share the same adapter interface, so no code duplication.
+
+---
+
+## Phase 0 implementation notes (2026-05-14)
+
+Phase 0 ships in four chunks on branch `feat/profile-phase0`:
+
+- **Chunk A** (`7d28ec4`): `Envelope[T]` generics, `app/core/{cursor,idempotency,step_up,deprecation,envelope_router}.py`, `app/middleware/{request_id,structured_logging,audit_context}.py`, `app/exception_handlers.py`, `main.py` middleware order, `tests/test_envelope_compliance.py` (3 passing).
+- **Chunk B** (`a1ee16d`): Alembic `m_001..m_001d` (audit_log + `users.last_step_up_at` + `user_login_history` table), `AuditAction` enum extended to 50 values, `AuditLog.metadata_/old_value/new_value/ip/UA/request_id`, `UserLoginHistory` model, `AuthService.authenticate_user` hook populating login history on every outcome, exception handler scoped to `/api/v1/*` only (legacy `/auth/*` keeps `{"detail": ...}` for backwards compat).
+- **Chunk C** (`928bf11`): `FileStorageAdapter` Protocol, `LocalStorageAdapter`, `POST /dev/upload` sink with HMAC validation, `app/core/dependencies.py` (`get_public_storage` / `get_private_storage`), `/storage` static mount — all gated on `RAYCARWASH_ENV != "production"`.
+- **Chunk D** (`7748353`): `rq` + `rq-scheduler` in requirements, `backend/Dockerfile`, expanded `docker-compose.yml` (postgres, redis, mailhog, rq-worker/scheduler under `workers` profile), `.env.example` documenting all Phase 0+ vars and TODO blocks for prod.
+
+Test impact: 72/72 `test_auth`, 28/28 `test_admin`, 19/19 `test_appointments`, 3/3 `test_envelope_compliance` pass on this branch. One pre-existing failure in `test_register_onboarding_token_blocked_on_regular_endpoints` is unchanged — same failure on `master`.
+
+Phase 1 begins implementation of the Profile Hub (`/api/v1/users/me`) on a new branch.
