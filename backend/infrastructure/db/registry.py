@@ -18,6 +18,7 @@ from domains.auth.models import (  # noqa: F401
     Permission, Role, RolePermission, UserRoleAssociation,
     RefreshToken, PasswordResetToken,
     WebAuthnCredential, AuthProvider,
+    UserLoginHistory,
 )
 from domains.users.models import User, ClientProfile, OnboardingStatus  # noqa: F401
 from domains.providers.models import ProviderProfile  # noqa: F401

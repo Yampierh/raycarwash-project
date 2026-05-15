@@ -53,6 +53,19 @@ class BusinessError(Exception):
         self.details = details
 
 
+def _is_envelope_path(request: Request) -> bool:
+    """
+    Envelope responses apply ONLY to new /api/v1/* endpoints (Phase 0+).
+    Legacy paths (/auth/*, /webhooks/*, /.well-known/*, /health, /docs, etc.)
+    keep FastAPI's classic `{"detail": "..."}` shape until they migrate.
+
+    This preserves backwards compatibility with existing clients during the
+    deprecation window (ADR-001 §2.1: legacy endpoints survive 2 sprints
+    with Deprecation/Sunset headers before returning 410).
+    """
+    return request.url.path.startswith("/api/v1/")
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     """Install all handlers on the FastAPI app instance."""
 
@@ -69,6 +82,14 @@ def register_exception_handlers(app: FastAPI) -> None:
             message = str(exc.detail) if exc.detail else _default_message(exc.status_code)
             details_raw = None
             requires_step_up = None
+
+        # Legacy paths: preserve FastAPI's `{"detail": ...}` shape.
+        if not _is_envelope_path(request):
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={"detail": exc.detail if not isinstance(exc.detail, dict) else message},
+                headers=getattr(exc, "headers", None),
+            )
 
         meta = None
         if requires_step_up:
@@ -88,6 +109,11 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def validation_exception_handler(
         request: Request, exc: RequestValidationError
     ) -> JSONResponse:
+        if not _is_envelope_path(request):
+            return JSONResponse(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                content={"detail": jsonable_encoder(exc.errors())},
+            )
         return _envelope(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             code="validation_failed",
@@ -100,6 +126,11 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def pydantic_validation_handler(
         request: Request, exc: ValidationError
     ) -> JSONResponse:
+        if not _is_envelope_path(request):
+            return JSONResponse(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                content={"detail": jsonable_encoder(exc.errors())},
+            )
         return _envelope(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             code="validation_failed",
@@ -110,6 +141,11 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(BusinessError)
     async def business_error_handler(request: Request, exc: BusinessError) -> JSONResponse:
+        if not _is_envelope_path(request):
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={"detail": exc.message},
+            )
         return _envelope(
             status_code=exc.status_code,
             code=exc.code,
@@ -121,6 +157,11 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
         logger.exception("unhandled exception during request %s %s", request.method, request.url.path)
+        if not _is_envelope_path(request):
+            return JSONResponse(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                content={"detail": "Internal server error."},
+            )
         return _envelope(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             code="internal_error",

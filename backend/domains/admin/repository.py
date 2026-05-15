@@ -370,7 +370,7 @@ class AdminRepository:
             action=AuditAction.APPOINTMENT_STATUS_CHANGED,
             entity_type="appointment",
             entity_id=str(appointment_id),
-            stripe_metadata={"forced_status": new_status, "by": "admin"},
+            metadata_={"forced_status": new_status, "by": "admin"},
         ))
         await self._db.flush()
         return True
@@ -423,7 +423,7 @@ class AdminRepository:
             action=AuditAction.DETAILER_PROFILE_UPDATED,
             entity_type="provider_profile",
             entity_id=str(provider_id),
-            stripe_metadata={"action": "verification_approved"},
+            metadata_={"action": "verification_approved"},
         ))
         await self._db.flush()
         return True
@@ -448,7 +448,7 @@ class AdminRepository:
             action=AuditAction.DETAILER_PROFILE_UPDATED,
             entity_type="provider_profile",
             entity_id=str(provider_id),
-            stripe_metadata={"action": "verification_rejected", "reason": reason},
+            metadata_={"action": "verification_rejected", "reason": reason},
         ))
         await self._db.flush()
         return True
