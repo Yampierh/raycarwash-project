@@ -6,6 +6,8 @@ This file is the single source of truth for which routers are active.
 """
 from fastapi import APIRouter
 
+from app.core.config import get_settings
+
 # All routers now imported directly from domains/ ↓
 from domains.auth.routers            import auth_router
 from domains.auth.wellknown_router   import router as wellknown_router
@@ -80,3 +82,9 @@ api_router.include_router(admin_router)
 
 # Push notifications — /api/v1/notifications/*
 api_router.include_router(notifications_router)
+
+# Development-only: local-storage upload sink (replaces S3 presigned PUT in dev).
+# Never registered when RAYCARWASH_ENV=production — frontend talks to AWS S3 directly.
+if get_settings().RAYCARWASH_ENV != "production":
+    from app.routers.dev_upload import router as dev_upload_router
+    api_router.include_router(dev_upload_router)

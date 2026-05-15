@@ -42,6 +42,8 @@ LEGACY_PATH_PREFIXES: tuple[str, ...] = (
     "/api/v1/vehicles",
     "/webhooks/",
     "/.well-known/",
+    "/dev/",          # development-only utilities (LocalStorageAdapter upload sink)
+    "/storage/",      # local static mount for LocalStorageAdapter downloads
 )
 
 # Routes that legitimately return non-JSON (file streams, redirects, etc.)

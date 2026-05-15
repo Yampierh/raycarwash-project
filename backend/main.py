@@ -215,6 +215,16 @@ def create_application() -> FastAPI:
     # ── All domain routers via api/router.py aggregation ──
     application.include_router(api_router)
 
+    # ── Dev-only static mount for LocalStorageAdapter (ADR-008) ──
+    # In production, public-assets is served via CloudFront and private-docs via
+    # presigned URLs — this mount is not registered.
+    if settings.RAYCARWASH_ENV != "production":
+        from pathlib import Path
+        from fastapi.staticfiles import StaticFiles
+        storage_root = Path(settings.STORAGE_LOCAL_PATH).resolve()
+        storage_root.mkdir(parents=True, exist_ok=True)
+        application.mount("/storage", StaticFiles(directory=storage_root), name="storage")
+
     return application
 
 
