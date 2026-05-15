@@ -76,6 +76,10 @@ class User(TimestampMixin, Base):
     token_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     phone_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
     stripe_customer_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    last_step_up_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+        comment="Last successful auth event timestamp (UTC). DB fallback for Redis step-up cache.",
+    )
 
     # Relationships — all cross-domain references use string names
     # user_roles and profiles use selectin (required on every authenticated request).
@@ -125,6 +129,10 @@ class User(TimestampMixin, Base):
         "AuthProvider", back_populates="user",
         lazy="select", cascade="all, delete-orphan",
     )
+    login_history: Mapped[list["UserLoginHistory"]] = relationship(
+        "UserLoginHistory", back_populates="user",
+        lazy="select", cascade="all, delete-orphan",
+    )
 
     def has_permission(self, permission_name: str) -> bool:
         for user_role in self.user_roles:
@@ -169,7 +177,7 @@ class User(TimestampMixin, Base):
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from domains.auth.models import (
-        UserRoleAssociation, WebAuthnCredential, AuthProvider,
+        UserRoleAssociation, WebAuthnCredential, AuthProvider, UserLoginHistory,
     )
     from domains.providers.models import ProviderProfile
     from domains.vehicles.models import Vehicle

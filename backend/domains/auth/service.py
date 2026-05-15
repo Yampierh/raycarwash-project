@@ -25,6 +25,7 @@ from infrastructure.db.session import get_db
 from domains.users.models import User
 from domains.auth.refresh_token_repository import RefreshTokenRepository
 from domains.users.repository import UserRepository
+from domains.auth.models import UserLoginHistory
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -498,6 +499,9 @@ class AuthService:
         email: str,
         password: str,
         db: AsyncSession,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+        auth_method: str = "password",
     ) -> User | None:
         """
         Authenticate with email + password.
@@ -518,11 +522,17 @@ class AuthService:
 
         if not user.is_active or user.is_deleted:
             _pwd_context.dummy_verify()
+            await AuthService._record_login_attempt(
+                db, None, ip_address, user_agent, auth_method, False, "account_inactive"
+            )
             return None
 
         if settings.REQUIRE_EMAIL_VERIFICATION and not user.is_verified:
             _pwd_context.dummy_verify()
             logger.info("Login blocked — email not verified | user=%s", user.id)
+            await AuthService._record_login_attempt(
+                db, user.id, ip_address, user_agent, auth_method, False, "email_not_verified"
+            )
             return None
 
         if user.is_locked:
@@ -531,20 +541,28 @@ class AuthService:
                 "Login rejected — account locked | user=%s locked_until=%s",
                 user.id, user.locked_until,
             )
+            await AuthService._record_login_attempt(
+                db, user.id, ip_address, user_agent, auth_method, False, "account_locked"
+            )
             return None
 
         if not AuthService.verify_password(password, user.password_hash):
             user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
+            failure_reason = "invalid_password"
             if user.failed_login_attempts >= AuthService._LOCKOUT_THRESHOLD:
                 user.locked_until = (
                     datetime.now(timezone.utc)
                     + timedelta(minutes=AuthService._LOCKOUT_MINUTES)
                 )
+                failure_reason = "account_locked"
                 logger.warning(
                     "Account locked after %d failed attempts | user=%s locked_until=%s",
                     user.failed_login_attempts, user.id, user.locked_until,
                 )
             await db.commit()
+            await AuthService._record_login_attempt(
+                db, user.id, ip_address, user_agent, auth_method, False, failure_reason
+            )
             return None
 
         if user.failed_login_attempts:
@@ -552,7 +570,38 @@ class AuthService:
             user.locked_until = None
             await db.flush()
 
+        await AuthService._record_login_attempt(
+            db, user.id, ip_address, user_agent, auth_method, True
+        )
+
         return user
+
+    @staticmethod
+    async def _record_login_attempt(
+        db: AsyncSession,
+        user_id: uuid.UUID | None,
+        ip_address: str | None,
+        user_agent: str | None,
+        auth_method: str,
+        was_successful: bool,
+        failure_reason: str | None = None,
+    ) -> None:
+        """Record login attempt to user_login_history table."""
+        if user_id is None:
+            return
+        entry = UserLoginHistory(
+            user_id=user_id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            auth_method=auth_method,
+            was_successful=was_successful,
+            failure_reason=failure_reason,
+        )
+        db.add(entry)
+        try:
+            await db.flush()
+        except Exception:
+            pass
 
     @staticmethod
     async def rotate_refresh_token(
@@ -644,20 +693,17 @@ async def get_current_user(
         payload = AuthService.decode_token(token, expected_type=_TOKEN_TYPE_ACCESS)
         token_type = _TOKEN_TYPE_ACCESS
     except JWTError:
-        if allow_onboarding_scope:
-            try:
-                payload = jwt.decode(
-                    token,
-                    _get_public_key(),
-                    algorithms=["RS256"],
-                    options={"verify_aud": False},
-                )
-                if payload.get("type") != _TOKEN_TYPE_ONBOARDING:
-                    raise credentials_exception
-                token_type = _TOKEN_TYPE_ONBOARDING
-            except JWTError:
+        try:
+            payload = jwt.decode(
+                token,
+                _get_public_key(),
+                algorithms=["RS256"],
+                options={"verify_aud": False},
+            )
+            if payload.get("type") != _TOKEN_TYPE_ONBOARDING:
                 raise credentials_exception
-        else:
+            token_type = _TOKEN_TYPE_ONBOARDING
+        except JWTError:
             raise credentials_exception
 
     try:

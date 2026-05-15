@@ -337,6 +337,40 @@ class Settings(BaseSettings):
     )
 
     # ---------------------------------------------------------------- #
+    #  Profile system (Phase 0)                                        #
+    # ---------------------------------------------------------------- #
+    RAYCARWASH_ENV: str = Field(
+        default="development",
+        description=(
+            "Environment selector for adapter binding (development | staging | production). "
+            "Controls FileStorageAdapter (Local vs S3), EmailAdapter, SmsAdapter, etc."
+        ),
+    )
+    STEP_UP_TTL_MINUTES: int = Field(
+        default=5,
+        ge=1,
+        le=60,
+        description=(
+            "Window during which a recent successful auth event satisfies step-up "
+            "requirements. Used by app/core/step_up.py (Redis primary + DB fallback)."
+        ),
+    )
+    STORAGE_LOCAL_PATH: str = Field(
+        default="./storage",
+        description=(
+            "Root directory for LocalStorageAdapter (dev only). "
+            "In production, FileStorageAdapter resolves to S3StorageAdapter and this is unused."
+        ),
+    )
+    DEV_UPLOAD_HMAC_KEY: str = Field(
+        default="dev-upload-hmac-CHANGE-ME",
+        description=(
+            "HMAC key for signing presigned-style URLs served by /dev/upload in development. "
+            "Not used in production (S3 generates its own signatures)."
+        ),
+    )
+
+    # ---------------------------------------------------------------- #
     #  Validators                                                       #
     # ---------------------------------------------------------------- #
     @field_validator("JWT_PRIVATE_KEY", "JWT_PUBLIC_KEY", mode="before")

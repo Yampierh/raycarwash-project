@@ -118,7 +118,13 @@ async def login(
     body: LoginRequest,
     db: AsyncSession = Depends(get_db),
 ) -> LoginResponse:
-    user = await AuthService.authenticate_user(email=body.email, password=body.password, db=db)
+    user = await AuthService.authenticate_user(
+        email=body.email,
+        password=body.password,
+        db=db,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
 
     if user is None:
         logger.warning(
@@ -325,6 +331,8 @@ async def verify_credentials(
             email=body.identifier,
             password=body.password,
             db=db,
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
         )
     elif body.access_token:
         raise HTTPException(
@@ -476,6 +484,8 @@ async def login_for_access_token(
         email=form_data.username,
         password=form_data.password,
         db=db,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
     )
 
     if user is None:

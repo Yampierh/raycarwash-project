@@ -4,6 +4,10 @@ import axios, {
   InternalAxiosRequestConfig,
 } from "axios";
 import { useAuthStore } from "@/lib/store/auth";
+import { ApiError, StepUpRequiredError, toApiError } from "./api-error";
+
+export { ApiError, StepUpRequiredError };
+export type { ApiErrorPayload, ApiErrorMeta } from "./api-error";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -64,7 +68,15 @@ apiClient.interceptors.response.use(
     const original = error.config as
       | (InternalAxiosRequestConfig & { _retry?: boolean })
       | undefined;
+
+    // Detect step-up first — surfaces a re-auth modal, not a refresh attempt.
+    const envelopeError = toApiError(error.response?.data, error.response?.status ?? 0);
+    if (envelopeError instanceof StepUpRequiredError) {
+      return Promise.reject(envelopeError);
+    }
+
     if (!original || error.response?.status !== 401 || original._retry) {
+      if (envelopeError) return Promise.reject(envelopeError);
       return Promise.reject(error);
     }
     original._retry = true;
@@ -77,7 +89,7 @@ apiClient.interceptors.response.use(
       notifyWaiters(token);
       if (!token) {
         if (typeof window !== "undefined") window.location.href = "/login";
-        return Promise.reject(error);
+        return Promise.reject(envelopeError ?? error);
       }
       original.headers = original.headers ?? {};
       original.headers.Authorization = `Bearer ${token}`;
@@ -88,7 +100,7 @@ apiClient.interceptors.response.use(
       waiters.push((token) => {
         if (!token) {
           if (typeof window !== "undefined") window.location.href = "/login";
-          reject(error);
+          reject(envelopeError ?? error);
           return;
         }
         original.headers = original.headers ?? {};
@@ -98,3 +110,19 @@ apiClient.interceptors.response.use(
     });
   }
 );
+
+/** Unwrap `{data, meta, links}` envelopes returned by /api/v1/* endpoints. */
+export function unwrap<T>(response: { data: { data: T } }): T {
+  return response.data.data;
+}
+
+/** Same as unwrap() but keeps meta + links — useful for paginated lists. */
+export function unwrapWithMeta<T, M = Record<string, unknown>>(
+  response: { data: { data: T; meta?: M; links?: Record<string, string> } },
+): { data: T; meta: M | undefined; links: Record<string, string> | undefined } {
+  return {
+    data: response.data.data,
+    meta: response.data.meta,
+    links: response.data.links,
+  };
+}

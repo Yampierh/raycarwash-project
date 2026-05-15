@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Index, String
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -30,6 +30,45 @@ class AuditAction(str, enum.Enum):
     # Detailer profile events
     DETAILER_PROFILE_CREATED = "provider_profile_created"
     DETAILER_PROFILE_UPDATED = "provider_profile_updated"
+    # Profile system (ADR-001)
+    PROFILE_UPDATED            = "profile_updated"
+    AVATAR_CHANGED             = "avatar_changed"
+    COVER_CHANGED              = "cover_changed"
+    EMAIL_CHANGE_REQUESTED     = "email_change_requested"
+    EMAIL_CHANGED             = "email_changed"
+    PHONE_CHANGE_REQUESTED    = "phone_change_requested"
+    PHONE_CHANGED             = "phone_changed"
+    PASSWORD_CHANGED           = "password_changed"
+    TWO_FA_ENABLED            = "two_fa_enabled"
+    TWO_FA_DISABLED           = "two_fa_disabled"
+    PASSKEY_REGISTERED        = "passkey_registered"
+    PASSKEY_REVOKED           = "passkey_revoked"
+    SESSION_REVOKED           = "session_revoked"
+    ALL_SESSIONS_REVOKED      = "all_sessions_revoked"
+    PAYMENT_METHOD_ADDED      = "payment_method_added"
+    PAYMENT_METHOD_REMOVED    = "payment_method_removed"
+    PAYMENT_METHOD_DEFAULT    = "payment_method_default"
+    ADDRESS_ADDED             = "address_added"
+    ADDRESS_UPDATED           = "address_updated"
+    ADDRESS_REMOVED           = "address_removed"
+    VEHICLE_ADDED             = "vehicle_added"
+    VEHICLE_UPDATED           = "vehicle_updated"
+    VEHICLE_REMOVED           = "vehicle_removed"
+    FAVORITE_ADDED            = "favorite_added"
+    FAVORITE_REMOVED          = "favorite_removed"
+    DOCUMENT_UPLOADED         = "document_uploaded"
+    DOCUMENT_DELETED          = "document_deleted"
+    PROVIDER_MODE_SWITCHED    = "provider_mode_switched"
+    PROVIDER_PROFILE_UPDATED   = "provider_profile_updated"
+    PROVIDER_STATUS_CHANGED    = "provider_status_changed"
+    ROLE_SWITCHED              = "role_switched"
+    NOTIFICATION_PREFS_UPDATED = "notification_prefs_updated"
+    PRIVACY_SETTINGS_UPDATED   = "privacy_settings_updated"
+    DATA_EXPORT_REQUESTED     = "data_export_requested"
+    DATA_EXPORT_READY         = "data_export_ready"
+    ACCOUNT_DELETION_REQUESTED = "account_deletion_requested"
+    ACCOUNT_DELETION_CANCELLED = "account_deletion_cancelled"
+    ACCOUNT_ANONYMIZED        = "account_anonymized"
 
 
 class AuditLog(Base):
@@ -50,7 +89,12 @@ class AuditLog(Base):
     action: Mapped[AuditAction] = mapped_column(String(50), nullable=False, index=True)
     entity_type: Mapped[str] = mapped_column(String(60), nullable=False)
     entity_id: Mapped[str] = mapped_column(String(64), nullable=False)
-    stripe_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    old_value: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    new_value: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
+    request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    metadata_: Mapped[dict | None] = mapped_column("metadata_", JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False,
         default=lambda: datetime.now(timezone.utc),

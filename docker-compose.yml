@@ -1,4 +1,5 @@
 services:
+  # ─── Databases / queues ───────────────────────────────────────────
   redis:
     image: redis:7-alpine
     container_name: raycarwash-redis
@@ -6,3 +7,79 @@ services:
       - "6379:6379"
     restart: unless-stopped
     command: redis-server --save "" --appendonly no
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: raycarwash-postgres
+    environment:
+      POSTGRES_USER: raycarwash
+      POSTGRES_PASSWORD: raycarwash
+      POSTGRES_DB: raycarwash
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U raycarwash"]
+      interval: 5s
+      timeout: 2s
+      retries: 10
+
+  # ─── Email capture (dev only) ─────────────────────────────────────
+  # SMTP at :1025, Web UI at http://localhost:8025 to inspect what the
+  # backend would have sent in production via SendGrid.
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: raycarwash-mailhog
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    restart: unless-stopped
+
+  # ─── Background workers (Phase 0) ─────────────────────────────────
+  # Profile: pending_contact_cleanup, login_history_purger, audit_log_redactor,
+  #          achievement_evaluator, account_deletion_finalizer, data_export_builder,
+  #          document_expiry_checker, service_reminder_dispatcher.
+  # Implementations land in `backend/workers/` across Phases 3-9; the worker
+  # container is configured here so it is available the moment the first job
+  # is enqueued.
+  rq-worker:
+    profiles: ["workers"]            # only starts with --profile workers
+    build:
+      context: ./backend
+    container_name: raycarwash-rq-worker
+    command: rq worker default low high
+    environment:
+      RAYCARWASH_ENV: development
+      DATABASE_URL: postgresql+asyncpg://raycarwash:raycarwash@postgres:5432/raycarwash
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - ./storage:/app/storage
+    working_dir: /app
+    restart: unless-stopped
+
+  rq-scheduler:
+    profiles: ["workers"]
+    build:
+      context: ./backend
+    container_name: raycarwash-rq-scheduler
+    command: rqscheduler --host redis --port 6379 --db 0 --verbose
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:

@@ -45,6 +45,18 @@ redis[hiredis]>=5.0                # Async Redis client with hiredis parser
 # ---- H3 Geospatial (v2) ----
 h3>=3.7.6                          # Uber H3 hexagonal grid indexing
 
+# ---- Background workers (Phase 0) ----
+# RQ (Redis Queue) — gratuit, simple, suficiente para los workers definidos en
+# el plan (achievement_evaluator, account_deletion_finalizer, data_export_builder,
+# document_expiry_checker, pending_contact_cleanup, login_history_purger,
+# audit_log_redactor, service_reminder_dispatcher).
+rq>=1.16,<2
+rq-scheduler>=0.13,<1
+
+# ---- Optional dev adapters (Phase 0) ----
+# fakeredis powers infrastructure/redis/client.py when Redis is unreachable.
+fakeredis>=2.20
+
 # ---- Testing ----
 pytest==8.3.4
 pytest-anyio==0.0.0                # anyio integration for FastAPI async tests

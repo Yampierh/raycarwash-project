@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
+import sqlalchemy as sa
 from sqlalchemy import (
     Boolean, DateTime, ForeignKey, Index, Integer, LargeBinary,
     String, Text, UniqueConstraint,
@@ -223,3 +224,34 @@ class AuthProvider(Base):
 
     def __repr__(self) -> str:
         return f"<AuthProvider {self.provider}:{self.provider_uid} user_id={self.user_id}>"
+
+
+class UserLoginHistory(Base):
+    __tablename__ = "user_login_history"
+    __table_args__ = (
+        Index("idx_login_history_user_time", "user_id", sa.text("login_at DESC")),
+        Index("idx_login_history_failed", "user_id", "was_successful", sa.text("login_at DESC")),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    login_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    ip_location: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
+    device_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    auth_method: Mapped[str] = mapped_column(String(20), nullable=False)
+    was_successful: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa.true())
+    failure_reason: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    refresh_token_family_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+
+    user: Mapped[User] = relationship("User", back_populates="login_history")
+
+    def __repr__(self) -> str:
+        return f"<UserLoginHistory user_id={self.user_id} at={self.login_at} success={self.was_successful}>"
