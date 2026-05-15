@@ -10,6 +10,7 @@ from app.core.config import get_settings
 
 # All routers now imported directly from domains/ ↓
 from domains.auth.routers            import auth_router
+from domains.auth.security_router    import router as auth_security_router
 from domains.auth.wellknown_router   import router as wellknown_router
 from domains.appointments.router     import router as appointment_router
 from domains.payments.router         import router as payment_router
@@ -39,6 +40,9 @@ api_router.include_router(webhook_router)
 
 # Auth domain — /auth/*
 api_router.include_router(auth_router)
+
+# Auth security center — /api/v1/auth/{security,history,two-fa,passkeys} (Phase 3)
+api_router.include_router(auth_security_router)
 
 # Service catalogue — /api/v1/services/*
 api_router.include_router(service_router)
