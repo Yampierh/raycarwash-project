@@ -1,10 +1,14 @@
 import axios, { AxiosInstance } from "axios";
+import { ApiError, StepUpRequiredError, toApiError } from "./api-error";
 import {
   clearTokens,
   getAccessToken,
   getRefreshToken,
   saveTokens,
 } from "./auth";
+
+export { ApiError, StepUpRequiredError };
+export type { ApiErrorPayload, ApiErrorMeta } from "./api-error";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -20,6 +24,13 @@ api.interceptors.response.use(
   (res) => res,
   async (error) => {
     const original = error.config;
+
+    // Detect step-up first — caller surfaces a modal, not a refresh attempt.
+    const envelopeError = toApiError(error.response?.data, error.response?.status ?? 0);
+    if (envelopeError instanceof StepUpRequiredError) {
+      return Promise.reject(envelopeError);
+    }
+
     if (error.response?.status === 401 && !original._retry) {
       original._retry = true;
       const refresh = getRefreshToken();
@@ -41,9 +52,27 @@ api.interceptors.response.use(
         window.location.href = "/login";
       }
     }
+
+    if (envelopeError) return Promise.reject(envelopeError);
     return Promise.reject(error);
   }
 );
+
+/** Unwrap `{data, meta, links}` envelopes returned by /api/v1/* endpoints. */
+export function unwrap<T>(response: { data: { data: T } }): T {
+  return response.data.data;
+}
+
+/** Same as unwrap() but keeps meta + links — useful for paginated lists. */
+export function unwrapWithMeta<T, M = Record<string, unknown>>(
+  response: { data: { data: T; meta?: M; links?: Record<string, string> } },
+): { data: T; meta: M | undefined; links: Record<string, string> | undefined } {
+  return {
+    data: response.data.data,
+    meta: response.data.meta,
+    links: response.data.links,
+  };
+}
 
 // ── Typed API helpers ───────────────────────────────────────────── //
 
