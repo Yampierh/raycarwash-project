@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
@@ -13,19 +13,45 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Button from "../components/Button";
+import { ApiError } from "../lib/api-error";
+import { useMe, useUpdateProfile } from "../hooks/useMe";
 import { updateUserProfile } from "../services/user.service";
 import { Colors } from "../theme/colors";
 
+/** Split "First Middle Last" into ("First", "Middle Last"). Mirrors backend. */
+function splitFullName(full: string | null | undefined): { first: string; last: string } {
+  if (!full) return { first: "", last: "" };
+  const parts = full.trim().split(/\s+/);
+  if (parts.length <= 1) return { first: parts[0] ?? "", last: "" };
+  return { first: parts[0], last: parts.slice(1).join(" ") };
+}
+
 export default function EditProfileScreen({ navigation, route }: any) {
-  const { user, focusAddress } = route.params || {};
+  const { focusAddress } = route?.params || {};
   const addressRef = useRef<TextInput>(null);
 
+  // Profile Hub feeds the initial form state. ProfileScreen no longer
+  // passes `user` via route params — we read from the Hub directly so
+  // the screen works regardless of how it was opened.
+  const meQuery = useMe(["profile"]);
+  const updateProfile = useUpdateProfile();
+
+  const hubProfile = meQuery.data?.data.profile;
+  const hubUser = meQuery.data?.data.user;
+
+  const initialForm = useMemo(() => ({
+    full_name: hubProfile?.full_name || "",
+    phone_number: hubUser?.phone || "",
+    service_address: "",  // ClientProfile.service_address — landing in Phase 4
+  }), [hubProfile, hubUser]);
+
   const [loading, setLoading] = useState(false);
-  const [form, setForm] = useState({
-    full_name: user?.full_name || "",
-    phone_number: user?.phone_number || "",
-    service_address: user?.service_address || "",
-  });
+  const [form, setForm] = useState(initialForm);
+
+  // Hub fetch is async; once data lands, hydrate the form one-time.
+  useEffect(() => {
+    setForm(initialForm);
+  }, [initialForm]);
 
   useEffect(() => {
     if (focusAddress) setTimeout(() => addressRef.current?.focus(), 400);
@@ -38,19 +64,42 @@ export default function EditProfileScreen({ navigation, route }: any) {
     }
     setLoading(true);
     try {
-      const payload: { full_name: string; phone_number?: string } = {
-        full_name: form.full_name.trim(),
-      };
-      if (form.phone_number.trim()) payload.phone_number = form.phone_number.trim();
-      await updateUserProfile(payload);
+      // Hub PATCH handles name (first/last). Backend recomposes full_name.
+      const { first, last } = splitFullName(form.full_name);
+      const originalFirst = splitFullName(hubProfile?.full_name).first;
+      const originalLast = splitFullName(hubProfile?.full_name).last;
+      if (first !== originalFirst || last !== originalLast) {
+        await updateProfile.mutateAsync({
+          first_name: first,
+          last_name: last || undefined,
+        });
+      }
+
+      // Phone change still goes through the legacy /auth/update endpoint —
+      // Phase 3 adds /users/me/phone/change-request with OTP verification.
+      const trimmedPhone = form.phone_number.trim();
+      if (trimmedPhone && trimmedPhone !== (hubUser?.phone || "")) {
+        await updateUserProfile({
+          full_name: form.full_name.trim(),  // legacy endpoint requires it
+          phone_number: trimmedPhone,
+        });
+      }
+
       Alert.alert("Success", "Profile updated successfully.", [
         { text: "OK", onPress: () => navigation.goBack() },
       ]);
     } catch (error: any) {
-      const serverDetail = error.response?.data?.detail;
-      const errorMessage = Array.isArray(serverDetail)
-        ? serverDetail[0]?.msg
-        : serverDetail || "Could not update profile. Try again.";
+      let errorMessage = "Could not update profile. Try again.";
+      if (error instanceof ApiError) {
+        errorMessage = error.message;
+      } else {
+        const serverDetail = error.response?.data?.detail;
+        if (Array.isArray(serverDetail)) {
+          errorMessage = serverDetail[0]?.msg || errorMessage;
+        } else if (serverDetail) {
+          errorMessage = serverDetail;
+        }
+      }
       Alert.alert("Error", errorMessage);
     } finally {
       setLoading(false);
@@ -122,7 +171,7 @@ export default function EditProfileScreen({ navigation, route }: any) {
           />
           <Field
             label="EMAIL ADDRESS"
-            value={user?.email || ""}
+            value={hubUser?.email || ""}
             editable={false}
             icon="mail-outline"
             hint="Contact support to change your email address"

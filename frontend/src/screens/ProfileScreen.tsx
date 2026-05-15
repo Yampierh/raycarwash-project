@@ -1,7 +1,7 @@
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
-import React, { useCallback, useState } from "react";
+import React, { useCallback } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -14,37 +14,33 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import Button from "../components/Button";
 import { APP_CONFIG } from "../config/app.config";
-import { getMyAppointments } from "../services/appointment.service";
-import { getUserProfile } from "../services/user.service";
-import { getMyVehicles } from "../services/vehicle.service";
+import { useMe } from "../hooks/useMe";
 import { Colors } from "../theme/colors";
 import { clearAuthTokens } from "../utils/storage";
 
 export default function ProfileScreen({ navigation }: any) {
-  const [userData, setUserData] = useState<any>(null);
-  const [vehicles, setVehicles] = useState<any[]>([]);
-  const [completedWashes, setCompletedWashes] = useState(0);
-  const [loading, setLoading] = useState(true);
+  // Profile Hub (ADR-002b): one call gives us name + verification badges
+  // + stats (washes total, vehicles total, member-since). Replaces the
+  // three legacy fetches (getUserProfile, getMyVehicles, getMyAppointments).
+  const meQuery = useMe(["profile", "stats"]);
 
+  // Refetch when the screen regains focus — the Hub is staleTime 5 min so
+  // most navigations hit the cache, but explicit refocus picks up edits
+  // made elsewhere in the app.
   useFocusEffect(
-    useCallback(() => { loadProfile(); }, []),
+    useCallback(() => {
+      meQuery.refetch();
+    }, [meQuery]),
   );
 
-  const loadProfile = async () => {
-    setLoading(true);
-    try {
-      const [profile, myVehicles, myApts] = await Promise.all([
-        getUserProfile(), getMyVehicles(), getMyAppointments(1, 100),
-      ]);
-      setUserData(profile);
-      setVehicles(myVehicles || []);
-      setCompletedWashes((myApts?.items || []).filter((a: any) => a.status === "completed").length);
-    } catch {
-      Alert.alert("Error", "Could not load your profile. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  };
+  const hub = meQuery.data?.data;
+  const user = hub?.user;
+  const profile = hub?.profile;
+  const stats = hub?.stats;
+  const badges = hub?.verification_badges;
+
+  const completedWashes = stats?.total_bookings ?? 0;
+  const vehiclesTotal = stats?.vehicles_total ?? 0;
 
   const getMemberStatus = (washes: number) => {
     if (washes >= 15) return { label: "Platinum", color: "#E2E8F0" };
@@ -58,9 +54,9 @@ export default function ProfileScreen({ navigation }: any) {
     return fullName.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase();
   };
 
-  const getMemberSince = (createdAt: string | undefined) => {
-    if (!createdAt) return "—";
-    return new Date(createdAt).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  const getMemberSince = (memberSince: string | null | undefined) => {
+    if (!memberSince) return "—";
+    return new Date(memberSince).toLocaleDateString("en-US", { month: "long", year: "numeric" });
   };
 
   const handleLogout = () => {
@@ -115,10 +111,21 @@ export default function ProfileScreen({ navigation }: any) {
     </TouchableOpacity>
   );
 
-  if (loading) {
+  if (meQuery.isLoading) {
     return (
       <View style={[styles.container, { justifyContent: "center" }]}>
         <ActivityIndicator size="large" color={Colors.primary} />
+      </View>
+    );
+  }
+
+  if (meQuery.isError && !hub) {
+    return (
+      <View style={[styles.container, { justifyContent: "center", padding: 20 }]}>
+        <Text style={{ color: "#94A3B8", textAlign: "center", marginBottom: 16 }}>
+          Could not load your profile. Please try again.
+        </Text>
+        <Button title="Retry" onPress={() => meQuery.refetch()} variant="primary" />
       </View>
     );
   }
@@ -134,40 +141,40 @@ export default function ProfileScreen({ navigation }: any) {
 
             <View style={styles.avatarWrapper}>
               <View style={styles.avatarInitials}>
-                <Text style={styles.initialsText}>{getInitials(userData?.full_name)}</Text>
+                <Text style={styles.initialsText}>{getInitials(profile?.full_name ?? undefined)}</Text>
               </View>
               <TouchableOpacity
                 style={styles.editBadge}
-                onPress={() => navigation.navigate("EditProfile", { user: userData })}
+                onPress={() => navigation.navigate("EditProfile")}
               >
                 <Ionicons name="pencil" size={14} color="white" />
               </TouchableOpacity>
             </View>
 
             <View style={styles.nameRow}>
-              <Text style={styles.userName}>{userData?.full_name || "User"}</Text>
-              {userData?.is_verified && (
+              <Text style={styles.userName}>{profile?.full_name || "User"}</Text>
+              {badges?.email && (
                 <Ionicons name="checkmark-circle" size={18} color="#10B981" style={{ marginLeft: 6 }} />
               )}
             </View>
-            <Text style={styles.userEmail}>{userData?.email || "—"}</Text>
-            <Text style={styles.memberSince}>Member since {getMemberSince(userData?.created_at)}</Text>
+            <Text style={styles.userEmail}>{user?.email || "—"}</Text>
+            <Text style={styles.memberSince}>Member since {getMemberSince(stats?.member_since)}</Text>
 
             <View style={styles.tagsRow}>
               <View style={[styles.tag, { borderColor: memberStatus.color + "50" }]}>
                 <MaterialCommunityIcons name="star-circle" size={13} color={memberStatus.color} />
                 <Text style={[styles.tagText, { color: memberStatus.color }]}>{memberStatus.label}</Text>
               </View>
-              {userData?.is_verified && (
+              {badges?.email && (
                 <View style={[styles.tag, { borderColor: "#10B98150" }]}>
                   <Ionicons name="shield-checkmark" size={13} color="#10B981" />
                   <Text style={[styles.tagText, { color: "#10B981" }]}>Verified</Text>
                 </View>
               )}
-              {userData?.phone_number && (
+              {user?.phone && (
                 <View style={[styles.tag, { borderColor: "#3B82F650" }]}>
                   <Ionicons name="call" size={13} color={Colors.primary} />
-                  <Text style={[styles.tagText, { color: Colors.primary }]}>{userData.phone_number}</Text>
+                  <Text style={[styles.tagText, { color: Colors.primary }]}>{user.phone}</Text>
                 </View>
               )}
             </View>
@@ -181,7 +188,7 @@ export default function ProfileScreen({ navigation }: any) {
             <Text style={styles.statLabel}>Washes</Text>
           </View>
           <View style={[styles.statItem, styles.statBorder]}>
-            <Text style={styles.statNum}>{vehicles.length}</Text>
+            <Text style={styles.statNum}>{vehiclesTotal}</Text>
             <Text style={styles.statLabel}>Vehicles</Text>
           </View>
           <View style={styles.statItem}>
@@ -195,9 +202,9 @@ export default function ProfileScreen({ navigation }: any) {
           <Text style={styles.sectionLabel}>ACCOUNT</Text>
           <View style={styles.menuCard}>
             <MenuOption icon="person-outline" title="Personal Info" subtitle="Name, email, phone" color={Colors.primary}
-              onPress={() => navigation.navigate("EditProfile", { user: userData })} />
-            <MenuOption icon="car-outline" title="My Vehicles" subtitle={`${vehicles.length} vehicle${vehicles.length !== 1 ? "s" : ""} registered`}
-              color="#8B5CF6" badge={vehicles.length > 0 ? String(vehicles.length) : undefined}
+              onPress={() => navigation.navigate("EditProfile")} />
+            <MenuOption icon="car-outline" title="My Vehicles" subtitle={`${vehiclesTotal} vehicle${vehiclesTotal !== 1 ? "s" : ""} registered`}
+              color="#8B5CF6" badge={vehiclesTotal > 0 ? String(vehiclesTotal) : undefined}
               onPress={() => navigation.navigate("Vehicles")} />
             <MenuOption icon="card-outline" title="Payment Methods" subtitle="Add or manage payment cards"
               color="#10B981" onPress={() => Alert.alert("Payment Methods", "This feature is coming soon.")} isLast />
@@ -211,7 +218,7 @@ export default function ProfileScreen({ navigation }: any) {
             <MenuOption icon="notifications-outline" title="Notifications" subtitle="Wash status, offers, reminders"
               color="#F59E0B" onPress={() => Alert.alert("Notifications", "Notification preferences coming soon.")} />
             <MenuOption icon="location-outline" title="Default Service Address" subtitle="Set your home or work address"
-              color="#EC4899" onPress={() => navigation.navigate("EditProfile", { user: userData, focusAddress: true })} />
+              color="#EC4899" onPress={() => navigation.navigate("EditProfile", { focusAddress: true })} />
             <MenuOption icon="lock-closed-outline" title="Change Password" subtitle="Update your account password"
               color="#94A3B8" onPress={() => Alert.alert("Change Password", `To change your password, please contact us at ${APP_CONFIG.supportEmail}`)} isLast />
           </View>
