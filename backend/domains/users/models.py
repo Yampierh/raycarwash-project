@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy_utils import EncryptedType
@@ -26,8 +26,35 @@ class ClientProfile(TimestampMixin, Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False, unique=True, index=True,
     )
+    # Deprecated since Phase 4 — migrating to UserAddress. Kept for backwards
+    # compat during the transition window.
     service_address: Mapped[str | None] = mapped_column(String(255), nullable=True)
     marketing_preferences: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
+    # ── Profile Hub `preferences` block (Phase 1) ──
+    default_vehicle_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("vehicles.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    # FK to user_addresses lands in Phase 4 (m_010); column is nullable UUID
+    # without constraint for now.
+    default_address_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True,
+    )
+
+    # ── Stats block — denormalized counters maintained by triggers (Phase 9
+    # m_020). Phase 1 reads them as 0 for legacy rows. ──
+    total_appointments_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0",
+    )
+    total_spent_cents: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0",
+    )
+    marketing_email_opt_in: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false",
+    )
+    frequency_preference: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     user: Mapped[User] = relationship("User", back_populates="client_profile")
 
@@ -80,6 +107,28 @@ class User(TimestampMixin, Base):
         DateTime(timezone=True), nullable=True,
         comment="Last successful auth event timestamp (UTC). DB fallback for Redis step-up cache.",
     )
+
+    # ── Profile system (Phase 1, ADR-002b) ──
+    # avatar_s3_key / cover_s3_key live behind FileStorageAdapter — URLs are
+    # signed at read time, not stored. Phase 2 wires the upload endpoints.
+    avatar_s3_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    cover_s3_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    pronouns: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    preferred_language: Mapped[str] = mapped_column(
+        String(10), nullable=False, default="en", server_default="en",
+    )
+    preferred_timezone: Mapped[str] = mapped_column(
+        String(64), nullable=False,
+        default="America/Indiana/Indianapolis",
+        server_default="America/Indiana/Indianapolis",
+    )
+    last_active_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+    # active_role is the role currently selected by a dual-role user. Phase 6
+    # adds the PATCH /users/me/active-role endpoint that rotates refresh and
+    # re-issues access with this claim. None = legacy single-role users.
+    active_role: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     # Relationships — all cross-domain references use string names
     # user_roles and profiles use selectin (required on every authenticated request).
