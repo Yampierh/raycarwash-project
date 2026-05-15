@@ -56,3 +56,19 @@ def get_public_storage() -> FileStorageAdapter:
 def get_private_storage() -> FileStorageAdapter:
     """KYC docs, insurance, exports — encrypted at rest in production."""
     return _build_adapter(BUCKET_PRIVATE)
+
+
+# ─── SMS adapter (Phase 3) ───────────────────────────────────────────────────
+
+
+@lru_cache(maxsize=1)
+def get_sms_adapter():
+    """ConsoleSmsAdapter in dev (OTP logged to stdout), TwilioSmsAdapter
+    in prod (currently raises — see infrastructure/sms/twilio.py)."""
+    from infrastructure.sms.console import ConsoleSmsAdapter
+
+    env = get_settings().RAYCARWASH_ENV
+    if env == "production":
+        from infrastructure.sms.twilio import TwilioSmsAdapter
+        return TwilioSmsAdapter()
+    return ConsoleSmsAdapter()
