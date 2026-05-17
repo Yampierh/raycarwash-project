@@ -3,20 +3,29 @@ app/core/idempotency.py — Idempotency-Key middleware for sensitive mutations.
 
 When a client sends `Idempotency-Key: <client-uuid>` on POST/PATCH/DELETE/PUT,
 the first response is cached in Redis for 24h under key:
-    `idempotency:{user_id_or_anon}:{method}:{path}:{key}`
+    `idempotency:{user_id_or_anon}:{method}:{path}:{key}:{body_hash}`
 
-Subsequent identical requests (same user, same method+path, same key) replay
-the cached response without re-executing the handler. This protects against
-duplicate operations from double-taps or network retries on flows like:
+Subsequent identical requests (same user, same method+path, same key, AND
+same body bytes) replay the cached response without re-executing the
+handler. This protects against duplicate operations from double-taps or
+network retries on flows like:
 - Stripe SetupIntent
 - /email/change-request
 - /account/deletion-request
+
+**Body binding (hotfix H2)** — the cache key includes a SHA-256 prefix of
+the request body. Without this, two requests sharing an Idempotency-Key
+but carrying different payloads would collide and the second caller
+would receive the first caller's response — a real hazard on payments
+where a client retries with a corrected amount. Different body = different
+operation = different cache slot.
 
 Per ADR-007 the envelope is declared explicitly on each endpoint, so the cached
 body is a string and we return it verbatim with the original status code.
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 from typing import Awaitable, Callable
 
@@ -29,6 +38,11 @@ logger = logging.getLogger(__name__)
 _IDEMPOTENT_METHODS = {"POST", "PATCH", "PUT", "DELETE"}
 _TTL_SECONDS = 24 * 60 * 60  # 24h
 _MAX_BODY_BYTES = 256 * 1024  # 256 KB cap — bigger responses won't be cached
+# 16 hex chars (8 bytes) of SHA-256 — collision-resistant enough for this use
+# case (cache is per-user-per-endpoint-per-key already; this just guards
+# against body mismatch within that already-narrow scope) and short enough
+# to keep cache keys readable in `redis-cli MONITOR`.
+_BODY_HASH_HEX_LEN = 16
 
 
 class IdempotencyMiddleware(BaseHTTPMiddleware):
@@ -56,7 +70,24 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
             logger.debug("Idempotency middleware: Redis not configured, skipping cache")
             return await call_next(request)
 
-        cache_key = self._build_cache_key(request, key)
+        # Read the body so we can hash it AND re-attach it for downstream
+        # handlers. Starlette consumes the receive channel on first read, so
+        # we replace request._receive with a one-shot that hands the bytes
+        # back. Without this, every handler downstream would see an empty
+        # body — a silent break worse than the bug we're fixing.
+        body_bytes = await request.body()
+        body_hash = (
+            hashlib.sha256(body_bytes).hexdigest()[:_BODY_HASH_HEX_LEN]
+            if body_bytes
+            else "empty"
+        )
+
+        async def receive():
+            return {"type": "http.request", "body": body_bytes, "more_body": False}
+
+        request._receive = receive  # type: ignore[attr-defined]
+
+        cache_key = self._build_cache_key(request, key, body_hash)
 
         # 1. Try to serve cached response
         try:
@@ -108,7 +139,12 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
         return response
 
     @staticmethod
-    def _build_cache_key(request: Request, idempotency_key: str) -> str:
+    def _build_cache_key(
+        request: Request, idempotency_key: str, body_hash: str
+    ) -> str:
         user = getattr(request.state, "user", None)
         user_id = str(getattr(user, "id", "anon")) if user else "anon"
-        return f"idempotency:{user_id}:{request.method}:{request.url.path}:{idempotency_key}"
+        return (
+            f"idempotency:{user_id}:{request.method}:{request.url.path}:"
+            f"{idempotency_key}:{body_hash}"
+        )
