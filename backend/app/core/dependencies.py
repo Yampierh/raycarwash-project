@@ -72,3 +72,20 @@ def get_sms_adapter():
         from infrastructure.sms.twilio import TwilioSmsAdapter
         return TwilioSmsAdapter()
     return ConsoleSmsAdapter()
+
+
+# ─── Geocoding adapter (Phase 4) ─────────────────────────────────────────────
+
+
+@lru_cache(maxsize=1)
+def get_geocoding_adapter():
+    """NominatimAdapter in dev (free OSM, rate-limited 1 req/s).
+    GoogleMapsGeocodingAdapter in prod (currently raises — see
+    infrastructure/geocoding/google.py for the TODO checklist)."""
+    from infrastructure.geocoding.nominatim import NominatimAdapter
+
+    env = get_settings().RAYCARWASH_ENV
+    if env == "production":
+        from infrastructure.geocoding.google import GoogleMapsGeocodingAdapter
+        return GoogleMapsGeocodingAdapter()
+    return NominatimAdapter()
