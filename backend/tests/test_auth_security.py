@@ -44,12 +44,28 @@ async def _grant_step_up(db_session: AsyncSession, email: str) -> None:
     await db_session.commit()
 
 
+async def _expire_step_up(db_session: AsyncSession, email: str) -> None:
+    """Push last_step_up_at outside the window so the next step-up-gated
+    request 401s. Needed after Hotfix H3, which now populates the column
+    on login — pre-H3 it was always NULL by accident."""
+    await db_session.execute(
+        update(User).where(User.email == email).values(last_step_up_at=None)
+    )
+    await db_session.commit()
+
+
 # ─── /auth/security ───────────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_security_summary_baseline(client: AsyncClient) -> None:
+async def test_security_summary_baseline(
+    client: AsyncClient, db_session: AsyncSession,
+) -> None:
     token = await _login(client, "sec-baseline@test.com")
+    # Hotfix H3 made /auth/login populate last_step_up_at, so a freshly
+    # logged-in user has step_up_recent=True. To exercise the "no step-up"
+    # branch of the summary we explicitly expire the column first.
+    await _expire_step_up(db_session, "sec-baseline@test.com")
     resp = await client.get(
         "/api/v1/auth/security",
         headers={"Authorization": f"Bearer {token}"},
@@ -60,7 +76,6 @@ async def test_security_summary_baseline(client: AsyncClient) -> None:
     assert data["two_factor_enabled"] is False
     assert data["passkeys_count"] == 0
     assert data["active_sessions_count"] >= 1
-    # No step-up was granted, so should be False.
     assert data["step_up_recent"] is False
 
 
@@ -192,8 +207,13 @@ async def test_two_fa_disable_drops_credential(
 
 
 @pytest.mark.asyncio
-async def test_two_fa_enroll_blocks_without_step_up(client: AsyncClient) -> None:
+async def test_two_fa_enroll_blocks_without_step_up(
+    client: AsyncClient, db_session: AsyncSession,
+) -> None:
     token = await _login(client, "totp-nostep@test.com")
+    # Post-H3 the login auto-bumps last_step_up_at; expire it so this
+    # test still exercises the "no recent step-up" rejection path.
+    await _expire_step_up(db_session, "totp-nostep@test.com")
     resp = await client.post(
         "/api/v1/auth/two-fa/enroll",
         headers={"Authorization": f"Bearer {token}"},

@@ -101,28 +101,32 @@ async def test_hub_profile_and_stats_block_populated(client: AsyncClient) -> Non
 
 
 @pytest.mark.asyncio
-async def test_hub_sensitive_without_step_up_returns_401_step_up_required(
+async def test_hub_sensitive_after_step_up_expires_returns_401_step_up_required(
     client: AsyncClient,
+    db_session,
 ) -> None:
-    """A freshly-issued login token doesn't carry step-up state without the
-    Redis cache being populated. The Hub must respond 401 step_up_required."""
+    """Post-Hotfix H3, /auth/login bumps last_step_up_at so the user can
+    immediately hit ?include=security. To exercise the rejection path
+    we explicitly expire the column."""
+    from sqlalchemy import update
+    from domains.users.models import User
+
     token = await _login_as_client(client, "hub-stepup@test.com")
+    await db_session.execute(
+        update(User)
+        .where(User.email == "hub-stepup@test.com")
+        .values(last_step_up_at=None)
+    )
+    await db_session.commit()
 
     resp = await client.get(
         "/api/v1/users/me?include=security",
         headers={"Authorization": f"Bearer {token}"},
     )
-    # The exact behavior depends on whether AuthService.authenticate_user
-    # already populates last_step_up_at. In test infrastructure we don't run
-    # the mark_step_up hook, so the user has no recent step-up:
-    if resp.status_code == 200:
-        body = resp.json()
-        assert body["data"]["security"] is not None
-    else:
-        assert resp.status_code == 401, resp.text
-        body = resp.json()
-        assert body["error"]["code"] == "step_up_required"
-        assert "security" in body["meta"]["requires_step_up"]
+    assert resp.status_code == 401, resp.text
+    body = resp.json()
+    assert body["error"]["code"] == "step_up_required"
+    assert "security" in body["meta"]["requires_step_up"]
 
 
 # ─── GET /users/me?include=security&on_step_up=skip ──────────────────────────
