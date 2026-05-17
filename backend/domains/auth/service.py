@@ -643,7 +643,21 @@ class AuthService:
         if token_row.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
             raise credentials_exception
 
-        await repo.mark_used(token_row.id)
+        # Atomic claim — exactly one concurrent rotation wins. Losers see
+        # rowcount=0 and MUST treat it like reuse: revoke family + 401.
+        claimed = await repo.mark_used_atomic(token_row.id)
+        if not claimed:
+            await repo.revoke_family(token_row.family_id)
+            logger.warning(
+                "Refresh rotation race lost — family revoked | user_id=%s family=%s",
+                token_row.user_id,
+                token_row.family_id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Concurrent refresh detected. Please log in again.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
 
         user_repo = UserRepository(db)
         user = await user_repo.get_by_id(token_row.user_id)

@@ -53,13 +53,43 @@ class RefreshTokenRepository:
         return result.scalar_one_or_none()
 
     async def mark_used(self, token_id: uuid.UUID) -> None:
-        """Stamp used_at so this token can never be reused."""
+        """Stamp used_at so this token can never be reused.
+
+        DEPRECATED: prefer ``mark_used_atomic`` for any flow that emits a new
+        token in response — it closes the TOCTOU window between
+        ``get_by_raw`` and ``mark_used``. Kept here for legacy callers that
+        only need to invalidate a token without claiming "I am the rotation".
+        """
         stmt = (
             update(RefreshToken)
             .where(RefreshToken.id == token_id)
             .values(used_at=datetime.now(timezone.utc))
         )
         await self._db.execute(stmt)
+
+    async def mark_used_atomic(self, token_id: uuid.UUID) -> bool:
+        """Atomically claim a single-use refresh token.
+
+        Returns ``True`` iff this caller was the first to flip ``used_at``
+        from NULL. ``False`` means another transaction (legitimate retry or
+        attacker holding a leaked copy) already won the race; the caller
+        MUST treat ``False`` as theft/concurrent-rotation and revoke the
+        family before raising 401.
+
+        Closes the race that ``get_by_raw`` → ``mark_used`` leaves open: two
+        callers can both read ``used_at IS NULL`` and both write a fresh
+        timestamp, ending up with two valid refresh→access token pairs
+        derived from a single one-time-use token.
+        """
+        stmt = (
+            update(RefreshToken)
+            .where(RefreshToken.id == token_id)
+            .where(RefreshToken.used_at.is_(None))
+            .where(RefreshToken.revoked.is_(False))
+            .values(used_at=datetime.now(timezone.utc))
+        )
+        result = await self._db.execute(stmt)
+        return (result.rowcount or 0) == 1
 
     async def revoke_family(self, family_id: uuid.UUID) -> None:
         """Mark every token in this rotation family as revoked (theft response)."""
