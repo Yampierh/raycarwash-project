@@ -389,3 +389,39 @@ Phase 0 ships in four chunks on branch `feat/profile-phase0`:
 Test impact: 72/72 `test_auth`, 28/28 `test_admin`, 19/19 `test_appointments`, 3/3 `test_envelope_compliance` pass on this branch. One pre-existing failure in `test_register_onboarding_token_blocked_on_regular_endpoints` is unchanged — same failure on `master`.
 
 Phase 1 begins implementation of the Profile Hub (`/api/v1/users/me`) on a new branch.
+
+---
+
+## Phase 1 implementation notes (2026-05-15)
+
+Profile Hub (`/api/v1/users/me`) ships on `feat/profile-phase1`, merged via PR #3.
+
+- **Chunk G** (`2937975`): Alembic `m_002..m_004` adding 22 columns across `users`, `client_profiles`, and `provider_profiles`. Includes the EncryptedType-backed `insurance_policy_number_encrypted` / `tax_id_encrypted` on ProviderProfile, denormalized counters (`total_appointments_count`, `total_spent_cents`, `total_services_completed`, `earnings_lifetime_cents`), and the `active_role` column that Phase 6's role-switch endpoint will read.
+- **Chunk H** (`d55e1c6`): `domains/users/{hub_schemas,include_spec,hub_service}.py` + `router.py`. `GET /api/v1/users/me?include=` returns the composite-block response (per ADR-002b), `PATCH /api/v1/users/me` updates first/last/pronouns/language/timezone. 9 tests in `tests/test_users_hub.py` cover default + every include variant + step-up + role-mismatch silently-dropped tokens.
+- **Chunk I-foundation** (`12662e3`): React Query wiring (`frontend/src/lib/react-query.ts`), Hub client (`services/users.service.ts`), `useMe(includes)` hook + `prefetchMe` (`hooks/useMe.ts`). `App.tsx` gains the `QueryClientProvider`.
+- **Chunk I-screens** (`d63e09f`): mobile `ProfileScreen` / `EditProfileScreen` / `DetailerProfileScreen` migrated to `useMe`. Legacy fetches retained where the Hub doesn't yet expose the data (detailer-specific stats, phone change).
+- **Chunk J** (`a18ad63`): admin web (`web/lib/hub.ts`) + marketing web (`marketing/lib/api/users-hub.ts` + `useMeHub`) Hub clients. Existing legacy `useMe()` hook + page coexist with the new Hub client during the migration window.
+
+Test impact: 12 new tests, all green. Pre-existing suites (`test_auth`, `test_admin`, `test_appointments`, `test_envelope_compliance`) unchanged.
+
+## Phase 2 implementation notes (2026-05-15)
+
+Avatar + cover upload flow ships on `feat/profile-phase2`, merged via PR #4.
+
+- **Chunk K** (`e363a72`): `domains/users/{avatar_schemas,avatar_service,avatar_router}.py`. Six endpoints (`POST /users/me/avatar/upload-url`, `POST /users/me/avatar`, `DELETE /users/me/avatar`, plus the three cover equivalents gated to detailers). `AvatarService` HEAD-verifies the uploaded bytes against the declared mime/size, swaps the column, audits `AVATAR_CHANGED`. 8 tests in `tests/test_users_avatar.py` cover happy path, foreign s3_key rejection, 404 on missing upload, 204 on delete.
+- **Chunk L** (`71b6a69`): mobile `AvatarPicker` (Expo ImagePicker + ImageManipulator with 1024px clamp + JPEG re-encode), `s3-uploader.ts` helper handling both absolute (S3) and relative (LocalStorageAdapter `/dev/upload`) URLs, `avatar.service.ts` orchestrating the full presigned → bytes → confirm sequence. Wired into `EditProfileScreen` with React Query cache invalidation.
+- **Quality pass** (`2350a15`): codified the "fix or TODO" convention in plan §0.5, fixed pre-existing TS errors in `DetailerHomeScreen`/`DetailerSelectionScreen`, widened `Card.style` to `StyleProp<ViewStyle>`, refined every Hub placeholder with `TODO(phase N <resource>)`.
+
+S3StorageAdapter remains TODO in `app/core/dependencies.py` with a 4-step recipe; LocalStorageAdapter handles everything in dev.
+
+## Phase 3 implementation notes (2026-05-15)
+
+Contact verification + Security center + workers ship on `feat/profile-phase3`, merged via PR #5.
+
+- **Chunk M** (`ed4c323`): Alembic `m_005` (`pending_contact_changes`) + `m_005b` (`totp_credentials`). Both tables CASCADE on user delete. Models in `domains/users/pending_contact_change.py` and `domains/auth/totp_credential.py`; TotpCredential intentionally skips `TimestampMixin` because DELETE removes the row outright (no soft delete).
+- **Chunk N** (`98c50f4`): `/users/me/email/{change-request,change-confirm}` + `/phone/{change-request,change-verify}`. `ContactChangeService` validates current password, anti-enumerates new emails (generic 202 ack), enforces 5-attempt OTP cap (locks via row deletion), bumps `token_version` + revokes all refresh tokens on confirm. SMS adapter Protocol + `ConsoleSmsAdapter` (dev) + `TwilioSmsAdapter` stub (raises until prod wires it). Pre-existing bug fix: `require_step_up` now resolves `get_current_user` via Depends instead of expecting `request.state.user` to be pre-populated. 10 tests in `tests/test_users_contact_change.py`.
+- **Chunk O** (`6182dfc`): `/auth/security`, `/auth/history`, `/auth/two-fa/{enroll,verify,backup-codes/regenerate}`, `DELETE /auth/two-fa`, `GET/PATCH/DELETE /auth/passkeys`. `TotpService` uses `pyotp` with `valid_window=1` (±30s drift) and accepts backup codes as a fallback for TOTP. Backup codes are SHA-256 hashed at rest; the plain set is returned exactly once during enrollment + regeneration. 9 tests in `tests/test_auth_security.py`.
+- **Chunk P** (`fae777b`): `workers/pending_contact_cleanup.py` (cron hourly) drops expired+unconsumed rows, keeps expired+consumed for audit. `workers/login_history_purger.py` (cron monthly) enforces 365 d / 90 d retention per ADR-005. `workers/schedule.py` registers both via rq-scheduler. Each worker split into `_*_with_session(session)` + `_run_once()` so tests can drive the inner helper without spinning up a fresh `AsyncSessionLocal` (which would bind to a different event loop than the test fixture). 3 tests in `tests/test_workers.py`.
+- **Chunk Q** (`1e4323f`): mobile `services/{auth-security,contact-change}.service.ts`, `hooks/useAuthSecurity.ts` (React Query bindings + mutations), `SecurityScreen` with General/Activity tabs, `ChangeEmailScreen` + `ChangePhoneScreen` (two-stage state machine, dev_token autofill in dev, force sign-out after success). `AppNavigator` registers Security/ChangeEmail/ChangePhone routes; ChangePassword/TwoFactorSetup/Passkeys/Sessions reserved as TODO routes.
+
+Test impact across Phase 3: 22 new tests (10 + 9 + 3), all green. Migration chain extends to `m_005b`. Pre-existing 102/102 from Phase 0-2 remain green.
