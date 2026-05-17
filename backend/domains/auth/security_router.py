@@ -35,7 +35,7 @@ from domains.auth.models import (
     UserLoginHistory,
     WebAuthnCredential,
 )
-from domains.auth.service import get_current_user
+from domains.auth.service import AuthService, get_current_user
 from domains.auth.totp_credential import TotpCredential
 from domains.auth.totp_service import TotpService
 from domains.auth.security_schemas import (
@@ -254,6 +254,10 @@ async def two_fa_verify(
 ) -> Envelope[SecuritySummaryResponse]:
     request.state.user = current_user
     await TotpService(db, request).verify(current_user, body.code)
+    # Hotfix H3 — a successful TOTP code is a real auth factor (something
+    # the user has). Bump the step-up window so the user can chain
+    # follow-up actions (e.g. enroll a passkey) without re-prompting.
+    await AuthService.record_step_up_success(request, current_user, db, auth_method="totp")
     # Re-fetch summary so the client sees the updated `two_factor_enabled`.
     return await get_security_summary(request, current_user, db)
 

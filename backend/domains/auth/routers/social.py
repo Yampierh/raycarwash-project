@@ -110,6 +110,8 @@ async def google_login(
 
     access_token  = AuthService.create_access_token(user.id, user.primary_role, token_version=getattr(user, "token_version", 1))
     refresh_token = await AuthService.create_refresh_token(user.id, user.primary_role, db)
+    # Hotfix H3 — OAuth identity-token verification is a real auth event.
+    await AuthService.record_step_up_success(request, user, db, auth_method="google")
     await db.commit()
     logger.info("Google login | user_id=%s role=%s", user.id, user.primary_role)
     return SocialAuthResponse(
@@ -213,6 +215,8 @@ async def apple_login(
 
     access_token  = AuthService.create_access_token(user.id, user.primary_role, token_version=getattr(user, "token_version", 1))
     refresh_token = await AuthService.create_refresh_token(user.id, user.primary_role, db)
+    # Hotfix H3 — Apple ID token verification is a real auth event.
+    await AuthService.record_step_up_success(request, user, db, auth_method="apple")
     await db.commit()
     logger.info("Apple login | user_id=%s role=%s", user.id, user.primary_role)
     return SocialAuthResponse(

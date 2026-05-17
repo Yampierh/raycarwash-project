@@ -604,6 +604,50 @@ class AuthService:
             pass
 
     @staticmethod
+    async def record_step_up_success(
+        request,
+        user: User,
+        db: AsyncSession,
+        *,
+        auth_method: str,
+    ) -> None:
+        """Mark a fresh authentication event for both step-up and audit (hotfix H3).
+
+        Call this at every site that proves the user just demonstrated
+        possession of a credential — password, OAuth ID token, passkey,
+        TOTP code, or current-password during a sensitive operation. Two
+        invariants kept here so individual call sites can't forget one:
+
+          1. Bump ``last_step_up_at`` (Redis primary + DB fallback) so
+             ``require_step_up`` lets the user through for the next
+             ``STEP_UP_TTL_MINUTES`` window.
+          2. Record a successful login in ``user_login_history`` with the
+             provided ``auth_method`` and the IP/UA already on the request.
+
+        DO NOT call from ``/auth/refresh`` — refresh is "still
+        authenticated", not "re-authenticated". Calling step-up there would
+        let stolen refresh tokens bypass step-up walls indefinitely.
+
+        Imports ``mark_step_up`` lazily to avoid a module-level cycle with
+        ``app.core.step_up``, which depends on ``get_current_user`` from
+        this module.
+        """
+        from app.core.step_up import mark_step_up
+
+        ip_address = request.client.host if request.client else None
+        user_agent = request.headers.get("user-agent")
+
+        await AuthService._record_login_attempt(
+            db,
+            user_id=user.id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            auth_method=auth_method,
+            was_successful=True,
+        )
+        await mark_step_up(request, user, db)
+
+    @staticmethod
     async def rotate_refresh_token(
         raw_token: str,
         db: AsyncSession,
