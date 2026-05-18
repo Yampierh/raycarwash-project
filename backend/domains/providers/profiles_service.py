@@ -239,11 +239,9 @@ class ProviderProfilesService:
                 setattr(profile, field, value)
 
         if body.is_active is not None:
-            # Dual-write is_accepting_bookings so the legacy column stays
-            # in sync until E1.E drops it. KYC gating still happens via
-            # the Phase 5 status endpoint — this PATCH path is for the
-            # broad pause/resume toggle that does NOT involve flipping
-            # is_accepting_bookings to True without KYC.
+            # E1.E: setting is_active also covers is_accepting_bookings —
+            # that name is now a Python @property forwarding to is_active.
+            # KYC gating still applies when flipping to True.
             if body.is_active and profile.verification_status != "approved":
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
@@ -256,7 +254,6 @@ class ProviderProfilesService:
                     },
                 )
             profile.is_active = body.is_active
-            profile.is_accepting_bookings = body.is_active
 
         await self.db.flush()
         await self.audit_repo.log(

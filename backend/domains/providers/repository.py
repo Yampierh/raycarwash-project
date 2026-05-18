@@ -119,7 +119,11 @@ class ProviderRepository:
             User.is_active.is_(True),
             User.is_deleted.is_(False),
             ProviderProfile.is_deleted.is_(False),
-            ProviderProfile.is_accepting_bookings.is_(True),
+            # E1.E: column is_accepting_bookings was dropped; is_active is
+            # the canonical gating column. The provider model still exposes
+            # is_accepting_bookings as a Python @property for callers that
+            # haven't migrated, but SQL filters must reference the column.
+            ProviderProfile.is_active.is_(True),
         ]
         if min_rating is not None:
             filters.append(ProviderProfile.average_rating >= min_rating)

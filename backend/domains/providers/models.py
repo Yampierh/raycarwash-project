@@ -78,7 +78,11 @@ class ProviderProfile(TimestampMixin, Base):
     )
     bio: Mapped[str | None] = mapped_column(Text, nullable=True)
     years_of_experience: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    is_accepting_bookings: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # E1.E: column dropped in m_017. `is_accepting_bookings` survives as a
+    # Python @property (defined below) that forwards to is_active so the
+    # legacy wire contract and existing callers don't have to move in
+    # lockstep with the rename. Remove the property once the codebase has
+    # fully migrated to is_active.
     service_radius_miles: Mapped[int] = mapped_column(Integer, nullable=False, default=25)
     working_hours: Mapped[dict] = mapped_column(
         JSONB, nullable=False,
@@ -190,6 +194,22 @@ class ProviderProfile(TimestampMixin, Base):
         secondary="provider_service_categories",
         lazy="selectin",
     )
+
+    # E1.E back-compat: the column dropped in m_017 lives on as a property
+    # that forwards reads and writes to `is_active`. Existing services
+    # (Phase 5 set_accepting_bookings, schemas exposing the legacy field
+    # name in JSON, etc.) continue to compile and behave the same; the
+    # mobile/web/marketing JSON contract still surfaces
+    # `is_accepting_bookings: bool` because Pydantic serializes whatever
+    # attribute matches the field name. Remove this property once every
+    # caller and every wire contract has migrated to is_active.
+    @property
+    def is_accepting_bookings(self) -> bool:
+        return self.is_active
+
+    @is_accepting_bookings.setter
+    def is_accepting_bookings(self, value: bool) -> None:
+        self.is_active = bool(value)
 
     def __repr__(self) -> str:
         return f"<ProviderProfile user_id={self.user_id}>"

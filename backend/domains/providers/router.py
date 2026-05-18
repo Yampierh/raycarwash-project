@@ -284,9 +284,12 @@ async def update_accepting_status(
             detail="No detailer profile found. Create one via PUT /api/v1/detailers/me.",
         )
 
+    # E1.E: the column was renamed to is_active; the wire payload field
+    # still says is_accepting_bookings (back-compat) but the UPDATE
+    # statement must target the live column.
     await repo.update_profile(
         current_user.id,
-        {"is_accepting_bookings": payload.is_accepting_bookings},
+        {"is_active": payload.is_accepting_bookings},
     )
     logger.info(
         "Detailer status toggled | user=%s accepting=%s",

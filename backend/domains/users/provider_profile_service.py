@@ -228,12 +228,10 @@ class ProviderProfileService:
     async def deactivate(self, user: User) -> ProviderProfile:
         """Pause detailer mode without losing data. Flips
         is_accepting_bookings=False; the row + KYC state survive so the
-        user can re-activate later."""
+        user can re-activate later. E1.E: the column was dropped — the
+        attribute now forwards to is_active via @property."""
         profile = await self.get_or_404(user)
         profile.is_accepting_bookings = False
-        # E1.B dual-write: keep is_active in lock-step so E1.E can drop
-        # is_accepting_bookings without behavior churn.
-        profile.is_active = False
         await self.db.flush()
         await self.audit_repo.log(
             action=AuditAction.PROVIDER_STATUS_CHANGED,
@@ -268,10 +266,10 @@ class ProviderProfileService:
             # Idempotent — no audit row for a no-op.
             return profile
 
+        # E1.E: is_accepting_bookings is now a @property that forwards
+        # to is_active. The single assignment below sets the underlying
+        # column.
         profile.is_accepting_bookings = accepting
-        # E1.B dual-write: is_active mirrors the canonical flag so E1.E
-        # can finalize the rename without a behavior change.
-        profile.is_active = accepting
         await self.db.flush()
         await self.audit_repo.log(
             action=AuditAction.PROVIDER_STATUS_CHANGED,
