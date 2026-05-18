@@ -293,14 +293,18 @@ class AuthService:
         """
         Derive a structured AuthState from existing user data.
 
-        provider_profile is loaded via lazy="selectin" on every authenticated
-        request, so `user.provider_profile is not None` is reliable when
-        has_provider_profile is None.
+        provider_profiles are loaded via lazy="selectin" on every authenticated
+        request, so `user.provider_profile_for(DETAILER) is not None` is
+        reliable when has_provider_profile is None. E1.B turned the
+        relationship into 1:N; for the auth-state probe we look specifically
+        at the DETAILER row because that's the vertical whose onboarding
+        flow is wired to the "detailer_setup" step in the frontend.
 
         intent_role: declared intent during registration ("detailer" → step
         "provider_type" so the frontend asks for service type before profile).
         """
         from domains.auth.schemas import AuthState, AuthStateContext
+        from domains.providers.models import ProviderType
 
         if not user.onboarding_completed:
             step = "provider_type" if intent_role == "detailer" else "profile_creation"
@@ -314,7 +318,7 @@ class AuthService:
 
         if role == "detailer":
             if has_provider_profile is None:
-                has_provider_profile = user.provider_profile is not None
+                has_provider_profile = user.provider_profile_for(ProviderType.DETAILER) is not None
             step = None if has_provider_profile else "detailer_setup"
         else:
             step = None

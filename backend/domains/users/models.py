@@ -154,9 +154,14 @@ class User(TimestampMixin, Base):
         "ClientProfile", back_populates="user",
         uselist=False, lazy="selectin", cascade="all, delete-orphan",
     )
-    provider_profile: Mapped[ProviderProfile | None] = relationship(
+    # E1.B (01-profiles.md): 1:N — a user can hold a DETAILER profile and a
+    # MECHANIC profile side by side. Composite unique (user_id, provider_type)
+    # caps the list at one per vertical. Use `provider_profile_for(type)` to
+    # fetch a specific vertical; the legacy `@property provider_profile`
+    # below returns the DETAILER row for back-compat.
+    provider_profiles: Mapped[list[ProviderProfile]] = relationship(
         "ProviderProfile", back_populates="user",
-        uselist=False, lazy="selectin", cascade="all, delete-orphan",
+        lazy="selectin", cascade="all, delete-orphan",
     )
     vehicles: Mapped[list[Vehicle]] = relationship(
         "Vehicle", back_populates="owner", lazy="select",
@@ -255,6 +260,34 @@ class User(TimestampMixin, Base):
         # mechanic as a second provider_type. is_detailer() / is_mechanic()
         # remain available for vertical-specific gates.
         return self.has_role("detailer") or self.has_role("mechanic")
+
+    def provider_profile_for(self, provider_type) -> ProviderProfile | None:
+        """
+        Return the (active, non-deleted) ProviderProfile of `provider_type`
+        if it exists, else None. Accepts a `ProviderType` enum or the raw
+        string value so callers don't have to import the enum.
+        """
+        # Local import to avoid the cross-domain runtime cycle.
+        from domains.providers.models import ProviderType
+
+        wanted = provider_type.value if isinstance(provider_type, ProviderType) else str(provider_type)
+        for pp in (self.provider_profiles or []):
+            if pp.is_deleted:
+                continue
+            if pp.provider_type == wanted:
+                return pp
+        return None
+
+    @property
+    def provider_profile(self) -> ProviderProfile | None:
+        """
+        Back-compat shim — returns the DETAILER ProviderProfile if any.
+        Removed once every call-site has migrated to
+        `provider_profile_for(ProviderType.X)` or iterates
+        `provider_profiles` directly.
+        """
+        from domains.providers.models import ProviderType
+        return self.provider_profile_for(ProviderType.DETAILER)
 
     def is_detailer(self) -> bool:
         return self.has_role("detailer")

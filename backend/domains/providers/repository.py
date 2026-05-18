@@ -9,7 +9,7 @@ from sqlalchemy import and_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from domains.auth.models import Role, UserRoleAssociation
-from domains.providers.models import ProviderProfile
+from domains.providers.models import ProviderProfile, ProviderType
 from domains.users.models import User
 
 
@@ -27,9 +27,23 @@ class ProviderRepository:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
 
-    async def get_profile(self, user_id: uuid.UUID) -> ProviderProfile | None:
+    async def get_profile(
+        self,
+        user_id: uuid.UUID,
+        provider_type: str | ProviderType = ProviderType.DETAILER,
+    ) -> ProviderProfile | None:
+        """
+        Return the profile of `provider_type` for `user_id`, or None.
+
+        Defaults to DETAILER so the legacy callers (Phase 5 endpoints and
+        the matching/detailer router) continue returning the same row they
+        used to under the 1:1 model. New callers that need the mechanic
+        profile pass ProviderType.MECHANIC explicitly.
+        """
+        wanted = provider_type.value if isinstance(provider_type, ProviderType) else str(provider_type)
         stmt = select(ProviderProfile).where(
             ProviderProfile.user_id == user_id,
+            ProviderProfile.provider_type == wanted,
             ProviderProfile.is_deleted.is_(False),
         )
         result = await self._db.execute(stmt)

@@ -175,7 +175,13 @@ class ProfileHubService:
         )
 
     def _build_verification_badges(self, user: User) -> VerificationBadgesBlock:
-        pp = user.provider_profile
+        # E1.B: user can hold both DETAILER + MECHANIC profiles. For the
+        # verification badges block we surface the DETAILER profile's
+        # verification status since that's the only vertical that has
+        # gone through Stripe Identity today. When mechanic onboarding
+        # adds its own KYC pipe this should aggregate across profiles.
+        from domains.providers.models import ProviderType
+        pp = user.provider_profile_for(ProviderType.DETAILER)
         return VerificationBadgesBlock(
             email=user.is_verified,
             phone=user.phone_number is not None,
@@ -243,7 +249,17 @@ class ProfileHubService:
     # ────── Provider block ──────────────────────────────────────────────────
 
     def _build_provider_block(self, user: User) -> ProviderBlock | None:
-        pp = user.provider_profile
+        # E1.B: pick the profile that matches the user's active_role when
+        # set; otherwise fall back to DETAILER for legacy single-role
+        # users. Phase 6's active-role switcher will rotate which profile
+        # this block surfaces. Multi-profile clients consume the full
+        # list via GET /api/v1/providers/profiles (lands in E1.C).
+        from domains.providers.models import ProviderType
+        wanted = user.active_role if user.active_role in {
+            ProviderType.DETAILER.value,
+            ProviderType.MECHANIC.value,
+        } else ProviderType.DETAILER.value
+        pp = user.provider_profile_for(wanted)
         if pp is None:
             return None
         rating = float(pp.average_rating) if pp.average_rating is not None else None
