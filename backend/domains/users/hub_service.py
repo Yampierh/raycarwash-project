@@ -260,8 +260,9 @@ class ProfileHubService:
     # ────── Lists landing in later phases ───────────────────────────────────
 
     async def _build_vehicles_block(self, user: User) -> list[VehicleSummary]:
-        # Vehicle table exists; photo URLs and is_default land in Phase 4.
+        from domains.users.vehicle_photo_service import sign_photo_url
         from domains.vehicles.models import Vehicle  # local import to avoid cycle
+        from domains.vehicles.vehicle_photo import VehiclePhoto
 
         stmt = (
             select(Vehicle)
@@ -270,6 +271,25 @@ class ProfileHubService:
         )
         rows = (await self.db.scalars(stmt)).all()
         default_id = user.client_profile.default_vehicle_id if user.client_profile else None
+
+        if not rows:
+            return []
+
+        # One pass to grab the first-by-sort_order photo for each vehicle.
+        # Using window-style DISTINCT ON Postgres syntax would be neater
+        # but ORDER BY + LIMIT-per-group is awkward in SQLAlchemy; instead
+        # we pull all photos for these vehicles and bucket in Python —
+        # cheap because users are capped at MAX_PHOTOS_PER_VEHICLE (4)
+        # per vehicle.
+        photo_rows = (await self.db.scalars(
+            select(VehiclePhoto)
+            .where(VehiclePhoto.vehicle_id.in_([v.id for v in rows]))
+            .order_by(VehiclePhoto.vehicle_id, VehiclePhoto.sort_order.asc())
+        )).all()
+        first_photo_key: dict = {}
+        for p in photo_rows:
+            first_photo_key.setdefault(p.vehicle_id, p.s3_key)
+
         return [
             VehicleSummary(
                 id=v.id,
@@ -278,7 +298,7 @@ class ProfileHubService:
                 year=v.year,
                 color=v.color,
                 license_plate=v.license_plate,
-                photo_url=None,  # Phase 4 (VehiclePhoto)
+                photo_url=sign_photo_url(first_photo_key.get(v.id)),
                 is_default=(v.id == default_id),
             )
             for v in rows
@@ -318,9 +338,23 @@ class ProfileHubService:
         ]
 
     async def _build_favorites_block(self, user: User) -> list[FavoriteProviderSummary]:
-        # TODO(phase 4 m_008): replace with a JOIN client_favorites →
-        # provider_profiles → users to return display_name + avatar_url.
-        return []
+        from domains.users.favorites_repository import FavoritesRepository
+
+        rows = await FavoritesRepository(self.db).list_for_user(user.id)
+        items: list[FavoriteProviderSummary] = []
+        for fav, provider_user, pp in rows:
+            items.append(FavoriteProviderSummary(
+                provider_user_id=fav.provider_user_id,
+                display_name=(pp.display_name if pp else None) or (
+                    provider_user.full_name if provider_user else None
+                ),
+                # avatar_url stays None until we can sign a download URL
+                # for a user that ISN'T the caller — see plan §9 (multi-
+                # user URL signing under the same FileStorageAdapter).
+                avatar_url=None,
+                rating=(float(pp.average_rating) if pp and pp.average_rating is not None else None),
+            ))
+        return items
 
     # ────── Security + sessions (step-up gated) ─────────────────────────────
 

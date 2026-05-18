@@ -29,6 +29,9 @@ from domains.users.avatar_router     import router as user_avatar_router
 from domains.users.contact_change_router import router as user_contact_router
 from domains.users.address_router    import router as user_address_router
 from domains.users.payment_method_router import router as user_payment_method_router
+from domains.users.favorites_router    import router as user_favorites_router
+from domains.users.vehicle_photo_router import router as user_vehicle_photo_router
+from domains.users.client_preferences_router import router as user_client_preferences_router
 from domains.admin.router            import router as admin_router
 from domains.notifications.router   import router as notifications_router
 
@@ -96,6 +99,15 @@ api_router.include_router(user_address_router)
 
 # Users — /api/v1/users/me/payment-methods/* (Phase 4 chunk U)
 api_router.include_router(user_payment_method_router)
+
+# Users — /api/v1/users/me/favorites/* (Phase 4 chunk V)
+api_router.include_router(user_favorites_router)
+
+# Users — /api/v1/users/me/vehicles/{id}/photos/* (Phase 4 chunk V)
+api_router.include_router(user_vehicle_photo_router)
+
+# Users — /api/v1/users/me/client-preferences (Phase 4 chunk V)
+api_router.include_router(user_client_preferences_router)
 
 # Admin dashboard — /api/v1/admin/*
 api_router.include_router(admin_router)
