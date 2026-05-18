@@ -25,8 +25,11 @@ from domains.users.pending_contact_change import PendingContactChange  # noqa: F
 from domains.users.user_address import UserAddress  # noqa: F401
 from domains.users.payment_method import PaymentMethod  # noqa: F401
 from domains.users.client_favorite import ClientFavorite  # noqa: F401
+from domains.users.document import Document, DocumentType  # noqa: F401
 from domains.users.models import User, ClientProfile, OnboardingStatus  # noqa: F401
 from domains.providers.models import ProviderProfile  # noqa: F401
+from domains.providers.portfolio_photo import ProviderPortfolioPhoto  # noqa: F401
+from domains.providers.achievement import ProviderAchievement  # noqa: F401
 from domains.vehicles.models import Vehicle, VehicleSize  # noqa: F401
 from domains.vehicles.vehicle_photo import VehiclePhoto  # noqa: F401
 from domains.appointments.models import (  # noqa: F401
