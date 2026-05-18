@@ -302,10 +302,20 @@ class ProfileHubService:
         ]
 
     async def _build_payment_methods_block(self, user: User) -> list[PaymentMethodSummary]:
-        # TODO(phase 4 m_007): replace with a SELECT against payment_methods
-        # (mirrored from Stripe via webhook). Currency / brand / last4 already
-        # in the response schema.
-        return []
+        from domains.users.payment_method_repository import PaymentMethodRepository
+
+        rows = await PaymentMethodRepository(self.db).list_active(user.id)
+        return [
+            PaymentMethodSummary(
+                id=r.id,
+                brand=r.brand,
+                last4=r.last4,
+                exp_month=r.exp_month,
+                exp_year=r.exp_year,
+                is_default=r.is_default,
+            )
+            for r in rows
+        ]
 
     async def _build_favorites_block(self, user: User) -> list[FavoriteProviderSummary]:
         # TODO(phase 4 m_008): replace with a JOIN client_favorites →

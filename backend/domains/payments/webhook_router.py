@@ -167,6 +167,18 @@ async def stripe_webhook(
         session_id = event["data"]["object"]["id"]
         logger.info("Identity session canceled | session=%s", session_id)
 
+    # ---- Saved payment methods (Phase 4 chunk U) ---------------------- #
+
+    elif event_type in (
+        "payment_method.attached",
+        "payment_method.updated",
+        "setup_intent.succeeded",
+    ):
+        await _handle_payment_method_upsert(event, db)
+
+    elif event_type == "payment_method.detached":
+        await _handle_payment_method_detached(event, db)
+
     else:
         logger.debug("Unhandled Stripe event type: %s", event_type)
 
@@ -207,6 +219,126 @@ async def _handle_identity_verified(event: dict, db: AsyncSession) -> None:
         "Detailer identity approved | user_id=%s session=%s",
         profile.user_id, session_id,
     )
+
+
+# ------------------------------------------------------------------ #
+#  Saved payment methods (Phase 4 chunk U)                            #
+# ------------------------------------------------------------------ #
+
+
+async def _handle_payment_method_upsert(event: dict, db: AsyncSession) -> None:
+    """Insert or update the local mirror of a Stripe PaymentMethod.
+
+    Triggered by:
+      - payment_method.attached: card was just attached to a customer.
+      - payment_method.updated:  exp_month / billing_zip / brand drift.
+      - setup_intent.succeeded:  fallback path — Stripe doesn't always
+        guarantee payment_method.attached fires first, and some flows
+        only emit setup_intent.succeeded with the PM nested inside.
+
+    We resolve the User from the Stripe customer ID (we mirrored it
+    onto User.stripe_customer_id when we minted the cus_*). If the
+    customer is unknown we skip silently — could be a webhook for a
+    different environment, or the user was hard-deleted.
+    """
+    from app.middleware.audit_context import AuditContext
+    from domains.users.models import User
+    from domains.users.payment_method_service import PaymentMethodService
+    from infrastructure.payments.stripe_test import _snapshot_from_stripe
+
+    obj = event["data"]["object"]
+    event_type = event.get("type", "")
+
+    # setup_intent.succeeded carries customer + payment_method directly;
+    # payment_method.* events carry customer on the PM object itself.
+    if event_type == "setup_intent.succeeded":
+        customer_id = obj.get("customer")
+        pm_obj = obj.get("payment_method")
+        # pm_obj may be a string ID; in that case the snapshot would lack
+        # card details. Re-fetch through the adapter.
+        if isinstance(pm_obj, str):
+            from app.core.dependencies import get_payment_method_adapter
+
+            try:
+                snapshot = await get_payment_method_adapter().fetch_payment_method(
+                    stripe_payment_method_id=pm_obj
+                )
+            except Exception as exc:
+                logger.warning(
+                    "setup_intent.succeeded: cannot retrieve PM=%s: %s", pm_obj, exc
+                )
+                return
+        elif isinstance(pm_obj, dict):
+            snapshot = _snapshot_from_stripe(pm_obj)
+        else:
+            logger.info("setup_intent.succeeded with no payment_method — skipping")
+            return
+    else:
+        customer_id = obj.get("customer")
+        snapshot = _snapshot_from_stripe(obj)
+
+    if not customer_id:
+        logger.info(
+            "payment_method webhook skipped — no customer | event_type=%s pm=%s",
+            event_type, snapshot.stripe_payment_method_id,
+        )
+        return
+
+    result = await db.execute(
+        select(User).where(User.stripe_customer_id == customer_id)
+    )
+    user = result.scalar_one_or_none()
+    if user is None:
+        logger.info(
+            "payment_method webhook skipped — unknown customer | cus=%s",
+            customer_id,
+        )
+        return
+
+    # Webhook callers have no HTTP request context — use an empty
+    # AuditContext so the audit row records the source as "stripe_webhook"
+    # in metadata rather than crashing on getattr.
+    service = PaymentMethodService(
+        db=db,
+        audit_ctx=AuditContext(request_id=None, ip_address=None, user_agent=None),
+    )
+    await service.upsert_from_snapshot(user_id=user.id, snapshot=snapshot)
+    await db.commit()
+    logger.info(
+        "payment_method synced | user=%s pm=%s brand=%s last4=%s",
+        user.id, snapshot.stripe_payment_method_id,
+        snapshot.brand, snapshot.last4,
+    )
+
+
+async def _handle_payment_method_detached(event: dict, db: AsyncSession) -> None:
+    """Soft-delete the local mirror when the card is detached at Stripe
+    (user removed via Stripe Dashboard, or our own server-side detach
+    echoing back)."""
+    from app.middleware.audit_context import AuditContext
+    from domains.users.payment_method_service import PaymentMethodService
+
+    obj = event["data"]["object"]
+    stripe_pm_id = obj.get("id")
+    if not stripe_pm_id:
+        logger.info("payment_method.detached missing id — skipping")
+        return
+
+    service = PaymentMethodService(
+        db=db,
+        audit_ctx=AuditContext(request_id=None, ip_address=None, user_agent=None),
+    )
+    ok = await service.mark_detached_by_stripe_id(
+        stripe_payment_method_id=stripe_pm_id
+    )
+    if ok:
+        await db.commit()
+        logger.info("payment_method detached locally | pm=%s", stripe_pm_id)
+    else:
+        logger.info(
+            "payment_method.detached for unknown PM (already gone or never seen) | pm=%s",
+            stripe_pm_id,
+        )
 
 
 async def _handle_identity_requires_input(event: dict, db: AsyncSession) -> None:
