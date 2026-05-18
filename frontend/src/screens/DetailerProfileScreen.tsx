@@ -184,6 +184,8 @@ export default function DetailerProfileScreen() {
         {/* Business */}
         <SectionHeader title="Business" style={{ marginTop: 8 }} />
         <LinearGradient colors={["#1E293B", "#0F172A"]} style={styles.menuCard}>
+          <MenuOption icon="briefcase-outline" label="Provider hub" onPress={() => navigation.navigate("ProviderHub")} />
+          <View style={styles.menuDivider} />
           <MenuOption icon="construct-outline" label="My Services" onPress={() => navigation.navigate("DetailerServices")} />
           <View style={styles.menuDivider} />
           <MenuOption icon="location-outline" label="Service Radius" value={`${stats.radius} mi`} onPress={() => navigation.navigate("DetailerServices")} />

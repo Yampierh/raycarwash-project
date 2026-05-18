@@ -10,6 +10,11 @@ import AddVehicleScreen from "../screens/AddVehicleScreen";
 import ClientPreferencesScreen from "../screens/ClientPreferencesScreen";
 import FavoritesScreen from "../screens/FavoritesScreen";
 import PaymentMethodsScreen from "../screens/PaymentMethodsScreen";
+import ProviderHubScreen from "../screens/ProviderHubScreen";
+import ProviderProfileEditScreen from "../screens/ProviderProfileEditScreen";
+import ProviderPortfolioScreen from "../screens/ProviderPortfolioScreen";
+import ProviderDocumentsScreen from "../screens/ProviderDocumentsScreen";
+import ProviderVerificationScreen from "../screens/ProviderVerificationScreen";
 import VehiclePhotosScreen from "../screens/VehiclePhotosScreen";
 import BookingScreen from "../screens/BookingScreen";
 import BookingSummaryScreen from "../screens/BookingSummaryScreen";
@@ -173,6 +178,13 @@ export default function AppNavigator() {
         <Stack.Screen name="Favorites" component={FavoritesScreen} />
         <Stack.Screen name="ClientPreferences" component={ClientPreferencesScreen} />
         <Stack.Screen name="VehiclePhotos" component={VehiclePhotosScreen} />
+
+        {/* Phase 5 chunk Y7 — Provider hub + sub-screens */}
+        <Stack.Screen name="ProviderHub" component={ProviderHubScreen} />
+        <Stack.Screen name="ProviderProfileEdit" component={ProviderProfileEditScreen} />
+        <Stack.Screen name="ProviderPortfolio" component={ProviderPortfolioScreen} />
+        <Stack.Screen name="ProviderDocuments" component={ProviderDocumentsScreen} />
+        <Stack.Screen name="ProviderVerification" component={ProviderVerificationScreen} />
         {/*
           TODO(phase 3 follow-up): mount these once the screens land.
           SecurityScreen already navigates to them by name — leaving them

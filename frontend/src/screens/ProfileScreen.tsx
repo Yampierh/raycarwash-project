@@ -228,6 +228,17 @@ export default function ProfileScreen({ navigation }: any) {
           </View>
         </View>
 
+        {/* Become a detailer / Provider hub */}
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>EARN</Text>
+          <View style={styles.menuCard}>
+            <MenuOption icon="briefcase-outline" title="Provider mode"
+              subtitle="Become a detailer or manage your existing business"
+              color="#3B82F6"
+              onPress={() => navigation.navigate("ProviderHub")} isLast />
+          </View>
+        </View>
+
         {/* Support */}
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>SUPPORT</Text>

@@ -79,6 +79,13 @@ export type RootStackParamList = {
   ClientPreferences: undefined;
   VehiclePhotos: { vehicleId: string; vehicleLabel?: string };
 
+  // Provider sub-screens (Phase 5 chunk Y7)
+  ProviderHub: undefined;
+  ProviderProfileEdit: { focusDeactivate?: boolean } | undefined;
+  ProviderPortfolio: undefined;
+  ProviderDocuments: undefined;
+  ProviderVerification: undefined;
+
   // Detailer onboarding / services
   DetailerOnboarding: undefined;
   DetailerServices: undefined;
