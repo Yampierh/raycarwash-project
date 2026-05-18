@@ -376,10 +376,11 @@ async def update_my_service(
             detail=f"Service '{service_id}' not found or inactive.",
         )
 
-    # Upsert DetailerService record
+    # Upsert ProviderService record (renamed from DetailerService in E1.D —
+    # the legacy class alias and `pp.detailer_services` property still work).
     ds_result = await db.execute(
         select(DetailerService).where(
-            DetailerService.detailer_id == profile.id,
+            DetailerService.provider_id == profile.id,
             DetailerService.service_id == service_id,
         )
     )
@@ -387,7 +388,7 @@ async def update_my_service(
 
     if ds is None:
         ds = DetailerService(
-            detailer_id=profile.id,
+            provider_id=profile.id,
             service_id=service_id,
             is_active=payload.is_active,
             custom_price_cents=payload.custom_price_cents,

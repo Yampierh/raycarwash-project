@@ -76,12 +76,20 @@ class Addon(TimestampMixin, Base):
         return f"<Addon id={self.id} name={self.name!r} price={self.price_cents}¢>"
 
 
-class DetailerService(TimestampMixin, Base):
-    __tablename__ = "detailer_services"
-    __table_args__ = (UniqueConstraint("detailer_id", "service_id", name="uq_detailer_service"),)
+class ProviderService(TimestampMixin, Base):
+    """
+    Per-provider customization of a platform Service. Each row says
+    "provider X offers service Y, optionally at custom_price_cents and
+    optionally toggled off (is_active=False)". Renamed from
+    DetailerService in E1.D — the table is now provider-type agnostic
+    so a MECHANIC profile can list oil-change services the same way a
+    DETAILER lists ceramic-coating.
+    """
+    __tablename__ = "provider_services"
+    __table_args__ = (UniqueConstraint("provider_id", "service_id", name="uq_provider_service"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    detailer_id: Mapped[uuid.UUID] = mapped_column(
+    provider_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("provider_profiles.id", ondelete="CASCADE"),
         nullable=False, index=True,
     )
@@ -92,11 +100,44 @@ class DetailerService(TimestampMixin, Base):
     custom_price_cents: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
-    detailer: Mapped[ProviderProfile] = relationship("ProviderProfile", back_populates="detailer_services")
+    provider: Mapped[ProviderProfile] = relationship("ProviderProfile", back_populates="provider_services")
     service: Mapped[Service] = relationship("Service")
 
     def __repr__(self) -> str:
-        return f"<DetailerService detailer={self.detailer_id} service={self.service_id}>"
+        return f"<ProviderService provider={self.provider_id} service={self.service_id}>"
+
+
+# E1.D back-compat shim — legacy imports keep working until phase 2
+# performs the global rename. Removing this alias is a code-only change.
+DetailerService = ProviderService
+
+
+class ProviderServiceCategory(Base):
+    """
+    m2m junction between a ProviderProfile and the ServiceCategory rows
+    it covers. Replaces the scalar `provider_profiles.service_category_id`
+    so a single profile can advertise multiple categories (e.g. a
+    detailer offering basic_wash + interior_detail + full_detail).
+    Introduced in E1.D (01-profiles.md §2.3).
+    """
+    __tablename__ = "provider_service_categories"
+
+    provider_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("provider_profiles.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    category_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("service_categories.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    added_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=sa_text("now()"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<ProviderServiceCategory provider={self.provider_id} category={self.category_id}>"
 
 
 class Specialty(Base):
