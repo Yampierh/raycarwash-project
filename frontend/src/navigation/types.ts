@@ -71,6 +71,14 @@ export type RootStackParamList = {
   Passkeys: undefined;
   Sessions: undefined;
 
+  // Profile sub-resources (Phase 4 chunk W)
+  Addresses: undefined;
+  AddressForm: { address: import("../services/addresses.service").Address | null } | undefined;
+  PaymentMethods: undefined;
+  Favorites: undefined;
+  ClientPreferences: undefined;
+  VehiclePhotos: { vehicleId: string; vehicleLabel?: string };
+
   // Detailer onboarding / services
   DetailerOnboarding: undefined;
   DetailerServices: undefined;

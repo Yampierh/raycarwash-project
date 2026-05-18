@@ -207,7 +207,11 @@ export default function ProfileScreen({ navigation }: any) {
               color="#8B5CF6" badge={vehiclesTotal > 0 ? String(vehiclesTotal) : undefined}
               onPress={() => navigation.navigate("Vehicles")} />
             <MenuOption icon="card-outline" title="Payment Methods" subtitle="Add or manage payment cards"
-              color="#10B981" onPress={() => Alert.alert("Payment Methods", "This feature is coming soon.")} isLast />
+              color="#10B981" onPress={() => navigation.navigate("PaymentMethods")} />
+            <MenuOption icon="location-outline" title="Addresses" subtitle="Saved pickup locations"
+              color="#EC4899" onPress={() => navigation.navigate("Addresses")} />
+            <MenuOption icon="heart-outline" title="Favorite Providers" subtitle="Re-book in one tap"
+              color="#EF4444" onPress={() => navigation.navigate("Favorites")} isLast />
           </View>
         </View>
 
@@ -215,10 +219,10 @@ export default function ProfileScreen({ navigation }: any) {
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>PREFERENCES</Text>
           <View style={styles.menuCard}>
+            <MenuOption icon="options-outline" title="Defaults & cadence" subtitle="Default vehicle, address, frequency"
+              color="#3B82F6" onPress={() => navigation.navigate("ClientPreferences")} />
             <MenuOption icon="notifications-outline" title="Notifications" subtitle="Wash status, offers, reminders"
               color="#F59E0B" onPress={() => Alert.alert("Notifications", "Notification preferences coming soon.")} />
-            <MenuOption icon="location-outline" title="Default Service Address" subtitle="Set your home or work address"
-              color="#EC4899" onPress={() => navigation.navigate("EditProfile", { focusAddress: true })} />
             <MenuOption icon="lock-closed-outline" title="Change Password" subtitle="Update your account password"
               color="#94A3B8" onPress={() => Alert.alert("Change Password", `To change your password, please contact us at ${APP_CONFIG.supportEmail}`)} isLast />
           </View>
