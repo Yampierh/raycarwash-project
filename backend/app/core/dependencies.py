@@ -72,3 +72,44 @@ def get_sms_adapter():
         from infrastructure.sms.twilio import TwilioSmsAdapter
         return TwilioSmsAdapter()
     return ConsoleSmsAdapter()
+
+
+# ─── Payment method adapter (Phase 4 chunk U) ────────────────────────────────
+
+
+@lru_cache(maxsize=1)
+def get_payment_method_adapter():
+    """StripeStubAdapter when STRIPE_SECRET_KEY is a placeholder (dev/CI
+    bootstrap without keys). StripeTestAdapter when a real sk_test_* or
+    sk_live_* key is configured — same code runs against test and live.
+
+    The stub matches the existing PaymentService._is_stub_key() escape
+    hatch so the whole payments domain switches stub→real together when
+    keys are supplied."""
+    from app.core.config import get_settings as _gs
+    s = _gs()
+    placeholder = s.STRIPE_SECRET_KEY in (
+        "sk_test_placeholder", "sk_live_placeholder", ""
+    )
+    if placeholder:
+        from infrastructure.payments.stripe_stub import StripeStubAdapter
+        return StripeStubAdapter()
+    from infrastructure.payments.stripe_test import StripeTestAdapter
+    return StripeTestAdapter()
+
+
+# ─── Geocoding adapter (Phase 4) ─────────────────────────────────────────────
+
+
+@lru_cache(maxsize=1)
+def get_geocoding_adapter():
+    """NominatimAdapter in dev (free OSM, rate-limited 1 req/s).
+    GoogleMapsGeocodingAdapter in prod (currently raises — see
+    infrastructure/geocoding/google.py for the TODO checklist)."""
+    from infrastructure.geocoding.nominatim import NominatimAdapter
+
+    env = get_settings().RAYCARWASH_ENV
+    if env == "production":
+        from infrastructure.geocoding.google import GoogleMapsGeocodingAdapter
+        return GoogleMapsGeocodingAdapter()
+    return NominatimAdapter()

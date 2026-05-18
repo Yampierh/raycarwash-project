@@ -27,6 +27,15 @@ from domains.providers.verification_router import router as verification_router
 from domains.users.router            import router as user_router
 from domains.users.avatar_router     import router as user_avatar_router
 from domains.users.contact_change_router import router as user_contact_router
+from domains.users.address_router    import router as user_address_router
+from domains.users.payment_method_router import router as user_payment_method_router
+from domains.users.favorites_router    import router as user_favorites_router
+from domains.users.vehicle_photo_router import router as user_vehicle_photo_router
+from domains.users.client_preferences_router import router as user_client_preferences_router
+from domains.users.provider_profile_router import router as user_provider_profile_router
+from domains.users.provider_portfolio_router import router as user_provider_portfolio_router
+from domains.users.provider_documents_router import router as user_provider_documents_router
+from domains.users.provider_verification_router import router as user_provider_verification_router
 from domains.admin.router            import router as admin_router
 from domains.notifications.router   import router as notifications_router
 
@@ -88,6 +97,33 @@ api_router.include_router(user_avatar_router)
 
 # Users — /api/v1/users/me/email/* + /phone/* (Phase 3)
 api_router.include_router(user_contact_router)
+
+# Users — /api/v1/users/me/addresses/* (Phase 4 chunk T)
+api_router.include_router(user_address_router)
+
+# Users — /api/v1/users/me/payment-methods/* (Phase 4 chunk U)
+api_router.include_router(user_payment_method_router)
+
+# Users — /api/v1/users/me/favorites/* (Phase 4 chunk V)
+api_router.include_router(user_favorites_router)
+
+# Users — /api/v1/users/me/vehicles/{id}/photos/* (Phase 4 chunk V)
+api_router.include_router(user_vehicle_photo_router)
+
+# Users — /api/v1/users/me/client-preferences (Phase 4 chunk V)
+api_router.include_router(user_client_preferences_router)
+
+# Users — /api/v1/users/me/provider-profile + /provider-status (Phase 5 chunk Y2)
+api_router.include_router(user_provider_profile_router)
+
+# Users — /api/v1/users/me/provider-portfolio (Phase 5 chunk Y3)
+api_router.include_router(user_provider_portfolio_router)
+
+# Users — /api/v1/users/me/provider-documents (Phase 5 chunk Y4)
+api_router.include_router(user_provider_documents_router)
+
+# Users — /api/v1/users/me/provider-verification + /provider-achievements (Phase 5 chunk Y5)
+api_router.include_router(user_provider_verification_router)
 
 # Admin dashboard — /api/v1/admin/*
 api_router.include_router(admin_router)

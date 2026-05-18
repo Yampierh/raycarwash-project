@@ -190,6 +190,23 @@ export default function VehicleDetailScreen({ route, navigation }: any) {
           </View>
         </View>
 
+        {/* Phase 4 chunk W — vehicle photos entry point */}
+        <View style={{ paddingHorizontal: 24, marginTop: 8 }}>
+          <Button
+            title="Manage photos"
+            onPress={() =>
+              navigation.navigate("VehiclePhotos", {
+                vehicleId: vehicle.id,
+                vehicleLabel: `${vehicle.year} ${vehicle.make} ${vehicle.model}`,
+              })
+            }
+            variant="secondary"
+            size="md"
+            icon="images-outline"
+            fullWidth
+          />
+        </View>
+
         <View style={{ height: 120 }} />
       </ScrollView>
 

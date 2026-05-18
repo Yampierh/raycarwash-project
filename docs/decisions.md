@@ -389,3 +389,110 @@ Phase 0 ships in four chunks on branch `feat/profile-phase0`:
 Test impact: 72/72 `test_auth`, 28/28 `test_admin`, 19/19 `test_appointments`, 3/3 `test_envelope_compliance` pass on this branch. One pre-existing failure in `test_register_onboarding_token_blocked_on_regular_endpoints` is unchanged — same failure on `master`.
 
 Phase 1 begins implementation of the Profile Hub (`/api/v1/users/me`) on a new branch.
+
+---
+
+## Phase 1 implementation notes (2026-05-15)
+
+Profile Hub (`/api/v1/users/me`) ships on `feat/profile-phase1`, merged via PR #3.
+
+- **Chunk G** (`2937975`): Alembic `m_002..m_004` adding 22 columns across `users`, `client_profiles`, and `provider_profiles`. Includes the EncryptedType-backed `insurance_policy_number_encrypted` / `tax_id_encrypted` on ProviderProfile, denormalized counters (`total_appointments_count`, `total_spent_cents`, `total_services_completed`, `earnings_lifetime_cents`), and the `active_role` column that Phase 6's role-switch endpoint will read.
+- **Chunk H** (`d55e1c6`): `domains/users/{hub_schemas,include_spec,hub_service}.py` + `router.py`. `GET /api/v1/users/me?include=` returns the composite-block response (per ADR-002b), `PATCH /api/v1/users/me` updates first/last/pronouns/language/timezone. 9 tests in `tests/test_users_hub.py` cover default + every include variant + step-up + role-mismatch silently-dropped tokens.
+- **Chunk I-foundation** (`12662e3`): React Query wiring (`frontend/src/lib/react-query.ts`), Hub client (`services/users.service.ts`), `useMe(includes)` hook + `prefetchMe` (`hooks/useMe.ts`). `App.tsx` gains the `QueryClientProvider`.
+- **Chunk I-screens** (`d63e09f`): mobile `ProfileScreen` / `EditProfileScreen` / `DetailerProfileScreen` migrated to `useMe`. Legacy fetches retained where the Hub doesn't yet expose the data (detailer-specific stats, phone change).
+- **Chunk J** (`a18ad63`): admin web (`web/lib/hub.ts`) + marketing web (`marketing/lib/api/users-hub.ts` + `useMeHub`) Hub clients. Existing legacy `useMe()` hook + page coexist with the new Hub client during the migration window.
+
+Test impact: 12 new tests, all green. Pre-existing suites (`test_auth`, `test_admin`, `test_appointments`, `test_envelope_compliance`) unchanged.
+
+## Phase 2 implementation notes (2026-05-15)
+
+Avatar + cover upload flow ships on `feat/profile-phase2`, merged via PR #4.
+
+- **Chunk K** (`e363a72`): `domains/users/{avatar_schemas,avatar_service,avatar_router}.py`. Six endpoints (`POST /users/me/avatar/upload-url`, `POST /users/me/avatar`, `DELETE /users/me/avatar`, plus the three cover equivalents gated to detailers). `AvatarService` HEAD-verifies the uploaded bytes against the declared mime/size, swaps the column, audits `AVATAR_CHANGED`. 8 tests in `tests/test_users_avatar.py` cover happy path, foreign s3_key rejection, 404 on missing upload, 204 on delete.
+- **Chunk L** (`71b6a69`): mobile `AvatarPicker` (Expo ImagePicker + ImageManipulator with 1024px clamp + JPEG re-encode), `s3-uploader.ts` helper handling both absolute (S3) and relative (LocalStorageAdapter `/dev/upload`) URLs, `avatar.service.ts` orchestrating the full presigned → bytes → confirm sequence. Wired into `EditProfileScreen` with React Query cache invalidation.
+- **Quality pass** (`2350a15`): codified the "fix or TODO" convention in plan §0.5, fixed pre-existing TS errors in `DetailerHomeScreen`/`DetailerSelectionScreen`, widened `Card.style` to `StyleProp<ViewStyle>`, refined every Hub placeholder with `TODO(phase N <resource>)`.
+
+S3StorageAdapter remains TODO in `app/core/dependencies.py` with a 4-step recipe; LocalStorageAdapter handles everything in dev.
+
+## Phase 3 implementation notes (2026-05-15)
+
+Contact verification + Security center + workers ship on `feat/profile-phase3`, merged via PR #5.
+
+- **Chunk M** (`ed4c323`): Alembic `m_005` (`pending_contact_changes`) + `m_005b` (`totp_credentials`). Both tables CASCADE on user delete. Models in `domains/users/pending_contact_change.py` and `domains/auth/totp_credential.py`; TotpCredential intentionally skips `TimestampMixin` because DELETE removes the row outright (no soft delete).
+- **Chunk N** (`98c50f4`): `/users/me/email/{change-request,change-confirm}` + `/phone/{change-request,change-verify}`. `ContactChangeService` validates current password, anti-enumerates new emails (generic 202 ack), enforces 5-attempt OTP cap (locks via row deletion), bumps `token_version` + revokes all refresh tokens on confirm. SMS adapter Protocol + `ConsoleSmsAdapter` (dev) + `TwilioSmsAdapter` stub (raises until prod wires it). Pre-existing bug fix: `require_step_up` now resolves `get_current_user` via Depends instead of expecting `request.state.user` to be pre-populated. 10 tests in `tests/test_users_contact_change.py`.
+- **Chunk O** (`6182dfc`): `/auth/security`, `/auth/history`, `/auth/two-fa/{enroll,verify,backup-codes/regenerate}`, `DELETE /auth/two-fa`, `GET/PATCH/DELETE /auth/passkeys`. `TotpService` uses `pyotp` with `valid_window=1` (±30s drift) and accepts backup codes as a fallback for TOTP. Backup codes are SHA-256 hashed at rest; the plain set is returned exactly once during enrollment + regeneration. 9 tests in `tests/test_auth_security.py`.
+- **Chunk P** (`fae777b`): `workers/pending_contact_cleanup.py` (cron hourly) drops expired+unconsumed rows, keeps expired+consumed for audit. `workers/login_history_purger.py` (cron monthly) enforces 365 d / 90 d retention per ADR-005. `workers/schedule.py` registers both via rq-scheduler. Each worker split into `_*_with_session(session)` + `_run_once()` so tests can drive the inner helper without spinning up a fresh `AsyncSessionLocal` (which would bind to a different event loop than the test fixture). 3 tests in `tests/test_workers.py`.
+- **Chunk Q** (`1e4323f`): mobile `services/{auth-security,contact-change}.service.ts`, `hooks/useAuthSecurity.ts` (React Query bindings + mutations), `SecurityScreen` with General/Activity tabs, `ChangeEmailScreen` + `ChangePhoneScreen` (two-stage state machine, dev_token autofill in dev, force sign-out after success). `AppNavigator` registers Security/ChangeEmail/ChangePhone routes; ChangePassword/TwoFactorSetup/Passkeys/Sessions reserved as TODO routes.
+
+Test impact across Phase 3: 22 new tests (10 + 9 + 3), all green. Migration chain extends to `m_005b`. Pre-existing 102/102 from Phase 0-2 remain green.
+
+---
+
+## Hotfix sprint — Phase 0 hardening (2026-05-17)
+
+Mid-Phase-4 audit surfaced three production-blocking issues in code already on `master`. Branch `hotfix/phase0-hardening` was cut from `master`, all four fixes landed independently revertable, then merged back via `aae8aa2`. **No schema migrations.**
+
+- **`7dfb037` — RFC** documenting the three findings and the deferred Phase 9 backfill / monitoring threshold items (see `docs/rfc_auth_idempotency_and_appointments_system_hardening.md`).
+- **`d6d5772` — H1 atomic refresh rotation.** `rotate_refresh_token` used `get_by_raw` → `mark_used` non-atomically; two concurrent rotations of the same single-use refresh could both win and emit fresh token pairs. Fixed via `mark_used_atomic` (`UPDATE … WHERE used_at IS NULL` + `rowcount`); the loser revokes the family + 401. 5 new tests in `tests/test_refresh_concurrency.py`.
+- **`c4d1b84` — H2 idempotency body hash.** Cache key was `idempotency:{user}:{method}:{path}:{key}` — same-key-different-body collisions could return the wrong cached response on `POST /payment-methods/setup-intent`. Now binds a 16-char SHA-256 prefix of the body. **Critically** the middleware re-attaches the consumed body via `request._receive` so downstream handlers can still parse it. 6 new tests in `tests/test_idempotency_body_hash.py`.
+- **`aa5a8be` — H3 wire mark_step_up at 6 real auth sites (CRITICAL).** `mark_step_up()` existed in `app/core/step_up.py` but was **never invoked from production**. Every Phase 3 step-up-gated endpoint silently 401'd real users. Fixed with `AuthService.record_step_up_success(request, user, db, auth_method=...)` called from: `/auth/login`, `/auth/token` (OAuth2 password flow), `/auth/verify` (identifier-first + password), `/auth/google`, `/auth/apple`, `/auth/webauthn/authenticate/complete`, `/auth/two-fa/verify`. Explicitly NOT wired to `/auth/refresh` — refresh is "still authenticated", not "re-authenticated"; extending step-up there would let stolen refresh tokens bypass step-up walls forever. The boundary is pinned by `test_refresh_does_NOT_extend_step_up_window`. 5 new e2e tests in `tests/test_step_up_wiring.py`.
+- **`1327861` + `3a30bb3` — H4 AuditContext follow-up.** Initial H4 commit duplicated a dataclass that already lived in `app/middleware/audit_context.py` (with better X-Forwarded-For handling). `3a30bb3` dropped the duplicate; Phase 4+ routers consume `get_audit_context(request)` from the canonical module.
+- **`1a94f56` — test alignment.** Three Phase 3 tests asserted 401 step_up_required on the pre-H3 accidental NULL state. Each now explicitly `_expire_step_up`s the column before the assertion — the security property they guarded is still correct; they just relied on an implementation accident.
+
+Total: 20 new regression tests + 4 tests aligned, 230 → 250 green on master.
+
+Operational note: drop existing `idempotency:*` Redis keys once after deploy so old-format keys don't mask new fixed entries during the 24 h TTL window.
+
+---
+
+## Phase 4 implementation notes (2026-05-17)
+
+Phase 4 ships in five chunks on `feat/profile-phase4`. All run on top of the merged `hotfix/phase0-hardening`. **39 new tests, 255 → 294 green.** Chunk W (frontend mobile screens) still pending.
+
+- **Chunk R** (`219f362`): Alembic `m_006..m_010` + models for the four new sub-resources. `user_addresses` (partial unique on default per user, H3 lookup index), `payment_methods` (Stripe mirror — only non-PCI fields), `client_favorites` (`(user_id, provider_user_id)` UNIQUE for idempotent re-favoring), `vehicle_photos` (sort_order for gallery). `client_profiles.default_address_id` FK deferred to m_010 because `user_addresses` didn't exist yet at m_003. `ClientFavorite` uses explicit `foreign_keys=[user_id]` because both sides point at `users.id`.
+
+- **Chunk S** (`62850df`): `infrastructure/geocoding/{base,nominatim,google}.py` — `GeocodingAdapter` Protocol + `NominatimAdapter` (dev, rate-limited 1.1 s in-process, OSM UA policy) + `GoogleMapsGeocodingAdapter` placeholder that raises at import time with a TODO checklist. `app/core/dependencies.get_geocoding_adapter()` mirrors the storage/SMS factories. Contract: "address not found" returns `None` (not an error); transport failures (timeout, 5xx, 429) raise so the service decides policy. 9 new tests in `tests/test_geocoding_adapter.py`.
+
+- **Chunk T** (`64ed976`): `/api/v1/users/me/addresses` — list, create, get, patch, set-default, delete. `AddressService` calls the geocoding adapter; failures persist the row with `lat/lng/h3=NULL` rather than 503-ing the user (matching engine just skips coord-less rows; backfill worker retries later). Re-geocoding is gated by `AddressUpdateRequest.has_geocodable_change()` — label-only edits don't burn a Nominatim quota slot. First-address-per-user auto-defaults. **Discovered SQLAlchemy 2.0's `update().execute()` defaults to `synchronize_session='auto'`** which mutates the in-memory entity — so the auto-promote-on-default-delete branch had to snapshot `row.is_default` BEFORE calling `soft_delete`. Pinned with `test_deleting_default_promotes_next_address`. Hub `_build_addresses_block` wired. 9 new tests in `tests/test_users_addresses.py`.
+
+- **Chunk U** (`9d88adb`): `/api/v1/users/me/payment-methods` — list, setup-intent (step-up + idempotency forwarded to Stripe), get, set-default, delete (step-up + Stripe detach). Four new webhooks wired into the existing dispatcher: `payment_method.attached`, `.updated`, `.detached`, `setup_intent.succeeded` (fallback when `.attached` lags). New `infrastructure/payments/` package: `PaymentMethodAdapter` Protocol + `StripeTestAdapter` (real SDK with `sk_test_*` or `sk_live_*`) + `StripeStubAdapter` (deterministic IDs for placeholder keys; matches the existing `PaymentService._is_stub_key` escape hatch). Customer minting delegated to `PaymentService._get_or_create_stripe_customer` so two domains can't race and create duplicate `cus_*` IDs. **Local-first soft-delete on remove**: the user-facing list is flipped BEFORE Stripe detach so a Stripe outage doesn't strand a "ghost card" in the UI; webhook `payment_method.detached` reconciles. Hub `_build_payment_methods_block` wired. 11 new tests in `tests/test_users_payment_methods.py`.
+
+- **Chunk V** (`3000f86`): three sub-resources, nine endpoints, two Hub block updates.
+  - **Favorites** (`/me/favorites/providers`): list / add / remove. `INSERT … ON CONFLICT DO NOTHING` makes re-favor idempotent at the DB level (third tap returns 201 with the existing row, no duplicate, no audit re-fire). Same 404 for unknown user IDs AND existing-but-not-detailer IDs — no enumeration leak.
+  - **Vehicle photos** (`/me/vehicles/{id}/photos`): two-step upload mirroring AvatarService. Per-vehicle cap of 4 enforced at BOTH `prepare_upload` (so the cap-busted client doesn't waste bytes) AND `confirm_upload` (race window: two concurrent uploads at count=3 must not both succeed). Same s3_key anti-spoof prefix check as avatars. `sign_photo_url` exported so the Hub vehicles block uses the same URL builder as the dedicated endpoint.
+  - **Client preferences** (`/me/client-preferences`): GET/PUT. PUT validates `default_vehicle_id` and `default_address_id` refer to caller-owned resources before mutating — otherwise we'd silently write a dangling reference and the Hub would render someone else's address as the user's default.
+  - Hub `_build_favorites_block` and `_build_vehicles_block` (now carrying the first-photo URL via bulk load) replaced their empty-stub implementations. 19 new tests across `test_users_{favorites,vehicle_photos,client_preferences}.py`.
+
+**Phase 4 backend tally**: 4 new sub-resource domains (`addresses`, `payment_methods`, `favorites`, `vehicle_photos`) + 1 sub-resource extension (`client_preferences` on existing ClientProfile), 5 new Stripe webhook handlers, 6 Hub block stubs replaced with real implementations, 39 new tests (9 + 11 + 19), 0 regressions across the existing 255-test baseline. **Backend at 294/294 green.**
+
+- **Chunk W** (`bfeb32f`): mobile screens consuming the Phase 4 backend surface. Five new `*.service.ts` modules (addresses, payment-methods, favorites, vehicle-photos, client-preferences), one `useProfileResources.ts` hook file bundling 16 React Query hooks — every mutation invalidates BOTH its own list key AND the `["users", "me"]` prefix so any cached Profile Hub include variant refetches the matching block. Six screens (`AddressesScreen` + `AddressFormScreen`, `PaymentMethodsScreen` with a Stripe `<CardField/>` + `confirmSetupIntent` add flow inside a lazy-required SDK shell, `FavoritesScreen`, `ClientPreferencesScreen` with a shared `PickerModal` for vehicle/address/frequency, `VehiclePhotosScreen` with `expo-image-picker` → resize-to-1600px → presigned-upload). Navigator + `RootStackParamList` extended; `ProfileScreen` menu rewired with real handlers for Payment Methods / Addresses / Favorites + a new "Defaults & cadence" row; `VehicleDetailScreen` gets a "Manage photos" CTA. `npx tsc --noEmit` clean.
+
+**Phase 4 complete.** Web tracks (admin + marketing) trail by one phase per the plan §7.7 staging and pick up in Phase 5 or later.
+
+---
+
+## Phase 5 implementation notes (2026-05-18)
+
+Phase 5 ships in seven chunks on `feat/profile-phase5`. Plan §10 ("Recursos del proveedor") plus the §2.12 endpoint catalog. **44 new tests, 338/338 backend green; mobile clean via `tsc --noEmit`.**
+
+- **Chunk Y1** (`ac0f68b`): Alembic `m_011..m_013` + three new models (`Document`, `ProviderPortfolioPhoto`, `ProviderAchievement`). Document keyed on `user_id` (not provider_user_id) so KYC artifacts survive a provider → client-only role switch. Achievements use `(provider_user_id, achievement_type)` UNIQUE for idempotent re-runs. All three model types are free-form Strings (no enums) so adding a new category doesn't need a migration.
+
+- **Chunk Y2** (`bf295fd`): `/users/me/provider-profile` × 4 + `/provider-status`. New `ProviderProfileService` wraps the existing `ProviderRepository` — zero logic duplication from `/api/v1/detailers/me`. Activation grants the `detailer` role + creates a ProviderProfile + audits PROVIDER_MODE_SWITCHED. **Deliberately does NOT bump `token_version`** — `require_role` reads `user.user_roles` via DB on every request, so the new role takes effect on the next call without invalidating the caller's access token. KYC gate on `/provider-status`: flipping `accepting_bookings=True` when `verification_status != "approved"` → 403 `kyc_required`. 10 tests in `tests/test_users_provider_profile.py`.
+
+- **Chunk Y3** (`634d72f`): `/users/me/provider-portfolio` × 4. Two-step upload mirrors `VehiclePhotoService` (Phase 4 chunk V). Per-provider cap of 30 enforced at BOTH `prepare_upload` (so the cap-busted client doesn't waste bytes) AND `confirm_upload` (race window: two concurrent uploads at count=29 must not both succeed). `s3_key` anti-spoof: keys begin `provider_portfolio/{user_id}/` and confirm rejects anything outside that prefix → 403. 6 tests in `tests/test_users_provider_portfolio.py`.
+
+- **Chunk Y4** (`6fbacaa`): `/users/me/provider-documents` × 4 (KYC artifacts). Files land in the PRIVATE bucket (ADR-008), download URLs are 1 h presigned. DELETE is step-up gated — removing a KYC artifact is credential-adjacent. Soft delete: row stays for audit/legal retention, S3 cleanup is best-effort. Model keyed on `user_id` so artifacts persist across role switches. 9 tests in `tests/test_users_provider_documents.py`.
+
+- **Chunk Y5** (`1cc3365`): `/users/me/provider-verification` (POST start + GET status) + `/me/provider-achievements` (read-only). Verification reuses the EXISTING webhook in `domains/payments/webhook_router.py` for the approve/reject path — Y5 just adds the resource-oriented start + status endpoints. Stripe Identity session creation re-implemented inline in the service (vs. calling the legacy `/detailers/verification/start` handler) because invoking a FastAPI route from a service requires manufacturing a Request — 30 lines of duplicated SDK calls is the simpler path, and both paths share the same `STRIPE_SECRET_KEY` dev-bypass check. `has_active_session` field on the status response computed from `(status="pending" AND session_id IS NOT NULL)` so the UI can render "Resume verification" CTA. 9 tests in `tests/test_users_provider_verification.py`.
+
+- **Chunk Y6** (`7da8f97`): two daily workers wired into `workers/schedule.py`:
+  - `achievement_evaluator` (02:00 daily) — walks every ProviderProfile and INSERTs `ProviderAchievement` rows for criteria that pass. Catalog: `verified` (status=approved), `first_job` (≥1), `ten_jobs` (≥10), `hundred_jobs` (≥100), `five_star` (avg ≥4.8 AND ≥5 reviews). `ON CONFLICT DO NOTHING` against the UNIQUE makes re-runs no-ops.
+  - `document_expiry_checker` (01:00 daily) — scans `Document.expires_at` against bucketed thresholds (30 / 14 / 7 / 1 days) and dispatches a reminder per (doc, bucket) at most once. Idempotency keyed via an `AuditLog` row stamping `{source: "document_expiry_checker", reminder_bucket: <int>}`. Today the "dispatch" is `logger.info` — Phase 7's `NotificationDispatcher` swaps it for real email + push.
+
+  Both workers use the same `_*_with_session(session)` + `_run_once()` + `run()` shape Phase 3 established so tests drive the helper without the `AsyncSessionLocal`-on-different-event-loop trap. 10 tests in `tests/test_workers_y6.py`.
+
+- **Chunk Y7** (`081859b`): 6 mobile screens consuming Y2..Y5. Four service modules + one `useProviderResources.ts` hook file (11 hooks, mutations invalidate both their own keys and the `["users", "me"]` Hub prefix). Screens: `ProviderHubScreen` (central dashboard with KYC-gated accepting-bookings toggle + inline ActivationForm for unactivated users — no dead-end empty state), `ProviderProfileEditScreen` (business + bio + radius + pause CTA), `ProviderPortfolioScreen` (gallery with caption/tag modal, hero/before/after presets, max 30, image-picker → 1600px resize → presigned upload), `ProviderDocumentsScreen` (KYC docs with type chips + optional expires_at; image-only today, TODO marker for `expo-document-picker`), `ProviderVerificationScreen` (status banner + start/resume CTA that routes to existing `DetailerOnboardingScreen` to reuse the `useStripeIdentity` SDK plumbing). Wired into `AppNavigator` + `RootStackParamList`. `ProfileScreen` gets an "EARN → Provider mode" row; `DetailerProfileScreen` gets a "Provider hub" entry at top of Business section. `npx tsc --noEmit` clean.
+
+**Phase 5 backend tally**: 3 new sub-resource domains (Document + PortfolioPhoto + Achievement), 16 new provider endpoints (5 profile/status + 4 portfolio + 4 documents + 3 verification/achievements), 2 daily workers, 44 new tests (10 + 6 + 9 + 9 + 10), 0 regressions across 294-test baseline. **Backend at 338/338 green; frontend at `tsc --noEmit` clean.**
+
+**Phase 5 complete.** Provider hub + KYC + portfolio + verification flow is now end-to-end functional on mobile. The web admin's KYC review tab remains deferred per plan §7.7 staging — picks up in Phase 6 alongside the active-role switcher.

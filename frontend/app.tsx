@@ -1,11 +1,13 @@
 import React, { useCallback, useEffect } from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { QueryClientProvider } from "@tanstack/react-query";
 import * as Notifications from "expo-notifications";
 import AppNavigator from "./src/navigation/AppNavigator";
 import { useAuthStore } from "./src/store/authStore";
 import { getToken } from "./src/utils/storage";
 import { usePushNotifications } from "./src/hooks/usePushNotifications";
 import { navigationRef } from "./src/navigation/navigationRef";
+import { queryClient } from "./src/lib/react-query";
 
 // Lazy-load StripeProvider — crashes in Expo Go (needs custom dev client)
 let StripeProvider: React.ComponentType<any> | null = null;
@@ -63,9 +65,11 @@ export default function App() {
   usePushNotifications(token ? handleNotificationTap : undefined);
 
   const inner = (
-    <SafeAreaProvider>
-      <AppNavigator />
-    </SafeAreaProvider>
+    <QueryClientProvider client={queryClient}>
+      <SafeAreaProvider>
+        <AppNavigator />
+      </SafeAreaProvider>
+    </QueryClientProvider>
   );
 
   if (StripeProvider && STRIPE_PK && !STRIPE_PK.includes("placeholder")) {

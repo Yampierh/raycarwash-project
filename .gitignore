@@ -54,3 +54,18 @@ marketing/.next/
 marketing/node_modules/
 marketing/out/
 marketing/next-env.d.ts
+
+# Web admin (Next.js)
+web/.next/
+web/node_modules/
+web/out/
+web/next-env.d.ts
+
+# LocalStorageAdapter runtime artifacts (Phase 0 chunk C / Phase 2 avatars)
+backend/storage/
+
+# Claude / per-machine planning notes
+.claude/
+
+# opendcode 
+.opencode/

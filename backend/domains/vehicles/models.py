@@ -43,6 +43,12 @@ class Vehicle(TimestampMixin, Base):
     appointments: Mapped[list[Appointment]] = relationship(
         "Appointment", back_populates="vehicle", lazy="selectin",
     )
+    # Phase 4 chunk R — multiple photos per vehicle, ordered by sort_order.
+    photos: Mapped[list["VehiclePhoto"]] = relationship(
+        "VehiclePhoto", back_populates="vehicle",
+        lazy="select", cascade="all, delete-orphan",
+        order_by="VehiclePhoto.sort_order",
+    )
 
     def __repr__(self) -> str:
         return f"<Vehicle {self.year} {self.make} {self.model} ({self.license_plate})>"
@@ -52,3 +58,4 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from domains.users.models import User
     from domains.appointments.models import Appointment
+    from domains.vehicles.vehicle_photo import VehiclePhoto

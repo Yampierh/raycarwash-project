@@ -1,338 +1,191 @@
-﻿# AGENTS.md — RayCarWash project context
+﻿# AGENTS.md — RayCarWash
 
-## Project overview
+Mobile vehicle services marketplace (Fort Wayne, IN). Monorepo with no monorepo tool — `concurrently` orchestrates services.
 
-**RayCarWash** — Mobile vehicle services marketplace (Airbnb/Uber model).
-Connects clients with mobile detailers who come to the client's location.
-
-- **Current vertical**: Car detailing (fully functional)
-- **Planned (Sprint 10)**: Multiservice — mechanics, accessories, inspections + TOTP/2FA
-- **Market**: Fort Wayne, IN
-- **Backend**: FastAPI + PostgreSQL + Redis — DDD-lite architecture
-- **Frontend**: React Native + Expo 54 + TypeScript (21 screens, shared component system)
-- **Admin**: Next.js 15 dashboard (`web/`) — users, roles, permissions, appointments, verifications, payments
-- **Marketing (WIP)**: `marketing/` — Next.js 16 + next-intl public site (Sprint 10)
+| Dir | Stack | Port |
+|---|---|---|
+| `backend/` | FastAPI + PostgreSQL + Redis | `:8000` |
+| `frontend/` | React Native + Expo 54 | `:8081` |
+| `web/` | Next.js 16 admin dashboard | `:3000` |
+| `marketing/` | Next.js 16 + next-intl public site (WIP) | `:3001` |
 
 ---
 
-## Quick commands
+## Commands
 
 ```bash
-npm run install        # frontend npm deps
-npm run install-deps   # Python venv + backend deps
-npm run dev            # start both (concurrently)
-npm run dev:backend    # FastAPI on :8000
-npm run dev:frontend   # Expo on :8081
+npm run install          # npm deps for frontend + backend
+npm run install-deps     # python venv + pip install -r requirements.txt
+npm run dev              # backend + frontend concurrently
+npm run dev:backend      # uvicorn main:app --reload --host 0.0.0.0 --port 8000
+npm run dev:web          # Next.js admin
+npm run dev:marketing    # Next.js marketing on :3001
 
 cd backend
-alembic upgrade head   # run DB migrations (production)
-python -m pytest tests/test_auth.py tests/test_appointments.py -q  # core tests
-```text
+python -m pytest tests/test_auth.py tests/test_appointments.py tests/test_user_flows.py tests/test_admin.py -q
+
+cd backend && alembic upgrade head
+```
 
 ---
 
-## Documentation
+## Two Axios clients (frontend — most common mistake)
 
-| File | Contents |
-| --- | --- |
-| `README.md` | Project overview, quick start, tech stack, sprint roadmap |
-| `docs/backend.md` | DDD structure, patterns, startup sequence, auth, state machine |
-| `docs/api.md` | Complete REST + WebSocket API reference (frontend integration) |
-| `docs/frontend.md` | Screens, navigation, Axios clients, booking flow, onboarding steps |
-| `docs/decisions.md` | Architectural decisions, bugs fixed, sprint changelog, pitfalls |
+```ts
+authClient  → base /auth      (register, login, complete-profile, social, refresh, sessions, passkeys)
+apiClient   → base /api/v1    (everything else)
+```
+
+- **Never mix.** Auth endpoints are at `/auth`, not `/api/v1/auth`.
+- `authClient` injects `access_token ?? onboarding_token` (supports mid-onboarding).
+- `apiClient` injects `access_token` only. Auto-refresh on 401 with concurrent-request queuing.
+
+---
+
+## Auth flow
+
+```
+POST /auth/identify  → { is_new_user, available_methods }
+POST /auth/verify    → { access_token, refresh_token } | { onboarding_token }
+PUT  /auth/complete-profile [Bearer onboarding_token] → { access_token, refresh_token }
+```
+
+Three token types:
+- **access** — 30 min, RS256 signed. JWKS at `GET /.well-known/jwks.json`.
+- **refresh** — 7 days, opaque SHA-256 hash, single-use. Theft detection via family revocation.
+- **onboarding** — 30 min, scoped to `/auth/complete-profile` only.
+
+SecureStore keys: `raycarwash_jwt_token`, `raycarwash_onboarding_token`, `raycarwash_refresh_token`.
+
+`PUT /auth/complete-profile` returns 403 if `onboarding_status == "completed"` (prevents KYC bypass).
 
 ---
 
 ## Architecture: DDD-lite
 
-```text
+`domains/X` imports from `domains/Y`, `infrastructure/`, or `shared/` directly. No shims.
+
+```
 backend/
-├── main.py                 # Composition root
-├── api/router.py           # Aggregates all domain routers
-├── domains/                # Business logic by domain
-│   ├── auth/               # JWT (RS256), WebAuthn, OAuth2, lockout
-│   │   └── routers/        # Split by concern: core, social, webauthn, sessions, password, email_verification
-│   ├── admin/              # Admin API — users/roles/permissions CRUD (/api/v1/admin/*)
-│   ├── users/              # User, ClientProfile, onboarding
-│   ├── providers/          # ProviderProfile, Stripe Identity
-│   ├── vehicles/           # Vehicle CRUD, NHTSA VIN
-│   ├── appointments/       # FSM lifecycle, slots, advisory locks
-│   ├── matching/           # H3 geospatial scoring
-│   ├── payments/           # Stripe, ledger, fare, rides
-│   ├── services_catalog/   # Service + addon catalogue
-│   ├── reviews/            # Rating aggregation
-│   ├── notifications/      # Push notifications — Expo Push API, device tokens, event handlers
-│   ├── realtime/           # WebSocket rooms (Redis Pub/Sub)
-│   └── audit/              # Append-only event log
-├── infrastructure/         # External adapters
-│   ├── db/                 # SQLAlchemy engine, Base, registry
-│   ├── redis/              # Connection pool + fakeredis fallback
-│   ├── email/              # SMTP service
-│   ├── nhtsa/              # VIN decode API
-│   └── h3/                 # Geospatial indexing
-├── shared/schemas.py       # Cross-domain base classes
-├── workers/                # Background asyncio tasks
-└── app/core/ + app/db/     # Config, security, seed data (stable, not domain code)
-```text
+├── main.py                 # composition root: lifespan, middleware, health, seed
+├── api/router.py           # aggregates all domain routers
+├── domains/{auth,admin,users,providers,vehicles,...}  + notifications, realtime, audit
+├── infrastructure/{db,redis,email,nhtsa,h3,stripe}
+├── shared/schemas.py       # Envelope[T], PaginatedEnvelope[T], ErrorEnvelope
+├── workers/                # background asyncio: location, assignment, audit redaction
+└── app/core/ + app/db/    # config, security, seed data (stable, not domain code)
+```
 
-**Import rule**: `domains/X` imports from `domains/Y`, `infrastructure/`, or `shared/` directly. No shims.
+`infrastructure/db/registry.py` must be imported by `main.py` before any model usage (registers all models with SQLAlchemy).
 
----
-
-## Environment variables
-
-### Backend (`backend/.env`)
-
-```text
-DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/raycarwash
-
-# JWT — RS256 asymmetric (replaced HS256 JWT_SECRET_KEY in sprint 7)
-# Generate: openssl genrsa -out priv.pem 2048 && openssl rsa -in priv.pem -pubout -out pub.pem
-# Escape newlines for .env: JWT_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\nMII...\n-----END RSA PRIVATE KEY-----"
-JWT_PRIVATE_KEY=<PEM RSA-2048 private key>
-JWT_PUBLIC_KEY=<PEM RSA-2048 public key>
-
-ENCRYPTION_KEY=<32+ char base64 key for PII — independent of JWT keys>
-PHONE_LOOKUP_KEY=<32+ char hex for phone HMAC — independent of other keys>
-DEBUG=true
-
-STRIPE_SECRET_KEY=sk_test_...
-STRIPE_WEBHOOK_SECRET=whsec_...
-SMTP_ENABLED=false
-GOOGLE_CLIENT_ID=
-APPLE_BUNDLE_ID=com.raycarwash.app
-REDIS_URL=redis://localhost:6379
-REQUIRE_EMAIL_VERIFICATION=false
-```text
-
-### Frontend (`frontend/.env.local`)
-
-```text
-EXPO_PUBLIC_API_URL=http://localhost:8000
-```text
-
-### Admin dashboard (`web/.env.local`)
-
-```text
-NEXT_PUBLIC_API_URL=http://localhost:8000
-```text
-
-For physical device testing, replace `localhost` with your machine's LAN IP.
+Middleware stack (execution order): RequestID → StructuredLogging → AuditContext → Idempotency.
 
 ---
 
 ## Key business rules
 
-**Pricing**: `price = ceil(service.base_price_cents × SIZE_MULTIPLIER[vehicle.size])`
-Multipliers: small ×1.0 · medium ×1.2 · large ×1.5 · xl ×2.0.
-
-**VehicleSize**: derived at runtime from `body_class` via `map_body_to_size()`. Never stored.
-
-**Appointment FSM**: PENDING → CONFIRMED → ARRIVED → IN_PROGRESS → COMPLETED (or cancellations).
-
-**Cancellation refunds**: ≥24h → 100% · 2–24h → 50% · <2h → 0%.
-
-**Prices are cents**: always integer cents. Never floats. Display: `/ 100`.
-
-**Soft deletes**: every entity has `is_deleted + deleted_at`. Never hard-delete.
-
-**estimated_price is immutable**: set once at creation. `actual_price` set on COMPLETED.
+- **Prices in integer cents.** Never floats. Display: `/ 100`.
+- **estimated_price is immutable.** Set once at creation. `actual_price` set on COMPLETED.
+- **VehicleSize is runtime-derived** via `map_body_to_size(body_class)`. Never stored — do NOT add a `size` column.
+- **Appointment FSM**: PENDING → CONFIRMED → ARRIVED → IN_PROGRESS → COMPLETED (+ cancellations).
+- **Cancellation refunds**: ≥24h 100% · 2–24h 50% · <2h 0%.
+- **Soft deletes** on every entity (`is_deleted` + `deleted_at`). Always filter. Never hard-delete.
+- **Double-booking prevention**: `pg_advisory_xact_lock(detailer_uuid_hash)` inside appointment creation. Must be inside `async with session.begin()`.
+- **PII encrypted at rest** via `EncryptedType` with separate `ENCRYPTION_KEY`.
+- **Body size limit**: 5 MB (Stripe webhooks exempted via `webhook_router` prefix).
+- **Timestamps are UTC.** Convert to local only for display.
 
 ---
 
-## Auth flow summary
+## Admin
 
-```text
-POST /auth/register  → { onboarding_token }   (new account)
-POST /auth/login     → { access_token, refresh_token }  (existing, onboarding_completed)
-                     → { onboarding_token }             (existing, onboarding incomplete)
-PUT  /auth/complete-profile  [Bearer onboarding_token]  → { access_token, refresh_token }
-```text
+Default credentials (seeded on first startup): `admin@raycarwash.com` / `Admin1234!`.
 
-Token types:
-- `access`      — 30 min, RS256 signed. Verified via public key or GET /.well-known/jwks.json
-- `refresh`     — 7 days, single-use opaque token, stored as SHA-256 hash, theft detection via family revocation
-- `onboarding`  — 30 min, RS256 signed, scope-limited to /auth/complete-profile ONLY
-
-JWT algorithm: **RS256** (asymmetric). Private key signs; public key verifies.
-JWKS public endpoint: `GET /.well-known/jwks.json` — any internal service can verify tokens without the private key.
-
-Email verification tokens: DB-backed, single-use (table: `email_verification_tokens`). No longer a stateless JWT.
-WebAuthn challenges: stored in Redis (key: `webauthn_challenge:{session_id}`, TTL 5 min). Consumed on verify — prevents replay.
-
-Token storage (frontend SecureStore):
-- `raycarwash_jwt_token`          — access token
-- `raycarwash_onboarding_token`   — onboarding token (separate key — do NOT conflate)
-- `raycarwash_refresh_token`      — refresh token
-
-authClient injects: access_token ?? onboarding_token (fallback)
-apiClient injects: access_token ONLY
-
-Security: PUT /auth/complete-profile rejects with 403 if onboarding_status == "completed".
-This prevents a logged-in client from escalating to detailer role without KYC.
-
-## Admin API
-
-All endpoints under `/api/v1/admin/*` require `role=admin` Bearer token.
-
-```text
-GET  /api/v1/admin/stats                              # platform overview counts
-GET  /api/v1/admin/users?page&per_page&search&role    # paginated user list
-GET  /api/v1/admin/users/{id}                         # user detail + roles + permissions
-PATCH /api/v1/admin/users/{id}                        # set is_active
-POST /api/v1/admin/users/{id}/roles                   # assign role { role_id }
-DELETE /api/v1/admin/users/{id}/roles/{role_id}       # revoke role
-GET  /api/v1/admin/roles                              # all roles with permissions
-POST /api/v1/admin/roles                              # create role
-PATCH /api/v1/admin/roles/{id}                        # update role (non-system only)
-DELETE /api/v1/admin/roles/{id}                       # soft-delete role (non-system only)
-POST /api/v1/admin/roles/{id}/permissions             # assign permission { permission_id }
-DELETE /api/v1/admin/roles/{id}/permissions/{perm_id} # revoke permission
-GET  /api/v1/admin/permissions                        # full permission catalog
-POST /api/v1/admin/permissions                        # create permission
-DELETE /api/v1/admin/permissions/{id}                 # delete permission
-```text
-
-System roles (`is_system=True`): admin, detailer, client — cannot be deleted via API.
-Seeded permissions (18 total): read/write/delete across users, roles, permissions, appointments, providers, payments, reviews, services.
-
-**Default admin user** (seeded on first startup, idempotent):
-`admin@raycarwash.com` / `Admin1234!` — change before production. Created by `app/db/seed_rbac.py::_seed_admin_user`.
-
-### Admin API — Sprint 9 extensions (`/api/v1/admin/*`)
-
-```text
-GET   /api/v1/admin/appointments?page&per_page&status&start_date&end_date&search   # paginated
-GET   /api/v1/admin/appointments/{id}                                              # detail
-PATCH /api/v1/admin/appointments/{id}/status                                       # force status (admin override)
-
-GET   /api/v1/admin/verifications?verification_status=pending|approved|rejected    # detailer KYC queue
-POST  /api/v1/admin/verifications/{provider_id}/approve
-POST  /api/v1/admin/verifications/{provider_id}/reject                             # { reason }
-
-GET   /api/v1/admin/payments/summary?start_date&end_date                           # 4-card revenue summary
-GET   /api/v1/admin/payments/ledger?page&per_page&entry_type&start_date&end_date   # ledger entries
-```
-
-Force-status bypasses the FSM but still writes an audit record.
-
-## Admin dashboard (web/)
-
-Next.js 15 app at `http://localhost:3000`. Start: `cd web && npm run dev`.
-
-Pages:
-
-- `/login` — admin email/password login; verifies JWT role == "admin"
-- `/dashboard` — stats cards (users, detailers, appointments, etc.)
-- `/dashboard/users` — paginated table, search, role filter, ban/unban toggle
-- `/dashboard/users/[id]` — user detail, role assignment/revocation, effective permissions
-- `/dashboard/roles` — role list + permission matrix (toggle checkboxes per resource)
-- `/dashboard/permissions` — catalog grouped by resource, create/delete form
-- `/dashboard/appointments` — paginated list with status/date/search filters
-- `/dashboard/appointments/[id]` — detail + force-status override
-- `/dashboard/verifications` — pending / approved / rejected tabs, approve + reject-with-reason modal
-- `/dashboard/payments` — ledger view with `entry_type` filter, 4-card revenue summary, date range picker
-
-> The `web/` workspace has a top-level instruction (`web/AGENTS.md`) noting that this version of Next.js may differ from training data — read `node_modules/next/dist/docs/` before writing code there.
-
----
-
-## Two Axios clients (frontend — critical)
-
-```text
-authClient  → base /auth      (register, login, complete-profile, social, refresh, sessions, passkeys)
-apiClient   → base /api/v1    (everything else)
-```text
-
-Never mix. Auth endpoints are at `/auth`, not `/api/v1/auth`.
-
-authClient request interceptor: injects `access_token ?? onboarding_token` — supports mid-onboarding calls to /complete-profile.
-apiClient request interceptor: injects `access_token` only — never onboarding scope.
-apiClient response interceptor: auto-refresh on 401, queue concurrent requests, revoke+redirect on refresh failure.
+All endpoints at `/api/v1/admin/*` require `role=admin` Bearer. Force-status (`PATCH /admin/appointments/{id}/status`) bypasses FSM but writes to audit log.
 
 ---
 
 ## WebSocket
 
-```text
+```
 WS /ws/appointments/{id}?token=<access_token>
-```text
+```
 
-JWT in query param (headers unavailable post-handshake).
-Frontend hook: `useAppointmentSocket` — auto-connect, exponential backoff, 30s heartbeat.
+JWT in query param (headers unavailable post-handshake). Frontend hook: `useAppointmentSocket` (exponential backoff, 30s heartbeat).
 
 ---
 
-## Push notifications (Sprint 8)
+## web/ workspace
 
-Expo Push API — no Firebase project needed for managed workflow. Tokens have format `ExponentPushToken[...]`.
+`web/AGENTS.md` warns: this Next.js version may differ from training data. **Read `node_modules/next/dist/docs/` before writing code there.**
 
-```text
-POST /api/v1/notifications/device-token   # register (call after login)
-DELETE /api/v1/notifications/device-token # unregister (call on logout)
-```
+---
 
-Event bus triggers (domains/notifications/handlers.py):
+## Test quirks
 
-| Event | Recipient | Notification |
+| Test | Count | Notes |
 |---|---|---|
-| appointment.created (PENDING) | detailer | "New booking request" |
-| CONFIRMED | client | "Booking confirmed!" |
-| ARRIVED | client | "Your detailer has arrived" |
-| IN_PROGRESS | client | "Service in progress" |
-| COMPLETED | client | "All done! ⭐" |
-| CANCELLED_BY_CLIENT | detailer | "Appointment cancelled" |
-| CANCELLED_BY_DETAILER | client | "Appointment cancelled" |
+| `test_auth.py` | 70/70 | Includes role-escalation security test |
+| `test_appointments.py` | 19/19 | All pass |
+| `test_user_flows.py` | 17/17 | Client + detailer registration flows |
+| `test_admin.py` | 27/27 | Users/roles/permissions |
+| `test_detailers.py` | ⚠️ | Edge cases (profile fixture) |
+| `test_matching.py` | ⚠️ | Requires real Redis (H3 spatial) |
+| `test_vehicles.py` | ⚠️ | body_class / onboarding edge cases |
 
-Frontend: `usePushNotifications` hook in `src/hooks/` — requests permission, registers token, handles tap navigation. Token persisted in SecureStore. `clearAuthTokens()` unregisters on logout.
+Sprint 9 admin extensions (appointments/verifications/payments) ship without dedicated tests.
 
----
-
-## Mobile UI consistency system (Sprint 9)
-
-Shared component library at `frontend/src/components/`. All 21 screens were refactored to use these — never duplicate inline `<TouchableOpacity>` buttons, status pills, or empty states.
-
-| Component | Purpose |
-|---|---|
-| `Button` | 5 variants (primary, secondary, ghost, danger, outline) — replaces 50+ inline CTAs |
-| `Card` | Standard padded surface with border + radius |
-| `StatusBadge` | Pill using `Colors.status` tokens — pass `status` prop, styling is automatic |
-| `EmptyState` | Icon + title + subtitle + optional action button |
-| `SectionHeader` | Title + optional rightSlot (e.g. "See all" link) |
-| `Typography` | Wraps `TypographyScale` — `<Typography variant="h2">` etc. |
-| `AnimatedInput` | Focus-animated text input with floating label |
-
-Theme tokens in `frontend/src/theme/colors.ts`:
-
-- `Colors.bg.{primary,secondary,elevated,input}` — backgrounds
-- `Colors.textColor.{primary,secondary,tertiary,muted}` — text
-- `Colors.border.{default,subtle}` — borders
-- `Colors.status.{pending,confirmed,arrived,in_progress,completed,cancelled_by_*,no_show}` — status pills with `{ bg, text, border }`
-- `Spacing` — `xs:4, sm:8, md:12, lg:16, xl:20, xxl:24`
-- `Radius` — `sm:8, md:12, lg:16, xl:20`
-- `TypographyScale` — `h1, h2, h3, h4, body, label, caption` with paired `fontSize` + `fontWeight`
-
-Legacy keys (`Colors.background`, `Colors.card`, `Colors.primary`, `Colors.text`, `Colors.secondaryText`) are preserved for backward compatibility — prefer the semantic tokens in new code.
+`backend/tests/conftest.py` drops/recreates all tables + explicit enum cleanup (`DROP TYPE IF EXISTS`). Async tests use `pytest-asyncio` with `asyncio_mode = auto`.
 
 ---
 
-## Test status
+## Backend conventions
 
-```text
-tests/test_auth.py         70/70  ✅  (includes role-escalation security test)
-tests/test_appointments.py 19/19  ✅
-tests/test_user_flows.py   17/17  ✅  (client + detailer registration flows, guard rails)
-tests/test_admin.py        27/27  ✅  (all /api/v1/admin/* — auth, stats, users, roles, permissions)
-tests/test_detailers.py    ⚠️  edge cases (profile fixture)
-tests/test_matching.py     ⚠️  requires real Redis for H3 spatial tests
-tests/test_vehicles.py     ⚠️  body_class / onboarding edge cases
-```
+- **Async SQLAlchemy 2.0**: `select()`, `await session.execute()`. Never legacy `query()`.
+- **Repositories** own all DB access. Services have zero SQL.
+- **Audit log** every mutation (append-only, 90-day full JSONB → redacted → Glacier).
+- **Response envelope**: `response_model=Envelope[T]` on every v1 endpoint. `EnvelopeRouter` raises at boot if a route is non-compliant. CI test `test_envelope_compliance.py` enforces this.
+- **Structured JSON logging** with `X-Request-ID` propagation.
+- **Idempotency-Key** middleware (Redis-backed) for payment-sensitive endpoints.
 
-> Sprint 9 admin extensions (appointments / verifications / payments) ship without dedicated tests — the existing `test_admin.py` covers users/roles/permissions only. Adding coverage is planned for Sprint 10.
+---
 
-Run core suite:
+## Push notifications
 
-```bash
-cd backend
-python -m pytest tests/test_auth.py tests/test_appointments.py tests/test_user_flows.py tests/test_admin.py -q
-```
+Expo Push API (no Firebase needed). Tokens: `ExponentPushToken[...]`. Register on login via `POST /api/v1/notifications/device-token`. Unregister on logout via `DELETE`. Events drive push via `domains/notifications/handlers.py` on every appointment state transition.
+
+---
+
+## Mobile UI components
+
+`frontend/src/components/`: Button (5 variants), Card, StatusBadge, EmptyState, SectionHeader, Typography, AnimatedInput. Use these — never inline `<TouchableOpacity>`. Theme tokens in `frontend/src/theme/colors.ts` with semantic keys (`Colors.bg.*`, `Colors.textColor.*`, `Colors.status.*`, `Spacing`, `Radius`, `TypographyScale`). Legacy flat keys preserved for backward compat.
+
+---
+
+---
+
+## Documentation Map
+
+The single entry point for all project documentation, plans, and audits is [`docs/INDEX.md`](./docs/INDEX.md).
+
+| Category | Location | Description |
+|-----------|----------|-------------|
+| **Manifest** | [`docs/INDEX.md`](./docs/INDEX.md) | Central index — maps all plans, status, and audit cross-refs |
+| **Master Plan** | [`/plan.md`](./plan.md) | Profile system Phases 0–9 (read-only until implementation) |
+| **Integration Plans** | [`docs/integration_plans/`](./docs/integration_plans/) | 5 vertical plans (00-user through 04-vehicles) |
+| **Technical Audit** | [`docs/audit/`](./docs/audit/) | ~60 findings across architecture, tests, infra, web, DB |
+| **Operational Plans** | [`docs/plans/`](./docs/plans/) | CI/CD, infrastructure, observability, hardening |
+
+**New plans**: Create in `docs/plans/{NN}-{name}.md`, then register in `docs/INDEX.md` section 3.
+
+---
+
+## Hard constraints
+
+The file `.claude/execution_protocol.md` defines a mandatory pipeline for ALL backend changes: ARCHITECTURE → CONTRACTS → DOMAIN SKILL → IMPLEMENTATION → OBSERVABILITY → VALIDATION. Claude Code must treat this as hard constraints, not suggestions.
+
+---
+
+## Team Protocol
+
+See [`docs/AGENT_PROMPT.md`](./docs/AGENT_PROMPT.md) — el equipo de desarrollo 2026 audita todo plan de implementación antes de ejecutar.

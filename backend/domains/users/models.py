@@ -191,6 +191,34 @@ class User(TimestampMixin, Base):
         "TotpCredential", back_populates="user",
         uselist=False, lazy="select", cascade="all, delete-orphan",
     )
+    # Phase 4 — addresses / payment methods / favorites.
+    addresses: Mapped[list["UserAddress"]] = relationship(
+        "UserAddress", back_populates="user",
+        lazy="select", cascade="all, delete-orphan",
+    )
+    payment_methods: Mapped[list["PaymentMethod"]] = relationship(
+        "PaymentMethod", back_populates="user",
+        lazy="select", cascade="all, delete-orphan",
+    )
+    favorites: Mapped[list["ClientFavorite"]] = relationship(
+        "ClientFavorite",
+        foreign_keys="ClientFavorite.user_id",
+        back_populates="user",
+        lazy="select", cascade="all, delete-orphan",
+    )
+    # Phase 5 — provider documents / portfolio / achievements.
+    documents: Mapped[list["Document"]] = relationship(
+        "Document", back_populates="user",
+        lazy="select", cascade="all, delete-orphan",
+    )
+    portfolio_photos: Mapped[list["ProviderPortfolioPhoto"]] = relationship(
+        "ProviderPortfolioPhoto", back_populates="provider",
+        lazy="select", cascade="all, delete-orphan",
+    )
+    achievements: Mapped[list["ProviderAchievement"]] = relationship(
+        "ProviderAchievement", back_populates="provider",
+        lazy="select", cascade="all, delete-orphan",
+    )
 
     def has_permission(self, permission_name: str) -> bool:
         for user_role in self.user_roles:
@@ -240,6 +268,12 @@ if TYPE_CHECKING:
     from domains.auth.totp_credential import TotpCredential
     from domains.providers.models import ProviderProfile
     from domains.users.pending_contact_change import PendingContactChange
+    from domains.users.user_address import UserAddress
+    from domains.users.payment_method import PaymentMethod
+    from domains.users.client_favorite import ClientFavorite
+    from domains.users.document import Document
+    from domains.providers.portfolio_photo import ProviderPortfolioPhoto
+    from domains.providers.achievement import ProviderAchievement
     from domains.vehicles.models import Vehicle
     from domains.appointments.models import Appointment
     from domains.reviews.models import Review

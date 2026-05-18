@@ -71,6 +71,21 @@ export type RootStackParamList = {
   Passkeys: undefined;
   Sessions: undefined;
 
+  // Profile sub-resources (Phase 4 chunk W)
+  Addresses: undefined;
+  AddressForm: { address: import("../services/addresses.service").Address | null } | undefined;
+  PaymentMethods: undefined;
+  Favorites: undefined;
+  ClientPreferences: undefined;
+  VehiclePhotos: { vehicleId: string; vehicleLabel?: string };
+
+  // Provider sub-screens (Phase 5 chunk Y7)
+  ProviderHub: undefined;
+  ProviderProfileEdit: { focusDeactivate?: boolean } | undefined;
+  ProviderPortfolio: undefined;
+  ProviderDocuments: undefined;
+  ProviderVerification: undefined;
+
   // Detailer onboarding / services
   DetailerOnboarding: undefined;
   DetailerServices: undefined;
