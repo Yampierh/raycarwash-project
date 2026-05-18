@@ -130,6 +130,12 @@ class User(TimestampMixin, Base):
     # re-issues access with this claim. None = legacy single-role users.
     active_role: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
+    # Integration plan E0 (00-user.md): coarse location hint captured at
+    # signup. NOT a substitute for UserAddress — purely a quick-onboarding
+    # signal for matching radius defaults. Indexed because future matching
+    # heuristics may filter providers by user zip cohort.
+    zip_code: Mapped[str | None] = mapped_column(String(10), nullable=True, index=True)
+
     # Relationships — all cross-domain references use string names
     # user_roles and profiles use selectin (required on every authenticated request).
     # All other relationships use lazy="select" so they are only loaded when accessed.
@@ -244,10 +250,17 @@ class User(TimestampMixin, Base):
         return self.has_role("client")
 
     def is_provider(self) -> bool:
-        return self.has_role("detailer")
+        # E0/E1: a "provider" is any user that earns money on the platform.
+        # Today that is detailer; integration plan 01-profiles introduces
+        # mechanic as a second provider_type. is_detailer() / is_mechanic()
+        # remain available for vertical-specific gates.
+        return self.has_role("detailer") or self.has_role("mechanic")
 
     def is_detailer(self) -> bool:
-        return self.is_provider()
+        return self.has_role("detailer")
+
+    def is_mechanic(self) -> bool:
+        return self.has_role("mechanic")
 
     @property
     def primary_role(self) -> str | None:

@@ -196,6 +196,7 @@ class ProfileHubService:
             cover_url=self._sign_url(user.cover_s3_key),
             language=user.preferred_language or "en",
             timezone=user.preferred_timezone or "America/Indiana/Indianapolis",
+            zip_code=user.zip_code,
         )
 
     async def _build_stats_block(self, user: User) -> StatsBlock:
@@ -493,6 +494,7 @@ class ProfileHubService:
         pronouns: str | None,
         language: str | None,
         timezone_name: str | None,
+        zip_code: str | None = None,
     ) -> User:
         """
         Apply a PATCH /users/me payload to the User row. Only profile-block
@@ -518,6 +520,11 @@ class ProfileHubService:
             user.preferred_language = language
         if timezone_name is not None:
             user.preferred_timezone = timezone_name
+        if zip_code is not None:
+            # Pydantic already enforced min_length=3 / max_length=10. Empty
+            # string is rejected upstream — to clear the field, the client
+            # must send null.
+            user.zip_code = zip_code
 
         user.last_active_at = datetime.now(_tz.utc)
         await self.db.flush()

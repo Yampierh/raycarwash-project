@@ -1,5 +1,22 @@
 # 00 — User Model (Shared Profile)
 
+> **Status: DONE** — 2026-05-18 — branch `feat/integrations/00-user-zipcode`
+>
+> Implemented:
+> - `User.zip_code: String(10)` nullable, indexed (`ix_users_zip_code`)
+> - Alembic migration `m_014_user_zipcode.py` with simétrico downgrade
+> - `User.is_provider()` ahora retorna `True` para `detailer` OR `mechanic`
+> - `User.is_mechanic()` añadido como sibling de `is_detailer()`
+> - `ProfileBlock.zip_code` expuesto en `GET /api/v1/users/me?include=profile`
+> - `PATCH /api/v1/users/me {zip_code}` valida `min_length=3, max_length=10`
+> - 6 tests nuevos en `test_users_hub.py` (default null, set, ZIP+4, length bounds, preserve-on-omit)
+> - 344/344 tests verdes (338 previos + 6 nuevos)
+> - Alembic offline round-trip SQL validado (upgrade + downgrade simétricos)
+>
+> Pre-existing issue surfaced (not blocker, not fixed): `alembic.ini` contiene un
+> password (`Kl517ab4oom`) distinto al `backend/.env` (`postgres`). El usuario maneja
+> esta divergencia localmente. No tocado por este chunk.
+
 ## 1. Overview
 
 **Goal:** Define the `User` model as the universal shared profile for all roles (client, detailer, mechanic). Fields on `User` are available to everyone. Role-specific data lives in dedicated profiles (`ProviderProfile`).

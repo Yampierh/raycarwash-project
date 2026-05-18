@@ -128,6 +128,7 @@ async def patch_me(
         pronouns=body.pronouns,
         language=body.language,
         timezone_name=body.timezone,
+        zip_code=body.zip_code,
     )
 
     # Return the updated profile + stats so the client can replace its cache
