@@ -237,3 +237,100 @@ async def test_patch_me_rejects_invalid_language_tag(client: AsyncClient) -> Non
 async def test_hub_unauthenticated_returns_401(client: AsyncClient) -> None:
     resp = await client.get("/api/v1/users/me")
     assert resp.status_code == 401, resp.text
+
+
+# ─── E0 (00-user.md) — zip_code in profile block ──────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_hub_profile_returns_null_zipcode_by_default(
+    client: AsyncClient,
+) -> None:
+    token = await _login_as_client(client, "hub-zip-default@test.com")
+
+    resp = await client.get(
+        "/api/v1/users/me?include=profile",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+    data = _envelope(resp.json())
+    assert "zip_code" in data["profile"]
+    assert data["profile"]["zip_code"] is None
+
+
+@pytest.mark.asyncio
+async def test_patch_me_sets_zip_code(client: AsyncClient) -> None:
+    token = await _login_as_client(client, "hub-zip-set@test.com")
+
+    resp = await client.patch(
+        "/api/v1/users/me",
+        json={"zip_code": "46802"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+    data = _envelope(resp.json())
+    assert data["profile"]["zip_code"] == "46802"
+
+
+@pytest.mark.asyncio
+async def test_patch_me_supports_zip_plus_four(client: AsyncClient) -> None:
+    token = await _login_as_client(client, "hub-zip-plus4@test.com")
+
+    resp = await client.patch(
+        "/api/v1/users/me",
+        json={"zip_code": "46802-1234"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+    data = _envelope(resp.json())
+    assert data["profile"]["zip_code"] == "46802-1234"
+
+
+@pytest.mark.asyncio
+async def test_patch_me_rejects_zip_too_short(client: AsyncClient) -> None:
+    token = await _login_as_client(client, "hub-zip-short@test.com")
+
+    resp = await client.patch(
+        "/api/v1/users/me",
+        json={"zip_code": "12"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 422, resp.text
+    body = resp.json()
+    assert body["error"]["code"] == "validation_failed"
+
+
+@pytest.mark.asyncio
+async def test_patch_me_rejects_zip_too_long(client: AsyncClient) -> None:
+    token = await _login_as_client(client, "hub-zip-long@test.com")
+
+    resp = await client.patch(
+        "/api/v1/users/me",
+        json={"zip_code": "1234567890123"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 422, resp.text
+
+
+@pytest.mark.asyncio
+async def test_patch_me_preserves_zip_when_omitted(client: AsyncClient) -> None:
+    token = await _login_as_client(client, "hub-zip-preserve@test.com")
+
+    # Set it first.
+    set_resp = await client.patch(
+        "/api/v1/users/me",
+        json={"zip_code": "46802"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert set_resp.status_code == 200
+
+    # A patch that doesn't mention zip_code must not clear it.
+    patch_resp = await client.patch(
+        "/api/v1/users/me",
+        json={"language": "es"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert patch_resp.status_code == 200, patch_resp.text
+    data = _envelope(patch_resp.json())
+    assert data["profile"]["zip_code"] == "46802"
+    assert data["profile"]["language"] == "es"

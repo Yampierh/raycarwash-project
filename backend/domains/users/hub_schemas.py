@@ -58,6 +58,7 @@ class ProfileBlock(_BaseSchema):
     cover_url: str | None = None
     language: str = "en"
     timezone: str = "America/Indiana/Indianapolis"
+    zip_code: str | None = None
 
 
 # ─── Stats block ─────────────────────────────────────────────────────────────
@@ -215,3 +216,8 @@ class HubProfilePatch(_BaseRequestSchema):
     pronouns: str | None = Field(default=None, max_length=20)
     language: str | None = Field(default=None, pattern=r"^[a-z]{2}(-[A-Z]{2})?$")
     timezone: str | None = Field(default=None, max_length=64)
+    # E0: matches US ZIP (5 or ZIP+4) and the leading zero forms used by
+    # the wider US Postal Service. Kept permissive (length 3-10) so that
+    # international users with short postcodes still validate. Server
+    # treats this as opaque metadata — no geocoding from this column.
+    zip_code: str | None = Field(default=None, min_length=3, max_length=10)
