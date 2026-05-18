@@ -65,7 +65,10 @@ async def assign(
     result = await db.execute(
         select(ProviderProfile).where(
             ProviderProfile.user_id.in_([uuid.UUID(d) for d in detailer_ids]),
-            ProviderProfile.is_accepting_bookings.is_(True),
+            # E1.E: is_active is the canonical column post-rename.
+            # is_accepting_bookings survives as a @property only for
+            # instance-level access (cannot appear in SQL filters).
+            ProviderProfile.is_active.is_(True),
             ProviderProfile.is_deleted.is_(False),
         )
     )
