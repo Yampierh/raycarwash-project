@@ -24,6 +24,7 @@ from domains.vehicles.router         import router as vehicle_router
 from domains.matching.router         import router as matching_router
 from domains.providers.router        import router as detailer_router
 from domains.providers.verification_router import router as verification_router
+from domains.providers.profiles_router  import router as provider_profiles_router
 from domains.users.router            import router as user_router
 from domains.users.avatar_router     import router as user_avatar_router
 from domains.users.contact_change_router import router as user_contact_router
@@ -73,6 +74,9 @@ api_router.include_router(detailer_router)
 
 # Stripe Identity — /api/v1/detailers/verification/*
 api_router.include_router(verification_router)
+
+# Multi-profile self-service — /api/v1/providers/profiles/* (E1 chunk C)
+api_router.include_router(provider_profiles_router)
 
 # Fare estimation — /api/v1/fares/*
 api_router.include_router(fare_router)

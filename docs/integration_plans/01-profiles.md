@@ -1,5 +1,15 @@
 # 01 — Multi-Profile System
 
+> **Status: IN PROGRESS** — chunks A/B/C shipped 2026-05-18
+>
+> | Chunk | Branch | What landed |
+> |---|---|---|
+> | **A** | `feat/integrations/01-profiles-chunk-a` | `ProviderType` enum + `provider_type` + `is_active` columns + composite unique `(user_id, provider_type)` + index. Migration `m_015`. 5 schema tests. |
+> | **B** | `feat/integrations/01-profiles-chunk-b` | `User.provider_profile` (1:1) → `provider_profiles` (1:N) + `provider_profile_for(type)` helper + back-compat `@property provider_profile`. `ProviderRepository.get_profile()` filters by `provider_type`. 5 call-sites migrated, dual-write `is_active` alongside `is_accepting_bookings`. 7 relationship tests. |
+> | **C** | `feat/integrations/01-profiles-chunk-c` | RBAC `mechanic` role + permissions in seed. Endpoints `/api/v1/providers/profiles` (POST/GET list/GET one/PATCH/DELETE) gated on step-up + ownership + KYC. `ProviderRepository.list_for_user` + `get_by_id` + `slot_taken`. Soft-delete leaves the composite unique slot occupied — TODO(integrations/01-phase2) swap to partial unique to enable re-enrollment. 17 endpoint tests. |
+> | **D** | pending | Rename `DetailerService → ProviderService`, table `detailer_services → provider_services`, column `detailer_id → provider_id`, + m2m `provider_service_categories` (replaces scalar `service_category_id`). |
+> | **E** | pending | Final rename `is_accepting_bookings → is_active`; drop the legacy column. |
+
 ## 1. Overview
 
 **Goal:** Allow a single User to hold multiple provider profiles (Detailer + Mechanic) side by side. Each profile is independent with its own availability, specialties, services, and pricing.

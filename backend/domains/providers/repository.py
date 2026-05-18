@@ -53,6 +53,53 @@ class ProviderRepository:
         profile = await self.get_profile(user_id)
         return profile.working_hours if profile else None
 
+    async def list_for_user(
+        self, user_id: uuid.UUID,
+    ) -> list[ProviderProfile]:
+        """
+        Return every non-deleted ProviderProfile for `user_id`, ordered
+        by provider_type. Used by the multi-profile endpoints
+        `/api/v1/providers/profiles` (E1.C).
+        """
+        stmt = (
+            select(ProviderProfile)
+            .where(
+                ProviderProfile.user_id == user_id,
+                ProviderProfile.is_deleted.is_(False),
+            )
+            .order_by(ProviderProfile.provider_type.asc())
+        )
+        result = await self._db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_by_id(self, profile_id: uuid.UUID) -> ProviderProfile | None:
+        """Return a non-deleted ProviderProfile by primary key, or None."""
+        stmt = select(ProviderProfile).where(
+            ProviderProfile.id == profile_id,
+            ProviderProfile.is_deleted.is_(False),
+        )
+        result = await self._db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def slot_taken(
+        self,
+        user_id: uuid.UUID,
+        provider_type: str | ProviderType,
+    ) -> bool:
+        """
+        True if the `(user_id, provider_type)` slot is occupied by ANY
+        row — including soft-deleted ones. Used by the multi-profile
+        create endpoint to surface a clean 409 instead of an IntegrityError
+        when a previously deleted row still occupies the composite unique.
+        """
+        wanted = provider_type.value if isinstance(provider_type, ProviderType) else str(provider_type)
+        stmt = select(ProviderProfile.id).where(
+            ProviderProfile.user_id == user_id,
+            ProviderProfile.provider_type == wanted,
+        )
+        result = await self._db.execute(stmt)
+        return result.first() is not None
+
     async def list_available(
         self,
         lat: float | None = None,

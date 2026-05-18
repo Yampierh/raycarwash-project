@@ -26,6 +26,10 @@ ROLE_DATA: list[dict] = [
         "description": "Professional detailer. Can manage their profile, services, working hours, and appointments assigned to them.",
     },
     {
+        "name": "mechanic",
+        "description": "Mobile mechanic. Can manage their profile, services, working hours, and appointments assigned to them. Integration plan E1 (01-profiles.md).",
+    },
+    {
         "name": "client",
         "description": "End customer. Can book appointments, manage their vehicles, and leave reviews.",
     },
@@ -64,6 +68,18 @@ PERMISSION_DATA: list[tuple[str, str, str, str]] = [
 ROLE_PERMISSIONS: dict[str, list[str]] = {
     "admin": [p[0] for p in PERMISSION_DATA],  # admin gets all
     "detailer": [
+        "read:appointments", "write:appointments",
+        "read:providers", "write:providers",
+        "read:reviews",
+        "read:services",
+    ],
+    # E1.C: mechanic mirrors detailer's permission set. The vertical
+    # differs at the catalog level (categories, service templates) but
+    # the action surface — read/write bookings, read/write provider
+    # profile, read reviews and services — is identical. Diverging
+    # permissions only becomes necessary if a vertical-specific endpoint
+    # ever needs gating.
+    "mechanic": [
         "read:appointments", "write:appointments",
         "read:providers", "write:providers",
         "read:reviews",
