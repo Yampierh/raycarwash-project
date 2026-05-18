@@ -285,11 +285,21 @@ class ProfileHubService:
         ]
 
     async def _build_addresses_block(self, user: User) -> list[AddressSummary]:
-        # TODO(phase 4 m_006): replace this stub with a SELECT against the
-        # user_addresses table. The current empty list keeps the
-        # frontend's AddressesScreen renderable today; the GET /users/me?
-        # include=addresses contract is already final.
-        return []
+        from domains.users.address_repository import AddressRepository
+
+        rows = await AddressRepository(self.db).list_active(user.id)
+        return [
+            AddressSummary(
+                id=r.id,
+                label=r.label,
+                line1=r.line1,
+                city=r.city,
+                state=r.state,
+                zip_code=r.zip_code,
+                is_default=r.is_default,
+            )
+            for r in rows
+        ]
 
     async def _build_payment_methods_block(self, user: User) -> list[PaymentMethodSummary]:
         # TODO(phase 4 m_007): replace with a SELECT against payment_methods

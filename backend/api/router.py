@@ -27,6 +27,7 @@ from domains.providers.verification_router import router as verification_router
 from domains.users.router            import router as user_router
 from domains.users.avatar_router     import router as user_avatar_router
 from domains.users.contact_change_router import router as user_contact_router
+from domains.users.address_router    import router as user_address_router
 from domains.admin.router            import router as admin_router
 from domains.notifications.router   import router as notifications_router
 
@@ -88,6 +89,9 @@ api_router.include_router(user_avatar_router)
 
 # Users — /api/v1/users/me/email/* + /phone/* (Phase 3)
 api_router.include_router(user_contact_router)
+
+# Users — /api/v1/users/me/addresses/* (Phase 4 chunk T)
+api_router.include_router(user_address_router)
 
 # Admin dashboard — /api/v1/admin/*
 api_router.include_router(admin_router)
