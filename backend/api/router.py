@@ -33,6 +33,7 @@ from domains.users.favorites_router    import router as user_favorites_router
 from domains.users.vehicle_photo_router import router as user_vehicle_photo_router
 from domains.users.client_preferences_router import router as user_client_preferences_router
 from domains.users.provider_profile_router import router as user_provider_profile_router
+from domains.users.provider_portfolio_router import router as user_provider_portfolio_router
 from domains.admin.router            import router as admin_router
 from domains.notifications.router   import router as notifications_router
 
@@ -112,6 +113,9 @@ api_router.include_router(user_client_preferences_router)
 
 # Users — /api/v1/users/me/provider-profile + /provider-status (Phase 5 chunk Y2)
 api_router.include_router(user_provider_profile_router)
+
+# Users — /api/v1/users/me/provider-portfolio (Phase 5 chunk Y3)
+api_router.include_router(user_provider_portfolio_router)
 
 # Admin dashboard — /api/v1/admin/*
 api_router.include_router(admin_router)
