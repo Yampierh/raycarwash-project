@@ -76,6 +76,8 @@ graph TD
 | `06-infrastructure.md` | :page_facing_up: Draft | High | `05-ci-cd.md` | `08-hardening.md` Phase 0 |
 | `07-observability.md` | :page_facing_up: Draft | Medium | `06-infrastructure.md` | `08-hardening.md` Phase 2 |
 | `08-hardening.md` | :page_facing_up: Draft | **Critical** | — | — |
+| `09-provider-services-integration.md` | :hourglass: Planning | Medium | `plan.md` Phase 5 | — |
+| `10-authorization-layer.md` | :hourglass: Planning | High | `08-hardening.md` Phase 0 | `plan.md` Phase 6 |
 
 ---
 
@@ -97,6 +99,7 @@ Cada hallazgo del audit se mapea al plan que lo resuelve:
 | `plan.md` Phase 5 | Service layer reorg (AdminService, PaymentsRepo) | `01-architecture` |
 | `plan.md` Phase 6 | Active role switcher | `01-architecture` |
 | `01-profiles.md` (E1) | ProviderProfile 1:N refactor | `01-architecture` |
+| `10-authorization-layer.md` | Enforcement inconsistente (inline checks, falta `require_permission()`) | `01-architecture` (hallazgos de exploración) |
 
 > **Full mapping**: See [`docs/audit/06-cross-reference-and-standards.md`](./audit/06-cross-reference-and-standards.md) section 3
 

@@ -66,3 +66,6 @@ backend/storage/
 
 # Claude / per-machine planning notes
 .claude/
+
+# opendcode 
+.opencode/
