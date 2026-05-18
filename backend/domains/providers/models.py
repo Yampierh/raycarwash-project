@@ -169,7 +169,7 @@ class ProviderProfile(TimestampMixin, Base):
         BigInteger, nullable=False, default=0, server_default="0",
     )
 
-    user: Mapped[User] = relationship("User", back_populates="provider_profile")
+    user: Mapped[User] = relationship("User", back_populates="provider_profiles")
     detailer_services: Mapped[list[DetailerService]] = relationship(
         "DetailerService", back_populates="detailer",
         lazy="selectin", cascade="all, delete-orphan",

@@ -32,7 +32,7 @@ from domains.auth.schemas import (
 )
 from domains.auth.service import AuthService, get_current_user, get_current_user_for_onboarding
 from domains.auth.auth_provider_repository import AuthProviderRepository
-from domains.providers.models import ProviderProfile
+from domains.providers.models import ProviderProfile, ProviderType
 from domains.users.models import ClientProfile, OnboardingStatus, User
 from domains.users.repository import UserRepository
 from domains.users.schemas import UserRead, UserUpdate
@@ -417,7 +417,8 @@ async def complete_user_profile(
     if not user or not user.is_active or user.is_deleted:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found.")
 
-    await db.refresh(user, attribute_names=["client_profile", "provider_profile", "user_roles"])
+    # E1.B: provider_profiles (1:N) replaces the legacy 1:1 attribute.
+    await db.refresh(user, attribute_names=["client_profile", "provider_profiles", "user_roles"])
 
     if user.onboarding_status == "completed":
         raise HTTPException(
@@ -451,8 +452,11 @@ async def complete_user_profile(
 
     if effective_role == "client" and not user.client_profile:
         db.add(ClientProfile(user_id=user.id))
-    elif effective_role == "detailer" and not user.provider_profile:
-        db.add(ProviderProfile(user_id=user.id))
+    elif effective_role == "detailer" and not user.provider_profile_for(ProviderType.DETAILER):
+        # E1.B: explicitly tag the new profile so the composite unique
+        # (user_id, provider_type) plays nicely once the user later adds
+        # a MECHANIC profile.
+        db.add(ProviderProfile(user_id=user.id, provider_type=ProviderType.DETAILER.value))
 
     user.onboarding_status = "completed"
 

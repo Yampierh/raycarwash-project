@@ -122,16 +122,15 @@ async def test_user_cannot_hold_two_profiles_of_same_type(
 
 
 @pytest.mark.asyncio
-async def test_user_provider_profile_relationship_returns_first(
+async def test_user_provider_profile_back_compat_returns_detailer(
     db_session: AsyncSession,
 ) -> None:
     """
-    User.provider_profile is intentionally still uselist=False until E1.B.
-    With composite unique allowing two rows per user, the existing 1:1
-    relationship resolves to the row PostgreSQL returns first — fine for
-    today since activation flows only create DETAILER. E1.B introduces
-    `provider_profiles` (list) and the `provider_profile_for(type)`
-    helper.
+    E1.B replaces the mapped 1:1 relationship with `provider_profiles`
+    (1:N) plus a Python `@property provider_profile` shim that returns
+    the DETAILER row for back-compat. Any leftover legacy code that
+    reads `user.provider_profile` keeps getting the detailer profile,
+    so existing call-sites don't break in lockstep with the migration.
     """
     user = await _make_user(db_session, "e1a-rel@test.com")
     db_session.add(ProviderProfile(

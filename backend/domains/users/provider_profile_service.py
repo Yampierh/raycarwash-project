@@ -27,7 +27,7 @@ from app.middleware.audit_context import AuditContext, get_audit_context
 from domains.audit.models import AuditAction
 from domains.audit.repository import AuditRepository
 from domains.auth.models import Role, UserRoleAssociation
-from domains.providers.models import ProviderProfile
+from domains.providers.models import ProviderProfile, ProviderType
 from domains.providers.repository import ProviderRepository
 from domains.users.models import User
 from domains.users.provider_profile_schemas import (
@@ -132,16 +132,21 @@ class ProviderProfileService:
         if not already_has_role:
             self.db.add(UserRoleAssociation(user_id=user.id, role_id=role.id))
 
-        # 2. Upsert ProviderProfile.
-        profile = await self.repo.get_profile(user.id)
+        # 2. Upsert ProviderProfile. E1.B: this service activates the
+        # DETAILER vertical specifically (legacy endpoint contract). The
+        # MECHANIC profile lands via the new /api/v1/providers/profiles
+        # endpoint in E1.C, which lets the user pick the type.
+        profile = await self.repo.get_profile(user.id, ProviderType.DETAILER)
         new_profile = profile is None
         if profile is None:
             profile = ProviderProfile(
                 user_id=user.id,
+                provider_type=ProviderType.DETAILER.value,
                 business_name=body.business_name,
                 display_name=body.display_name,
                 service_radius_miles=body.service_radius_miles,
                 is_accepting_bookings=False,  # gated on KYC
+                is_active=False,  # mirrors is_accepting_bookings (E1.A) until KYC flips it
                 verification_status="not_submitted",
                 working_hours=_DEFAULT_WORKING_HOURS,
             )
@@ -226,6 +231,9 @@ class ProviderProfileService:
         user can re-activate later."""
         profile = await self.get_or_404(user)
         profile.is_accepting_bookings = False
+        # E1.B dual-write: keep is_active in lock-step so E1.E can drop
+        # is_accepting_bookings without behavior churn.
+        profile.is_active = False
         await self.db.flush()
         await self.audit_repo.log(
             action=AuditAction.PROVIDER_STATUS_CHANGED,
@@ -261,6 +269,9 @@ class ProviderProfileService:
             return profile
 
         profile.is_accepting_bookings = accepting
+        # E1.B dual-write: is_active mirrors the canonical flag so E1.E
+        # can finalize the rename without a behavior change.
+        profile.is_active = accepting
         await self.db.flush()
         await self.audit_repo.log(
             action=AuditAction.PROVIDER_STATUS_CHANGED,
