@@ -37,7 +37,8 @@ from domains.appointments.models import (  # noqa: F401
     AppointmentStatus, AssignmentStatus, TERMINAL_STATUSES, VALID_TRANSITIONS,
 )
 from domains.services_catalog.models import (  # noqa: F401
-    Service, ServiceCategoryTable, Addon, DetailerService,
+    Service, ServiceCategoryTable, Addon,
+    ProviderService, ProviderServiceCategory, DetailerService,
     Specialty, ProviderSpecialty, ServiceCategory,
 )
 from domains.reviews.models import Review  # noqa: F401

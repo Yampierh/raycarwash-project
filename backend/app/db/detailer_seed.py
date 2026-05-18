@@ -310,7 +310,7 @@ async def seed_detailers(db: AsyncSession) -> None:
             if sp:
                 db.add(ProviderSpecialty(provider_profile_id=profile.id, specialty_id=sp.id))
 
-        # Create DetailerService rows
+        # Create ProviderService rows (renamed from DetailerService in E1.D).
         custom_prices: dict[str, int] = d.get("custom_prices", {})
         for svc_name in d["services"]:
             svc = all_services.get(svc_name)
@@ -318,7 +318,7 @@ async def seed_detailers(db: AsyncSession) -> None:
                 logger.warning("Service '%s' not found — skipping for %s", svc_name, d["email"])
                 continue
             db.add(DetailerService(
-                detailer_id=profile.id,
+                provider_id=profile.id,
                 service_id=svc.id,
                 is_active=True,
                 custom_price_cents=custom_prices.get(svc_name),

@@ -95,10 +95,10 @@ class ProviderProfile(TimestampMixin, Base):
     timezone: Mapped[str] = mapped_column(
         String(60), nullable=False, default="America/Indiana/Indianapolis",
     )
-    service_category_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("service_categories.id", ondelete="SET NULL"),
-        nullable=True, index=True,
-    )
+    # E1.D: scalar service_category_id replaced by m2m `service_categories_rel`
+    # (table provider_service_categories) so a profile can offer multiple
+    # categories simultaneously. The migration backfills the existing scalar
+    # value into the junction before dropping the column.
     average_rating: Mapped[float | None] = mapped_column(Numeric(3, 2), nullable=True)
     total_reviews: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
@@ -170,9 +170,25 @@ class ProviderProfile(TimestampMixin, Base):
     )
 
     user: Mapped[User] = relationship("User", back_populates="provider_profiles")
-    detailer_services: Mapped[list[DetailerService]] = relationship(
-        "DetailerService", back_populates="detailer",
+    # E1.D: renamed from detailer_services. Service class is now ProviderService
+    # (alias DetailerService preserved for back-compat in services_catalog).
+    provider_services: Mapped[list[ProviderService]] = relationship(
+        "ProviderService", back_populates="provider",
         lazy="selectin", cascade="all, delete-orphan",
+    )
+    # E1.D back-compat: any code still walking `pp.detailer_services` keeps
+    # working. Remove once the rename has propagated through frontend +
+    # documentation.
+    @property
+    def detailer_services(self) -> list[ProviderService]:
+        return self.provider_services
+
+    # E1.D: m2m service categories. A profile can cover multiple categories
+    # (basic_wash + interior_detail + full_detail) simultaneously.
+    service_categories_rel: Mapped[list["ServiceCategoryTable"]] = relationship(
+        "ServiceCategoryTable",
+        secondary="provider_service_categories",
+        lazy="selectin",
     )
 
     def __repr__(self) -> str:
@@ -182,4 +198,6 @@ class ProviderProfile(TimestampMixin, Base):
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from domains.users.models import User
-    from domains.services_catalog.models import Specialty, DetailerService
+    from domains.services_catalog.models import (
+        Specialty, ProviderService, ServiceCategoryTable,
+    )
