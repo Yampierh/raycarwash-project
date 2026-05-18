@@ -183,3 +183,9 @@ The single entry point for all project documentation, plans, and audits is [`doc
 ## Hard constraints
 
 The file `.claude/execution_protocol.md` defines a mandatory pipeline for ALL backend changes: ARCHITECTURE → CONTRACTS → DOMAIN SKILL → IMPLEMENTATION → OBSERVABILITY → VALIDATION. Claude Code must treat this as hard constraints, not suggestions.
+
+---
+
+## Team Protocol
+
+See [`docs/AGENT_PROMPT.md`](./docs/AGENT_PROMPT.md) — el equipo de desarrollo 2026 audita todo plan de implementación antes de ejecutar.
