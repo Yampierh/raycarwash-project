@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import enum
 import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
 from sqlalchemy import (
-    BigInteger, Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text,
+    BigInteger, Boolean, Date, DateTime, ForeignKey, Index, Integer, Numeric,
+    String, Text, UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -21,13 +23,58 @@ def _provider_encryption_key() -> bytes:
     return base64.b64decode(get_settings().ENCRYPTION_KEY)
 
 
+class ProviderType(str, enum.Enum):
+    """
+    Vertical that a ProviderProfile represents. A user holds one
+    ProviderProfile per type (composite unique on (user_id, provider_type)).
+
+    E1.A only adds the column with default DETAILER — the relationship on
+    User is still 1:1. E1.B flips that to 1:N once all call-sites have
+    been migrated.
+    """
+    DETAILER = "detailer"
+    MECHANIC = "mechanic"
+
+
 class ProviderProfile(TimestampMixin, Base):
     __tablename__ = "provider_profiles"
+    __table_args__ = (
+        # E1.A: composite unique replaces the single-column unique on
+        # user_id. Until E1.B all existing rows have provider_type=DETAILER
+        # (backfilled by the migration), so each user still maps to ≤1 row
+        # in practice.
+        UniqueConstraint(
+            "user_id", "provider_type",
+            name="uq_provider_profiles_user_type",
+        ),
+        Index(
+            "ix_provider_profiles_type_active",
+            "provider_type", "is_active",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False, unique=True, index=True,
+        nullable=False, index=True,
+    )
+    # E1.A: vertical that this profile represents. Stored as VARCHAR (no
+    # PostgreSQL enum type) so adding a new vertical later is a code-only
+    # change — see plan 01-profiles.md §2.2. The application layer treats
+    # this as a `ProviderType` enum; the column itself stays string so
+    # extending the enum doesn't require a migration. Use
+    # `ProviderType(profile.provider_type)` to recover the typed value.
+    provider_type: Mapped[str] = mapped_column(
+        String(20), nullable=False, default=ProviderType.DETAILER.value,
+        server_default=ProviderType.DETAILER.value,
+    )
+    # E1.A: forward-compatible name for the master toggle. While
+    # is_accepting_bookings is still the canonical column (E1.E renames it),
+    # is_active mirrors it via the migration backfill so new code can read
+    # either consistently. Dual-write is handled at the service layer in
+    # E1.B; in E1.A the column simply starts as a copy.
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true",
     )
     bio: Mapped[str | None] = mapped_column(Text, nullable=True)
     years_of_experience: Mapped[int | None] = mapped_column(Integer, nullable=True)
