@@ -114,6 +114,80 @@ Returns `access_token` + `refresh_token`. After this, route by role:
 |---|---|---|---|
 | POST | `/api/v1/users` | — | Register (legacy — prefer `/auth/register`) |
 
+### Profile Hub (Phase 1)
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/api/v1/users/me?include=` | Bearer | Composite-block Profile Hub. Tokens: `profile`, `stats`, `vehicles`, `addresses`, `payment_methods`, `favorites`, `preferences`, `notifications`, `security`, `sessions`, `provider`. `security` and `sessions` require step-up; `?on_step_up=skip` omits them with a `meta.skipped_due_to_step_up` marker instead of 401. |
+| PATCH | `/api/v1/users/me` | Bearer | Update first/last/pronouns/language/timezone. |
+
+### Avatar + cover (Phase 2)
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| POST | `/api/v1/users/me/avatar/upload-url` | Bearer | Step 1: declare mime+size, get presigned URL. |
+| POST | `/api/v1/users/me/avatar` | Bearer | Step 2: confirm `s3_key` after upload, HEAD-verified server-side. |
+| DELETE | `/api/v1/users/me/avatar` | Bearer | Drop avatar + storage object. |
+| POST | `/api/v1/users/me/cover/upload-url` | Bearer(detailer) | Same flow, cover gated to detailers. |
+| POST | `/api/v1/users/me/cover` | Bearer(detailer) | |
+| DELETE | `/api/v1/users/me/cover` | Bearer(detailer) | |
+
+### Contact change (Phase 3)
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| POST | `/api/v1/users/me/email/change-request` | step-up | Anti-enum 202 ack; emails new+old. |
+| POST | `/api/v1/users/me/email/change-confirm` | (token) | Consume one-time link; bumps `token_version`, revokes all refresh. |
+| POST | `/api/v1/users/me/phone/change-request` | step-up | Send OTP via SMS adapter. |
+| POST | `/api/v1/users/me/phone/change-verify` | Bearer | 5-attempt OTP cap; lock-by-delete on miss. |
+
+### Addresses (Phase 4 chunk T)
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/api/v1/users/me/addresses` | Bearer | List active addresses (newest first). |
+| POST | `/api/v1/users/me/addresses` | Bearer | Create; geocodes via Nominatim/Google. Failures persist with `lat/lng=NULL`. First address auto-defaults. |
+| GET | `/api/v1/users/me/addresses/{id}` | Bearer | Detail. |
+| PATCH | `/api/v1/users/me/addresses/{id}` | Bearer | Partial update. Re-geocodes only on line/city/state/zip/country change. |
+| PATCH | `/api/v1/users/me/addresses/{id}/default` | Bearer | Atomic default pivot. |
+| DELETE | `/api/v1/users/me/addresses/{id}` | Bearer | Soft-delete; auto-promotes next address as default. |
+
+### Payment methods (Phase 4 chunk U)
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/api/v1/users/me/payment-methods` | Bearer | List active (Stripe mirror, non-PCI only). |
+| POST | `/api/v1/users/me/payment-methods/setup-intent` | step-up | Returns Stripe `client_secret` + publishable key. Honors `Idempotency-Key` header (forwarded to Stripe). |
+| GET | `/api/v1/users/me/payment-methods/{id}` | Bearer | Detail. |
+| PATCH | `/api/v1/users/me/payment-methods/{id}/default` | Bearer | Atomic default pivot. |
+| DELETE | `/api/v1/users/me/payment-methods/{id}` | step-up | Local-first soft-delete + Stripe detach. |
+
+Webhooks consumed by `POST /webhooks/stripe`: `payment_method.attached`, `.updated`, `.detached`, `setup_intent.succeeded`.
+
+### Favorites (Phase 4 chunk V)
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/api/v1/users/me/favorites/providers` | Bearer(client) | List favorited providers (joined w/ ProviderProfile). |
+| POST | `/api/v1/users/me/favorites/providers/{provider_user_id}` | Bearer(client) | Pin. Idempotent: re-favor returns 201 with existing row. 404 on unknown OR non-detailer ID. |
+| DELETE | `/api/v1/users/me/favorites/providers/{provider_user_id}` | Bearer(client) | Unpin. Idempotent. |
+
+### Vehicle photos (Phase 4 chunk V)
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/api/v1/users/me/vehicles/{id}/photos` | Bearer(owner) | List ordered by `sort_order`. |
+| POST | `/api/v1/users/me/vehicles/{id}/photos/upload-url` | Bearer(owner) | Step 1. 409 if vehicle is at the 4-photo cap. |
+| POST | `/api/v1/users/me/vehicles/{id}/photos` | Bearer(owner) | Step 2: confirm s3_key + caption. |
+| DELETE | `/api/v1/users/me/vehicles/{id}/photos/{photo_id}` | Bearer(owner) | Drop row + storage object. |
+
+### Client preferences (Phase 4 chunk V)
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/api/v1/users/me/client-preferences` | Bearer | default_vehicle_id, default_address_id, marketing_opt_in, frequency_preference. |
+| PUT | `/api/v1/users/me/client-preferences` | Bearer | Replace. Validates default_vehicle_id / default_address_id are caller-owned before mutating (404 otherwise). |
+
 ---
 
 ## Vehicles (`/api/v1/vehicles`)
