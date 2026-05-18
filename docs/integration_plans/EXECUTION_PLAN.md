@@ -26,6 +26,20 @@ Ese trabajo es **infraestructura horizontal** (transversal a User/Provider); los
 
 **Objetivo:** entregar los 5 verticales con calidad de producción (estándares, tests, migraciones simétricas, documentación), respetando las convenciones de [plan.md §0.5](plan.md) y la arquitectura DDD-lite ya consolidada. **Aprovechar la ventana de Phases 5–6 pendientes** para que multi-profile aterrice como cimiento, no como refactor posterior.
 
+### Dependencia crítica: Hardening primero
+
+Antes de ejecutar cualquier épica E0-E4, **debe completarse [`08-hardening.md`](../plans/08-hardening.md) Phase 0** como minimo. Este plan resuelve los 7 hallazgos CRITICAL y 15 HIGH del audit que comprometen la estabilidad del backend:
+
+| Hardening Phase | Bloquea a | Por que |
+|----------------|-----------|---------|
+| Phase 0 (infra+RBAC) | E0, E1, E2, E4 | `pool_pre_ping`, RBAC fix, `create_all` guard, Redis config |
+| Phase 1 (Envelope) | E1, E2 | EnvelopeRouter debe cubrir `/api/v1/providers/*` y `/api/v1/combos/*` |
+| Phase 2 (Service Layer) | E1 (multi-profile) | AdminService + repos ausentes necesarios para ProviderProfile 1:N |
+| Phase 3 (DB Migrations) | E4 (vehicles) | Migraciones de `estimated_price_cents` colisionan con refactor de vehiculos |
+| Phase 4 (Tests) | E2, E3 | FSM, refund, double-booking tests protegen combos y mecanico |
+
+El orden global recomendado: **Hardening Phase 0 -> E0 (zip_code) -> E1 (multi-profile) -> E4 (vehicles) + Hardening Phases 2-4 en paralelo -> E2 (combos) -> E3 (mecanico).**
+
 ---
 
 ## 1. Estado actual relevante (auditoría rápida, 2026-05-17)
