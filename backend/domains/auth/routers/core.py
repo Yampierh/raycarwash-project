@@ -161,6 +161,11 @@ async def login(
     access_token = AuthService.create_access_token(user.id, role_name, token_version=getattr(user, "token_version", 1))
     refresh_token = await AuthService.create_refresh_token(user.id, role_name, db)
 
+    # Hotfix H3 — mark step-up window so the user can immediately hit
+    # /users/me?include=security|sessions, /auth/two-fa/enroll, etc.
+    # without a spurious step_up_required bounce.
+    await AuthService.record_step_up_success(request, user, db, auth_method="password")
+
     await db.commit()
 
     return LoginResponse(
@@ -381,6 +386,10 @@ async def verify_credentials(
         actor_id=user.id,
         metadata={"ip": request.client.host if request.client else None},
     )
+    # Hotfix H3 — identifier-first verify with password is a real auth
+    # event (user just presented the credential). OAuth/passkey paths of
+    # this endpoint already 400 above, so we only reach here on password.
+    await AuthService.record_step_up_success(request, user, db, auth_method="password")
     await db.commit()
 
     return VerifyResponse(
@@ -511,6 +520,8 @@ async def login_for_access_token(
         actor_id=user.id,
         metadata={"ip": request.client.host if request.client else None},
     )
+    # Hotfix H3 — OAuth2 Password Flow is a real auth event (RFC 6749 §4.3).
+    await AuthService.record_step_up_success(request, user, db, auth_method="password")
 
     logger.info("Login success | user_id=%s role=%s", user.id, role_name)
 

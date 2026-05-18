@@ -256,6 +256,9 @@ async def webauthn_authenticate_complete(
     access_token  = AuthService.create_access_token(user.id, _role, token_version=getattr(user, "token_version", 1))
     refresh_token = await AuthService.create_refresh_token(user.id, _role, db)
 
+    # Hotfix H3 — passkey verification is a real auth event (FIDO2 sign).
+    await AuthService.record_step_up_success(request, user, db, auth_method="webauthn")
+
     await db.commit()
 
     return Token(

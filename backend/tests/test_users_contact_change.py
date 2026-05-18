@@ -46,11 +46,24 @@ async def _login(client: AsyncClient, email: str, password: str = "Secure1234!")
 
 async def _seed_step_up(db_session: AsyncSession, user_email: str) -> None:
     """Mark the user as step-up-recent so /change-request goes through.
-    In production this is set by login; the test client doesn't run the
-    real auth flow with Redis, so we set it directly."""
+
+    Historical note: pre-Hotfix H3, login NEVER bumped last_step_up_at
+    (mark_step_up was never invoked from production code), so tests had
+    to seed the column manually. Post-H3, login auto-populates it — but
+    we keep this helper for tests that need to grant step-up to a user
+    that was created without going through /auth/login (e.g. via fixture)."""
     now = datetime.now(timezone.utc)
     await db_session.execute(
         update(User).where(User.email == user_email).values(last_step_up_at=now)
+    )
+    await db_session.commit()
+
+
+async def _expire_step_up(db_session: AsyncSession, user_email: str) -> None:
+    """Push last_step_up_at to NULL so the next step-up-gated request 401s.
+    Needed after H3 because /auth/login bumps the column automatically."""
+    await db_session.execute(
+        update(User).where(User.email == user_email).values(last_step_up_at=None)
     )
     await db_session.commit()
 
@@ -95,9 +108,13 @@ async def test_email_change_request_rejects_bad_password(
 
 
 @pytest.mark.asyncio
-async def test_email_change_request_blocks_without_step_up(client: AsyncClient) -> None:
+async def test_email_change_request_blocks_without_step_up(
+    client: AsyncClient, db_session: AsyncSession,
+) -> None:
     access = await _login(client, "email-nostep@test.com")
-    # No _seed_step_up — last_step_up_at stays None.
+    # Post-H3, /auth/login automatically populates last_step_up_at.
+    # Expire it so this test still exercises the step-up rejection path.
+    await _expire_step_up(db_session, "email-nostep@test.com")
 
     resp = await client.post(
         "/api/v1/users/me/email/change-request",
