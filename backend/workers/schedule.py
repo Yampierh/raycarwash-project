@@ -40,11 +40,22 @@ _JOB_DEFS = [
         "cron": "0 3 1 * *",  # 03:00 on the 1st of each month
         "queue": "low",
     },
-    # TODO(phase 9): document_expiry_checker — cron "0 1 * * *"
-    # TODO(phase 9): account_deletion_finalizer — cron "0 3 * * *"
+    # Phase 5 chunk Y6 — provider lifecycle workers.
+    {
+        "id": "achievement_evaluator",
+        "func": "workers.achievement_evaluator.run",
+        "cron": "0 2 * * *",  # 02:00 daily
+        "queue": "low",
+    },
+    {
+        "id": "document_expiry_checker",
+        "func": "workers.document_expiry_checker.run",
+        "cron": "0 1 * * *",  # 01:00 daily
+        "queue": "low",
+    },
+    # TODO(phase 8): account_deletion_finalizer — cron "0 3 * * *"
     # TODO(phase 9): audit_log_redactor — cron "0 4 1 * *"
     # TODO(phase 9): service_reminder_dispatcher — cron "0 9 * * *"
-    # TODO(phase 9): achievement_evaluator — cron "0 2 * * *"
 ]
 
 
