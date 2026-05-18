@@ -21,6 +21,7 @@ from typing import Awaitable, Callable
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from app.core.audit_context import AuditContext
 from app.core.logging_context import request_id_var
 
 # Lightweight ULID-like ID: 26 chars, base32 (Crockford). Sort-friendly.
@@ -53,6 +54,9 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
             request_id = _generate_request_id()
 
         request.state.request_id = request_id
+        # Hotfix H4 — bundle the forensic metadata once so downstream
+        # routers/services don't re-derive ip/user-agent from request.
+        request.state.audit_ctx = AuditContext.from_request(request)
         token = request_id_var.set(request_id)
         try:
             response = await call_next(request)

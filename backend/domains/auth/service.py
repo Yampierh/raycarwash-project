@@ -604,6 +604,50 @@ class AuthService:
             pass
 
     @staticmethod
+    async def record_step_up_success(
+        request,
+        user: User,
+        db: AsyncSession,
+        *,
+        auth_method: str,
+    ) -> None:
+        """Mark a fresh authentication event for both step-up and audit (hotfix H3).
+
+        Call this at every site that proves the user just demonstrated
+        possession of a credential — password, OAuth ID token, passkey,
+        TOTP code, or current-password during a sensitive operation. Two
+        invariants kept here so individual call sites can't forget one:
+
+          1. Bump ``last_step_up_at`` (Redis primary + DB fallback) so
+             ``require_step_up`` lets the user through for the next
+             ``STEP_UP_TTL_MINUTES`` window.
+          2. Record a successful login in ``user_login_history`` with the
+             provided ``auth_method`` and the IP/UA already on the request.
+
+        DO NOT call from ``/auth/refresh`` — refresh is "still
+        authenticated", not "re-authenticated". Calling step-up there would
+        let stolen refresh tokens bypass step-up walls indefinitely.
+
+        Imports ``mark_step_up`` lazily to avoid a module-level cycle with
+        ``app.core.step_up``, which depends on ``get_current_user`` from
+        this module.
+        """
+        from app.core.step_up import mark_step_up
+
+        ip_address = request.client.host if request.client else None
+        user_agent = request.headers.get("user-agent")
+
+        await AuthService._record_login_attempt(
+            db,
+            user_id=user.id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            auth_method=auth_method,
+            was_successful=True,
+        )
+        await mark_step_up(request, user, db)
+
+    @staticmethod
     async def rotate_refresh_token(
         raw_token: str,
         db: AsyncSession,
@@ -643,7 +687,21 @@ class AuthService:
         if token_row.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
             raise credentials_exception
 
-        await repo.mark_used(token_row.id)
+        # Atomic claim — exactly one concurrent rotation wins. Losers see
+        # rowcount=0 and MUST treat it like reuse: revoke family + 401.
+        claimed = await repo.mark_used_atomic(token_row.id)
+        if not claimed:
+            await repo.revoke_family(token_row.family_id)
+            logger.warning(
+                "Refresh rotation race lost — family revoked | user_id=%s family=%s",
+                token_row.user_id,
+                token_row.family_id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Concurrent refresh detected. Please log in again.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
 
         user_repo = UserRepository(db)
         user = await user_repo.get_by_id(token_row.user_id)
