@@ -96,10 +96,10 @@ get_current_user:
   2. Redis: get_session_cached(sid) → session | None
   3. If miss → DB: session_repo.get_by_id(sid) → Redis setex 5min
   4. Validar session.active AND NOT session.revoked
-  5. Fetch user: validar activo + token_version
-  6. Update session.last_active_at (async, non-blocking)
-  7. Validar IP si ip_binding=true
-  8. Detectar geo-anomaly si cambió drásticamente
+   5. Fetch user: validar activo + token_version
+   6. Update session.last_active_at (await con throttling Redis SET NX 60s)
+   7. Validar IP si ip_binding=true
+   8. Detectar geo-anomaly si cambió drásticamente
 
 Refresh token rotation (sin cambios) + actualiza session metadata
 ```
@@ -107,11 +107,10 @@ Refresh token rotation (sin cambios) + actualiza session metadata
 ### Redis Cache Pattern
 
 ```
-Key:     session:{sid}
-Value:   JSON → Session model (id, user_id, device, ip, revoked, etc.)
-TTL:     300s (5 min = refresh token rotation window × 10)
-Miss:    DB lookup → setex 300s
-Invalidate on: session revoked, IP updated, device changed
+session:{sid}              → SessionCacheSchema JSON (TTL 300s)
+session:last_seen:{sid}    → "1" (SET NX, TTL 60s, para throttling update)
+geoip:{ip}                 → GeoLocation JSON (TTL 24h)
+permissions:{user_id}      → list[str] (TTL 600s)
 ```
 
 ### Data Model — New `sessions` Table
@@ -122,7 +121,7 @@ class Session(Base):
 
     id: Mapped[uuid.UUID]          # PK = sid
     user_id: Mapped[uuid.UUID]     # FK → users.id
-    family_id: Mapped[uuid.UUID]   # FK → refresh_tokens.family_id
+    family_id: Mapped[uuid.UUID]   # FK → refresh_tokens.family_id (no unique: 1 familia = cadena de rotación, no 1 sesión)
     device_name: Mapped[str | None]     # "iPhone 15", "Chrome 120/Win"
     device_type: Mapped[str | None]     # "mobile", "desktop", "tablet", "api"
     ip_address: Mapped[str | None]      # last known IP
@@ -145,24 +144,46 @@ payload = {
     # ❌ NO sid, NO ip
 }
 
-# Target
+# Target — sid SOLO si session_id presente, nunca "sid": null
 payload = {
     "sub": str(user_id), "role": role_name, "type": "access",
     "v": token_version, "jti": str(uuid.uuid4()),
-    "sid": str(session_id),   # 🔥 NEW
-    "ip": ip_address,         # 🔥 NEW (optional, configurable)
 }
+if session_id:                    # 🔥 NEW — nunca "sid": null
+    payload["sid"] = str(session_id)
+if settings.IP_BINDING and ip:    # 🔥 NEW (optional, configurable)
+    payload["ip"] = ip_address
 ```
 
 ### get_current_user — Target State
 
 ```python
-async def get_current_user(token, db, redis):
+# Dependencia separada para Redis — no acoplar auth a Request
+async def get_redis(request: Request) -> Redis | None:
+    return getattr(request.app.state, "redis", None)
+
+async def get_current_user(
+    token: Annotated[str, Depends(_oauth2_scheme)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    redis: Annotated[Redis | None, Depends(get_redis)] = None,
+) -> User:
     payload = decode(token)
 
-    session = await get_session_cached(payload["sid"], db, redis)
-    if not session or session.revoked:
-        raise HTTPException(401, "Session revoked")
+    if settings.AUTH_ENFORCE_SESSION:
+        sid = payload.get("sid")
+        if sid:
+            session = await get_session_cached(sid, db, redis)
+            if session is None or session.revoked:
+                raise HTTPException(401, "Session revoked")
+
+            # update_last_active con throttling — 1 update/min/sesión
+            if redis:
+                throttle_key = f"session:last_seen:{sid}"
+                if not await redis.get(throttle_key):
+                    await SessionRepository(db).update_last_active(uuid.UUID(sid))
+                    await redis.setex(throttle_key, 60, "1")
+            else:
+                await SessionRepository(db).update_last_active(uuid.UUID(sid))
 
     if settings.IP_BINDING and payload.get("ip") != current_ip:
         raise HTTPException(401, "IP mismatch")
@@ -174,10 +195,13 @@ async def get_current_user(token, db, redis):
     if payload.get("v") != user.token_version:
         raise HTTPException(401)
 
-    asyncio.create_task(session_repo.update_last_active(session.id))
-
     return user
 ```
+
+⚠️ Si `AUTH_ENFORCE_SESSION=True` y `redis is None`:
+- Se loggea `logger.warning("Session enforcement enabled but Redis unavailable — falling back to DB")`
+- `get_session_cached()` usa DB directo, sin cache
+- `update_last_active` se hace sin throttling (es seguro, solo más lento)
 
 ### Mental Model
 
@@ -199,8 +223,8 @@ ABAC         → contexto (bajo qué condiciones)
    - Tabla `sessions` con columnas del data model
    - FK → `users.id` (CASCADE)
    - FK → `refresh_tokens.family_id` (SET NULL on revoke)
-   - Indexes: `(user_id, revoked)`, `(user_id, last_active_at)`, `(family_id)`
-   - Partial index: `(user_id) WHERE revoked = FALSE`
+    - Indexes: `(user_id, revoked)`, `(user_id, last_active_at)`, `(family_id)` (no unique — family_id es cadena de rotación, no id de sesión)
+    - Partial index: `(user_id) WHERE revoked = FALSE`
 
 2. Crear `Session` model en `domains/auth/models.py`
 3. Registrar en `infrastructure/db/registry.py`
@@ -212,12 +236,12 @@ class Session(Base):
     __table_args__ = (
         Index("ix_sessions_user_active", "user_id", postgresql_where=sa.text("revoked = FALSE")),
         Index("ix_sessions_user_last_active", "user_id", sa.text("last_active_at DESC")),
-        Index("ix_sessions_family_id", "family_id", unique=True),
+        Index("ix_sessions_family_id", "family_id"),  # no unique — family_id es cadena de rotación, no id de sesión
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    family_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("refresh_tokens.family_id", ondelete="SET NULL"), nullable=False, unique=True)
+    family_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("refresh_tokens.family_id", ondelete="SET NULL"), nullable=False)
     device_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     device_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
     ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
@@ -241,53 +265,128 @@ class Session(Base):
    - `get_sessions_for_user(user_id, limit, offset) → tuple[list[Session], int]`
    - `delete_expired(days) → int`
 
-2. Crear función cacheada `get_session_cached()` en `domains/auth/service.py`:
+2. Crear `SessionCacheSchema` — **nunca cachear ORM directo**:
+```python
+from pydantic import BaseModel
+
+class SessionCacheSchema(BaseModel):
+    """Minimal session data for auth validation — lo justo para no pegar DB."""
+    id: uuid.UUID
+    user_id: uuid.UUID
+    revoked: bool
+    token_version: int           # 🔥 permite invalidar desde cache sin DB
+    last_active_at: datetime     # para throttling + geo-anomaly
+```
+
+3. Crear función cacheada `get_session_cached()` en `domains/auth/service.py`:
 ```python
 _SESSION_CACHE_TTL = 300  # 5 min
 
 async def get_session_cached(
     sid: str,
     db: AsyncSession,
-    redis: Redis,
-) -> Session | None:
-    cache_key = f"session:{sid}"
-    cached = await redis.get(cache_key)
-    if cached:
-        return Session.model_validate_json(cached)
+    redis: Redis | None,
+) -> SessionCacheSchema | None:
+    if redis:
+        cache_key = f"session:{sid}"
+        cached = await redis.get(cache_key)
+        if cached:
+            return SessionCacheSchema.model_validate_json(cached)
 
     session = await SessionRepository(db).get_by_id(uuid.UUID(sid))
-    if session:
-        await redis.setex(cache_key, _SESSION_CACHE_TTL, session.model_dump_json())
+    if session is None:
+        return None
 
-    return session
+    cache_data = SessionCacheSchema(
+        id=session.id,
+        user_id=session.user_id,
+        revoked=session.revoked,
+        token_version=0,  # se pobla desde user.token_version en get_current_user
+        last_active_at=session.last_active_at,
+    )
+    if redis:
+        await redis.setex(cache_key, _SESSION_CACHE_TTL, cache_data.model_dump_json())
+
+    return cache_data
 ```
 
-3. Crear `invalidate_session_cache(sid, redis)` → `redis.delete(f"session:{sid}")`
-   - Llamar en: revoke, login (si ya existía sesión previa), IP update
+3. Crear `invalidate_session_cache(sid, redis)` → `redis.delete(f"session:{sid}")` + `redis.delete(f"session:last_seen:{sid}")`
+   - Llamar en: revoke, login (si ya existía sesión previa), IP update, logout
 
-**Día 3 — get_current_user + Login/Refresh Integration**
-1. Modificar `AuthService._build_token()`:
-   - Aceptar `session_id: uuid.UUID | None` param
-   - Agregar `"sid": str(session_id)` al payload si no es None
+**Día 3 — AuthService.create_session_and_tokens() + get_current_user + Login/Refresh Integration**
+1. Crear `AuthService.create_session_and_tokens()` — **transaccional, desde el service, no desde el router**:
+```python
+@staticmethod
+async def create_session_and_tokens(
+    user: User,
+    db: AsyncSession,
+    ip_address: str | None,
+    user_agent: str | None,
+    device_name: str | None = None,
+    device_type: str | None = None,
+) -> tuple[str, str, Session]:
+    """Crea refresh token + session + access token en una transacción.
+    
+    El router llama a ESTO, no orquesta 3 pasos.
+    Todo dentro de async with db.begin() — si falla algo, rollback total.
+    """
+    async with db.begin():
+        # 1. Refresh token → obtenemos family_id
+        raw = secrets.token_urlsafe(32)
+        family_id = uuid.uuid4()
+        expires_at = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+        await RefreshTokenRepository(db).create(
+            user_id=user.id, raw_token=raw,
+            family_id=family_id, expires_at=expires_at,
+        )
+
+        # 2. Session con ese family_id
+        session = await SessionRepository(db).create(
+            user_id=user.id, family_id=family_id,
+            device_name=device_name, device_type=device_type,
+            ip_address=ip_address, user_agent=user_agent,
+        )
+
+        # 3. Access token con session.id como sid
+        role_name = user.primary_role or "client"
+        access = AuthService.create_access_token(
+            user.id, role_name,
+            token_version=getattr(user, "token_version", 1),
+            session_id=session.id,
+        )
+
+    return access, raw, session
+```
+
+2. Modificar `AuthService._build_token()`:
+   - Aceptar `session_id: uuid.UUID | None = None` param
+   - Usar `if session_id: payload["sid"] = str(session_id)` (nunca `"sid": null`)
    - `create_access_token()` acepta `session_id`
 
-2. Modificar `get_current_user()`:
-   - Extraer `sid` del payload
-   - `get_session_cached(sid, db, redis)` en vez de DB directo
-   - Si session revoked o no existe → 401
-   - `asyncio.create_task(session_repo.update_last_active(session.id))` (fire-and-forget)
-   - Mantener todas las validaciones existentes (user activo, token_version, onboarding)
+3. Modificar `get_current_user()` (ver sección 4):
+   - `Depends(get_redis)` en vez de `Request`
+   - `session = await get_session_cached(sid, db, redis)`
+   - Si session revoked → 401
+   - `update_last_active` con throttling Redis SET NX 60s
+   - Si `AUTH_ENFORCE_SESSION=True` y `redis is None` → `logger.warning()`
+   - Mantener todas las validaciones existentes
 
-3. Modificar login flow:
-   - Crear Session row simultáneo con refresh token
-   - Pasar `session_id` a `create_access_token()`
-   - Registrar `session.family_id` en `UserLoginHistory`
+4. Modificar login flow en `core.py`:
+   - Reemplazar 3 líneas (create_refresh_token + access_token) por 1 llamada:
+     ```python
+     access_token, refresh_token, session = await AuthService.create_session_and_tokens(
+         user=user, db=db,
+         ip_address=request.client.host if request.client else None,
+         user_agent=request.headers.get("user-agent"),
+         device_name=request.headers.get("x-device-name"),
+     )
+     ```
 
-4. Modificar refresh flow:
+5. Modificar refresh flow en `rotate_refresh_token()`:
    - No crear nueva Session (misma familia = misma sesión)
-   - Actualizar `last_active_at` + `ip_address` + `user_agent`
-   - Invalidar cache: `invalidate_session_cache(sid, redis)`
-   - Refresh token rotation sigue igual
+   - Actualizar `last_active_at` + `ip_address` + `user_agent` en Session existente
+   - Invalidar cache: `invalidate_session_cache(existing_session.id, redis)` si redis disponible
+   - Refresh token rotation sigue igual (atomic claiming)
 
 **Rollback:**
 - Si `sid` no está en payload → skip session check (backward compat)
@@ -708,11 +807,18 @@ class AnomalyEvent(Base):
 
 ## 6. Verification
 
-- [ ] Migration `m_023a_create_sessions_table` corre limpio (up + down)
-- [ ] Login crea Session row + access token con `sid`
+- [ ] Migration `m_023_create_sessions_table` corre limpio (up + down)
+- [ ] `Session` model NO tiene `unique=True` en `family_id` (es cadena de rotación, no id de sesión)
+- [ ] `create_session_and_tokens()` es transaccional (`async with db.begin()`)
+- [ ] Login crea Session row + access token con `sid` (todo en 1 llamada al service)
+- [ ] Redis cache: `SessionCacheSchema` usado, nunca ORM directo
 - [ ] Redis cache: `get_session_cached()` funciona (hit + miss + invalidate)
+- [ ] `get_current_user` usa `Depends(get_redis)`, no `Request` directo
 - [ ] `get_current_user` rechaza access token de sesión revocada
 - [ ] `get_current_user` funciona sin `sid` (backward compat con tokens viejos)
+- [ ] `get_current_user` loggea `warning` si `AUTH_ENFORCE_SESSION=True` y `redis is None`
+- [ ] `get_current_user` no usa `asyncio.create_task()` — usa `await` con throttling Redis SET NX 60s
+- [ ] JWT `sid` claim: ausente si no hay `session_id` (nunca `"sid": null`)
 - [ ] Redis caído → fallback a DB lookup (graceful degradation)
 - [ ] Refresh no crea nueva Session (misma familia)
 - [ ] `GET /auth/sessions` devuelve device_name, ip, user_agent, country, city
@@ -744,10 +850,15 @@ class AnomalyEvent(Base):
 
 | Riesgo | Mitigación |
 |--------|------------|
-| Session DB lookup en cada request añade latency | Redis cache con TTL 5min + `update_last_active` es fire-and-forget async. Session lookup es PK indexado = ~1ms. |
-| Redis caído = auth caído | `get_session_cached()` fallback a DB lookup directo con try/except. Log warning si Redis no responde. |
+| Session DB lookup en cada request añade latency | Redis cache con TTL 5min + `update_last_active` con throttling (1 update/min). Session lookup es PK indexado = ~1ms. |
+| Redis caído = auth caído | `get_session_cached()` fallback a DB lookup directo con try/except. `logger.warning()` si `AUTH_ENFORCE_SESSION=True` y Redis no responde. |
 | Rollback difícil si `sid` es requerido | `AUTH_ENFORCE_SESSION = False` durante rollout. Si token no tiene `sid`, skip session check. |
-| `device_name` del frontend no es confiable | Es metadata informativa, no security boundary. La session validation depende de `sid` + `revoked`, no del device. Usar `user_agents` lib como fuente primaria. |
+| `create_session_and_tokens()` deja estado inconsistente si falla a mitad | `async with db.begin()` — todo o nada. Si `SessionRepository` falla, refresh token también hace rollback. |
+| `asyncio.create_task()` pérdida de errores | ❌ Eliminado. `update_last_active` es `await` directo con throttling Redis. |
+| Cache ORM directo corrompe datos | ❌ Eliminado. `SessionCacheSchema` es Pydantic puro, nunca SQLAlchemy model en Redis. |
+| `family_id UNIQUE` rompe multi-device | ❌ Eliminado. `family_id` es índice simple, no unique. |
+| `session_id` vulnerable en JWT | No es secret — es identificador. La seguridad está en `revoked` flag + firma RS256 del token. |
+| `device_name` del frontend no es confiable | Es metadata informativa, no security boundary. Usar `user_agents` lib como fuente primaria. |
 | Impossible travel falsos positivos (VPN, proxy) | Configurable por severity. Default: solo log + alert, no revocar. Step-up auth como acción intermedia. |
 | GeoIP lookup latency | Cache en Redis con TTL 24h. Si cache miss, fire-and-forget sin bloquear request. Warmup de IPs activas al startup. |
 | Sesiones existentes sin `sid` en tokens | Backward compat: tokens sin `sid` usan `token_version` como fallback (comportamiento actual). No se fuerza re-login. |
@@ -772,28 +883,32 @@ class AnomalyEvent(Base):
 ## 9. Secuencia Recomendada
 
 ```
-Semana 1:
-  Día 1-3: Fase 1 — sid + session validation + Redis cache
-  Día 4-5: Fase 2 — Sessions metadata + device tracking
+Semana 1 (Fase 1 + 2 + 6 — sesiones completas):
+  Día 1: Migration + Session model + Registry
+  Día 2: SessionRepository + SessionCacheSchema + Redis cache + Config flags
+  Día 3: create_session_and_tokens() + get_current_user session check
+  Día 4: GET /auth/sessions (metadata) + POST /sessions/{id}/revoke + device parser
+  Día 5: Tests Fase 1+2+6 + rollout
 
 Semana 2:
   Día 6-7: Fase 3 — RBAC runtime: require_permission() + Redis cache
-  Día 8-9: Fase 4 — ABAC: OwnershipChecker + inline checks replacement
+  Día 8-9: Fase 4 — ABAC: domain policies + inline checks replacement
 
 Semana 3:
-  Día 10-12: Fase 5 — Suspicious activity detection
-  Día 13:    Fase 6 — Session Management API UX
+  Día 10-12: Fase 5 — Suspicious activity detection (GeoIP + impossible travel)
 
 Semana 4:
-  Día 14:    Fase 7 — IP binding opcional
-  Día 15:    Fase 8 — Session cleanup worker
-  Día 16-17: Test pasada completa + hardening + rollout
+  Día 13:    Fase 7 — IP binding opcional
+  Día 14:    Fase 8 — Session cleanup worker
+  Día 15-17: Test pasada completa + hardening + rollout
 
 Paralelo (sin bloqueo):
   - Frontend: enviar device_name en login + mostrar sessions con metadata
 ```
 
 **Total estimado:** 17 días hábiles (no consecutivos)
+- **Valor entregado Semana 1:** sesiones funcionales + UX endpoints + device tracking
+- Se entrega Fase 1+2+6 como bloque cohesivo (no tiene sentido tener session table sin poder listarlas)
 
 ---
 
