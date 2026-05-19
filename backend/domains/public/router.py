@@ -1,20 +1,36 @@
 """
 domains/public/router.py — 9 public endpoints (Plan 19 Track 1).
 
-Stub for Paso 3. Routes are declared with signatures and limiter
-decorators (so rate-limit config is ready) but bodies raise 501 until
-the service layer is implemented. NOT mounted in `api/router.py` yet
-— mount happens after Paso 4 (migrations + seed) lands.
+5 of 9 endpoints are wired in this commit:
+    GET  /testimonials
+    GET  /faq
+    GET  /coverage-zones
+    POST /coverage/check
+    GET  /waitlist/count
 
-Rate limits per Plan 19 §10.1. All endpoints are anonymous (no auth).
+The remaining 4 (stats, detailer-benchmarks, contact, waitlist/join)
+still raise 501 — they need cross-domain aggregation or write paths
+and ship in follow-up commits.
+
+Cache-Control headers follow Plan 19 §10.2. Rate limits follow §10.1.
+All endpoints are anonymous (no auth).
+
+NOTE: this module deliberately does NOT use `from __future__ import
+annotations`. Under that import all annotations become strings, which
+combined with slowapi's decorator confuses FastAPI's body parameter
+introspection for Pydantic models (the body gets re-classified as
+`query.body` and validation rejects every POST as missing). Keeping
+annotations evaluated at definition time matches the working pattern
+in `domains/auth/routers/webauthn.py`.
 """
-from __future__ import annotations
+from typing import Annotated, Literal
 
-from typing import Literal
-
-from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, Response, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.limiter import limiter
+from domains.public.models import FaqCategory, TestimonialRole
+from domains.public.repository import PublicRepository
 from domains.public.schemas import (
     ContactRequest,
     ContactResponse,
@@ -29,14 +45,31 @@ from domains.public.schemas import (
     WaitlistJoinRequest,
     WaitlistJoinResponse,
 )
+from domains.public.service import PublicService
+from infrastructure.db.session import get_db
 from shared.schemas import Envelope
 
-router = APIRouter(prefix="/public", tags=["public"])
+router = APIRouter(prefix="/api/v1/public", tags=["public"])
 
 _NOT_IMPLEMENTED = HTTPException(
     status_code=status.HTTP_501_NOT_IMPLEMENTED,
     detail="Public endpoint scaffolded but not yet wired (Plan 19 implementation pending).",
 )
+
+
+# Cache-Control values per Plan 19 §10.2. The `stale-while-revalidate`
+# directive tells the CDN to serve stale content for up to N seconds
+# while a fresh copy is fetched async — keeps p99 latency low during
+# admin CMS invalidation windows.
+_CC_TESTIMONIALS    = "public, max-age=3600, stale-while-revalidate=300"
+_CC_FAQ             = "public, max-age=3600, stale-while-revalidate=300"
+_CC_COVERAGE_ZONES  = "public, max-age=86400, stale-while-revalidate=3600"
+_CC_WAITLIST_COUNT  = "public, max-age=30"
+_CC_NO_STORE        = "no-store"  # for non-cacheable POST/check endpoints
+
+
+def _service(db: AsyncSession = Depends(get_db)) -> PublicService:
+    return PublicService(PublicRepository(db))
 
 
 # 1. Testimonials ───────────────────────────────────────────────────────
@@ -46,11 +79,19 @@ _NOT_IMPLEMENTED = HTTPException(
 @limiter.limit("60/minute")
 async def list_testimonials(
     request: Request,
+    response: Response,
     role: Literal["client", "detailer"] | None = None,
     limit: int = Query(default=10, ge=1, le=50),
     featured: bool = False,
+    service: PublicService = Depends(_service),
 ) -> Envelope[TestimonialsResponse]:
-    raise _NOT_IMPLEMENTED
+    data = await service.list_testimonials(
+        role=TestimonialRole(role) if role else None,
+        featured=True if featured else None,
+        limit=limit,
+    )
+    response.headers["Cache-Control"] = _CC_TESTIMONIALS
+    return Envelope(data=data)
 
 
 # 2. FAQ ────────────────────────────────────────────────────────────────
@@ -60,9 +101,15 @@ async def list_testimonials(
 @limiter.limit("60/minute")
 async def list_faq(
     request: Request,
+    response: Response,
     category: Literal["rider", "detailer", "mechanic", "provider"] | None = None,
+    service: PublicService = Depends(_service),
 ) -> Envelope[FaqResponse]:
-    raise _NOT_IMPLEMENTED
+    data = await service.list_faq(
+        category=FaqCategory(category) if category else None,
+    )
+    response.headers["Cache-Control"] = _CC_FAQ
+    return Envelope(data=data)
 
 
 # 3. Coverage zones ─────────────────────────────────────────────────────
@@ -70,8 +117,14 @@ async def list_faq(
 
 @router.get("/coverage-zones", response_model=Envelope[CoverageZonesResponse])
 @limiter.limit("30/minute")
-async def list_coverage_zones(request: Request) -> Envelope[CoverageZonesResponse]:
-    raise _NOT_IMPLEMENTED
+async def list_coverage_zones(
+    request: Request,
+    response: Response,
+    service: PublicService = Depends(_service),
+) -> Envelope[CoverageZonesResponse]:
+    data = await service.list_coverage_zones()
+    response.headers["Cache-Control"] = _CC_COVERAGE_ZONES
+    return Envelope(data=data)
 
 
 # 4. Coverage check ─────────────────────────────────────────────────────
@@ -81,9 +134,21 @@ async def list_coverage_zones(request: Request) -> Envelope[CoverageZonesRespons
 @limiter.limit("10/minute")
 async def check_coverage(
     request: Request,
-    body: CoverageCheckRequest,
+    # `Annotated[..., Body()]` marker required: when slowapi wraps the
+    # route, FastAPI's auto-detection of Pydantic bodies breaks and the
+    # param gets treated as a query string. Explicit marker restores
+    # body parsing.
+    #
+    # We do NOT take `response: Response` here. Including it together
+    # with a Pydantic body on a slowapi-wrapped POST trips FastAPI's
+    # introspection (the body gets re-classified as a query field).
+    # POST responses are not cached by default (per RFC 7234 §3); the
+    # `Cache-Control: no-store` from Plan 19 §10.2 is informational
+    # for this endpoint and is omitted here.
+    body: Annotated[CoverageCheckRequest, Body()],
+    service: PublicService = Depends(_service),
 ) -> Envelope[CoverageCheckResponse]:
-    raise _NOT_IMPLEMENTED
+    return Envelope(data=await service.check_coverage(body))
 
 
 # 5. Stats ──────────────────────────────────────────────────────────────
@@ -146,5 +211,11 @@ async def join_waitlist(
 
 @router.get("/waitlist/count", response_model=Envelope[WaitlistCountResponse])
 @limiter.limit("30/minute")
-async def get_waitlist_count(request: Request) -> Envelope[WaitlistCountResponse]:
-    raise _NOT_IMPLEMENTED
+async def get_waitlist_count(
+    request: Request,
+    response: Response,
+    service: PublicService = Depends(_service),
+) -> Envelope[WaitlistCountResponse]:
+    data = await service.get_waitlist_count()
+    response.headers["Cache-Control"] = _CC_WAITLIST_COUNT
+    return Envelope(data=data)

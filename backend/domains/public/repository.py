@@ -1,20 +1,14 @@
 """
 domains/public/repository.py — Async SQL access for Plan 19 endpoints.
 
-Stub for Paso 3. Method signatures are fixed (the service layer +
-contract code can reference them once implemented) but each body raises
-NotImplementedError. Implementations land in Paso 4+ alongside seed
-data and end-to-end tests.
-
-Conventions (per AGENTS.md):
+Per AGENTS.md backend conventions:
   - Async SQLAlchemy 2.0 — `select()`, `await session.execute()`.
-  - Always filter `is_deleted = False`.
+  - Always filter `is_deleted = False` for soft-delete-aware tables.
   - Return domain models or typed results, never dicts.
 """
 from __future__ import annotations
 
-import uuid
-
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from domains.public.models import (
@@ -46,20 +40,64 @@ class PublicRepository:
         featured: bool | None = None,
         limit: int = 10,
     ) -> list[Testimonial]:
-        raise NotImplementedError
+        stmt = (
+            select(Testimonial)
+            .where(
+                Testimonial.is_deleted.is_(False),
+                Testimonial.is_active.is_(True),
+            )
+            .order_by(Testimonial.sort_order, Testimonial.created_at)
+            .limit(limit)
+        )
+        if role is not None:
+            stmt = stmt.where(Testimonial.role == role)
+        if featured is True:
+            stmt = stmt.where(Testimonial.featured.is_(True))
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
 
     # ── FAQ ───────────────────────────────────────────────────────
 
-    async def list_faq(self, *, category: FaqCategory | None = None) -> list[FaqItem]:
-        raise NotImplementedError
+    async def list_faq(
+        self,
+        *,
+        category: FaqCategory | None = None,
+    ) -> list[FaqItem]:
+        stmt = (
+            select(FaqItem)
+            .where(
+                FaqItem.is_deleted.is_(False),
+                FaqItem.is_active.is_(True),
+            )
+            .order_by(FaqItem.category, FaqItem.sort_order)
+        )
+        if category is not None:
+            stmt = stmt.where(FaqItem.category == category)
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
 
     # ── Coverage zones / ZIP lookup ───────────────────────────────
 
     async def list_coverage_zones(self) -> list[CoverageZone]:
-        raise NotImplementedError
+        stmt = (
+            select(CoverageZone)
+            .where(
+                CoverageZone.is_deleted.is_(False),
+                CoverageZone.is_active.is_(True),
+            )
+            .order_by(CoverageZone.sort_order)
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
 
     async def get_coverage_zip(self, zip_code: str) -> CoverageZip | None:
-        raise NotImplementedError
+        stmt = select(CoverageZip).where(
+            CoverageZip.zip == zip_code,
+            CoverageZip.is_deleted.is_(False),
+            CoverageZip.is_active.is_(True),
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
 
     # ── Aggregate stats ───────────────────────────────────────────
 
@@ -109,8 +147,18 @@ class PublicRepository:
         service layer translates to 409 Conflict."""
         raise NotImplementedError
 
-    async def count_waitlist_entries(self, role: WaitlistRole | None = None) -> int:
-        raise NotImplementedError
+    async def count_waitlist_entries(
+        self, role: WaitlistRole | None = None,
+    ) -> int:
+        stmt = (
+            select(func.count())
+            .select_from(WaitlistEntry)
+            .where(WaitlistEntry.is_deleted.is_(False))
+        )
+        if role is not None:
+            stmt = stmt.where(WaitlistEntry.role == role)
+        result = await self.session.execute(stmt)
+        return int(result.scalar_one())
 
     async def get_waitlist_entry_by_email(self, email: str) -> WaitlistEntry | None:
         raise NotImplementedError
