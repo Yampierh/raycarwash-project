@@ -13,8 +13,10 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Button from "../components/Button";
+import RoleSwitcher from "../components/RoleSwitcher";
 import { APP_CONFIG } from "../config/app.config";
 import { useMe } from "../hooks/useMe";
+import type { SwitchableRole } from "../services/active-role.service";
 import { Colors } from "../theme/colors";
 import { clearAuthTokens } from "../utils/storage";
 
@@ -181,6 +183,17 @@ export default function ProfileScreen({ navigation }: any) {
           </View>
         </View>
 
+        {/* Role switcher (Phase 6, ADR-003) — renders only when the
+            user holds >1 role. Hidden for single-role accounts. */}
+        {user && user.available_roles.length > 1 && (
+          <View style={styles.roleSwitcherWrapper}>
+            <RoleSwitcher
+              availableRoles={user.available_roles}
+              currentRole={(user.role as SwitchableRole) ?? "client"}
+            />
+          </View>
+        )}
+
         {/* Stats */}
         <View style={styles.statsRow}>
           <View style={styles.statItem}>
@@ -294,6 +307,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#0B0F1A50",
   },
   tagText: { fontSize: 11, fontWeight: "700" },
+  roleSwitcherWrapper: { marginHorizontal: 20, marginBottom: 16 },
   statsRow: {
     flexDirection: "row", backgroundColor: "#161E2E",
     marginHorizontal: 20, borderRadius: 20, paddingVertical: 18,

@@ -34,6 +34,7 @@ from domains.users.favorites_router    import router as user_favorites_router
 from domains.users.vehicle_photo_router import router as user_vehicle_photo_router
 from domains.users.client_preferences_router import router as user_client_preferences_router
 from domains.users.provider_profile_router import router as user_provider_profile_router
+from domains.users.active_role_router import router as user_active_role_router
 from domains.users.provider_portfolio_router import router as user_provider_portfolio_router
 from domains.users.provider_documents_router import router as user_provider_documents_router
 from domains.users.provider_verification_router import router as user_provider_verification_router
@@ -119,6 +120,9 @@ api_router.include_router(user_client_preferences_router)
 
 # Users — /api/v1/users/me/provider-profile + /provider-status (Phase 5 chunk Y2)
 api_router.include_router(user_provider_profile_router)
+
+# Users — /api/v1/users/me/active-role (master plan Phase 6, ADR-003)
+api_router.include_router(user_active_role_router)
 
 # Users — /api/v1/users/me/provider-portfolio (Phase 5 chunk Y3)
 api_router.include_router(user_provider_portfolio_router)

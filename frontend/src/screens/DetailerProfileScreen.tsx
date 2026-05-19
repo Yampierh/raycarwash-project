@@ -15,10 +15,12 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Button from "../components/Button";
+import RoleSwitcher from "../components/RoleSwitcher";
 import SectionHeader from "../components/SectionHeader";
 import { APP_CONFIG } from "../config/app.config";
 import { useAppNavigation } from "../hooks/useAppNavigation";
 import { useMe } from "../hooks/useMe";
+import type { SwitchableRole } from "../services/active-role.service";
 import { logout } from "../services/auth.service";
 import {
   getMyDetailerProfile,
@@ -152,6 +154,16 @@ export default function DetailerProfileScreen() {
           </View>
         </LinearGradient>
 
+        {/* Role switcher (Phase 6, ADR-003) — hidden for single-role users. */}
+        {meQuery.data && meQuery.data.data.user.available_roles.length > 1 && (
+          <View style={styles.roleSwitcherWrapper}>
+            <RoleSwitcher
+              availableRoles={meQuery.data.data.user.available_roles}
+              currentRole={(meQuery.data.data.user.role as SwitchableRole) ?? "detailer"}
+            />
+          </View>
+        )}
+
         {/* Stats */}
         <View style={styles.statsRow}>
           <View style={styles.statCell}>
@@ -246,6 +258,7 @@ const styles = StyleSheet.create({
   ratingRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   ratingValue: { fontSize: 18, fontWeight: "700", color: "#F1F5F9" },
   ratingReviews: { fontSize: 13, color: "#64748B" },
+  roleSwitcherWrapper: { marginBottom: 16 },
   statsRow: {
     flexDirection: "row", backgroundColor: "#1E293B", borderRadius: 16,
     paddingVertical: 18, marginBottom: 16, borderWidth: 1, borderColor: "#262F3F",
