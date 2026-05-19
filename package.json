@@ -7,9 +7,9 @@
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
     "dev:backend": "cd backend && cross-env ENV_FILE=backend/.env ./venv/Scripts/python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000",
     "dev:frontend": "npm start --prefix frontend",
-    "dev:marketing": "npm run dev --prefix marketing",
-    "dev:web": "npm run dev --prefix web",
-    "dev:all": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\" \"npm run dev:web\" \"npm run dev:marketing\""
+    "dev:admin": "npm run dev --prefix web/admin",
+    "dev:portal": "npm run dev --prefix web/portal",
+    "dev:all": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\" \"npm run dev:admin\" \"npm run dev:portal\""
   },
   "devDependencies": {
     "concurrently": "^9.2.1",

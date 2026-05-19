@@ -6,8 +6,8 @@ Mobile vehicle services marketplace (Fort Wayne, IN). Monorepo with no monorepo 
 |---|---|---|
 | `backend/` | FastAPI + PostgreSQL + Redis | `:8000` |
 | `frontend/` | React Native + Expo 54 | `:8081` |
-| `web/` | Next.js 16 admin dashboard | `:3000` |
-| `marketing/` | Next.js 16 + next-intl public site (WIP) | `:3001` |
+| `web/admin/` | Next.js 16 admin dashboard | `:3000` |
+| `web/portal/` | Next.js 16 + next-intl public site + provider portal | `:3001` |
 
 ---
 
@@ -18,8 +18,8 @@ npm run install          # npm deps for frontend + backend
 npm run install-deps     # python venv + pip install -r requirements.txt
 npm run dev              # backend + frontend concurrently
 npm run dev:backend      # uvicorn main:app --reload --host 0.0.0.0 --port 8000
-npm run dev:web          # Next.js admin
-npm run dev:marketing    # Next.js marketing on :3001
+npm run dev:admin        # Next.js admin on :3000
+npm run dev:portal       # Next.js portal on :3001
 
 cd backend
 python -m pytest tests/test_auth.py tests/test_appointments.py tests/test_user_flows.py tests/test_admin.py -q
@@ -117,7 +117,8 @@ JWT in query param (headers unavailable post-handshake). Frontend hook: `useAppo
 
 ## web/ workspace
 
-`web/AGENTS.md` warns: this Next.js version may differ from training data. **Read `node_modules/next/dist/docs/` before writing code there.**
+`web/admin/AGENTS.md` warns: this Next.js version may differ from training data. **Read `node_modules/next/dist/docs/` before writing code there.**  
+`web/portal/` is the public site + provider portal (no version warning — same Next.js 16).
 
 ---
 

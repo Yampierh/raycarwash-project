@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Provider Dashboard — RayCarWash</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+
+  <script>
+    // Bootstrap: relative subresources need the ?t= token from the parent URL
+    (function () {
+      var params = new URLSearchParams(location.search);
+      var t = params.get('t');
+      var tk = t ? ('?t=' + t) : '';
+
+      var cssFiles = ['src/styles.css', 'src/dashboard.css'];
+      cssFiles.forEach(function (c) {
+        var l = document.createElement('link');
+        l.rel = 'stylesheet';
+        l.href = c + tk;
+        document.head.appendChild(l);
+      });
+
+      window.__tk = tk;
+    })();
+  </script>
+</head>
+<body class="dash-body">
+  <div id="root"></div>
+
+  <script>
+    (function () {
+      var tk = window.__tk || '';
+
+      function addScript(src, type) {
+        return new Promise(function (res, rej) {
+          var s = document.createElement('script');
+          if (type) s.type = type;
+          s.src = src.indexOf('http') === 0 ? src : (src + tk);
+          s.onload = res;
+          s.onerror = function () { rej(new Error('Failed: ' + src)); };
+          document.body.appendChild(s);
+        });
+      }
+
+      async function boot() {
+        // Load React, ReactDOM, Babel from unpkg (no token needed)
+        await addScript('https://unpkg.com/react@18.3.1/umd/react.development.js');
+        await addScript('https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js');
+        await addScript('https://unpkg.com/@babel/standalone@7.29.0/babel.min.js');
+
+        // Add our babel JSX scripts (with token) to the DOM
+        var babelFiles = [
+          'src/tweaks-panel.jsx',
+          'src/icons.jsx',
+          'src/dash-icons.jsx',
+          'src/dash-data.jsx',
+          'src/dash-shell.jsx',
+          'src/dash-overview.jsx',
+          'src/dash-jobs.jsx',
+          'src/dash-schedule.jsx',
+          'src/dash-earnings.jsx',
+          'src/dash-customers.jsx',
+          'src/dash-reviews.jsx',
+          'src/dash-services.jsx',
+          'src/dash-app.jsx',
+        ];
+
+        // Fetch + inject inline so Babel can transform in order
+        for (var i = 0; i < babelFiles.length; i++) {
+          var f = babelFiles[i];
+          var resp = await fetch(f + tk);
+          var code = await resp.text();
+          var s = document.createElement('script');
+          s.type = 'text/babel';
+          s.dataset.presets = 'react';
+          s.textContent = code;
+          document.body.appendChild(s);
+        }
+
+        // Trigger Babel to transform inline scripts in DOM order
+        if (window.Babel && window.Babel.transformScriptTags) {
+          window.Babel.transformScriptTags();
+        }
+      }
+
+      boot().catch(function (e) {
+        console.error('Boot failed:', e);
+      });
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,402 @@
+/* ==========================================================
+   Mechanic page · additional styles
+   ========================================================== */
+
+/* ── Hero ──────────────────────────────────────────────────── */
+.mech-hero {
+  position: relative;
+  overflow: hidden;
+  border-bottom: 1px solid var(--ink-150);
+  background: linear-gradient(to bottom, var(--paper) 0%, var(--ink-50) 100%);
+}
+.mech-hero-inner {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 56px;
+  padding-top: 80px;
+  padding-bottom: 96px;
+  align-items: center;
+}
+@media (max-width: 900px) {
+  .mech-hero-inner { grid-template-columns: 1fr; padding-top: 48px; padding-bottom: 64px; }
+}
+
+.mech-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--ink-900);
+  color: white;
+  font-size: 12px;
+  font-weight: 600;
+  width: fit-content;
+}
+.mb-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--brand-2);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-2) 30%, transparent);
+  animation: pulse 1.6s infinite;
+}
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-2) 30%, transparent); }
+  50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--brand-2) 8%, transparent); }
+}
+.mech-h1 {
+  margin: 22px 0 0;
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: clamp(40px, 6vw, 76px);
+  line-height: 1.02;
+  letter-spacing: -0.035em;
+  font-weight: 700;
+  color: var(--ink-900);
+  text-wrap: balance;
+}
+.mech-sub {
+  margin: 22px 0 0;
+  max-width: 540px;
+  font-size: 17px;
+  line-height: 1.55;
+  color: var(--ink-500);
+}
+
+.waitlist-form {
+  margin-top: 36px;
+  display: flex;
+  gap: 8px;
+  max-width: 480px;
+}
+.waitlist-form.light .waitlist-input {
+  background: rgba(255,255,255,0.06);
+  border-color: rgba(255,255,255,0.15);
+  color: white;
+}
+.waitlist-form.light .waitlist-input::placeholder { color: var(--ink-400); }
+.waitlist-input {
+  flex: 1;
+  padding: 14px 18px;
+  border: 1px solid var(--ink-200);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: 14px;
+  background: white;
+  color: var(--ink-900);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.waitlist-input:focus {
+  outline: 0;
+  border-color: var(--ink-900);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink-900) 10%, transparent);
+}
+.waitlist-meta {
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--ink-500);
+}
+.waitlist-meta strong {
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 700;
+  color: var(--ink-900);
+}
+
+.mech-bullets {
+  margin-top: 28px;
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--ink-600);
+}
+.mech-bullets > div { display: flex; align-items: center; gap: 8px; }
+.mb-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  background: var(--brand);
+  color: white;
+}
+
+/* hero art (toolbox grid) */
+.mech-hero-art {
+  position: relative;
+  display: flex;
+  justify-content: center;
+}
+.toolbox-art { position: relative; width: 100%; max-width: 440px; }
+.ta-glow {
+  position: absolute;
+  inset: -40px;
+  background: radial-gradient(circle, color-mix(in srgb, var(--brand) 25%, transparent) 0%, transparent 60%);
+  filter: blur(40px);
+  z-index: 0;
+}
+.ta-grid {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 12px;
+  aspect-ratio: 1.4 / 1;
+}
+.ta-tile {
+  background: var(--ink-900);
+  border-radius: var(--radius-md);
+  color: var(--brand-2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px;
+  position: relative;
+  overflow: hidden;
+}
+.ta-tile.big {
+  grid-column: span 2;
+  grid-row: span 2;
+  background: linear-gradient(135deg, var(--ink-800), var(--ink-900) 60%);
+  color: white;
+}
+.ta-tile.big::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.05) 1px, transparent 0);
+  background-size: 12px 12px;
+}
+.ta-svg {
+  width: 60%;
+  height: auto;
+  max-width: 80px;
+  position: relative;
+  z-index: 1;
+}
+.ta-tile.big .ta-svg {
+  max-width: 140px;
+}
+.ta-lbl {
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--ink-300);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  position: relative;
+  z-index: 1;
+}
+.ta-tile.big .ta-lbl { font-size: 12px; color: var(--ink-200); }
+
+/* ── Services ─────────────────────────────────────────────── */
+.mech-svc-grid {
+  margin-top: 56px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+@media (max-width: 980px) { .mech-svc-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 540px) { .mech-svc-grid { grid-template-columns: 1fr; } }
+.mech-svc {
+  padding: 20px;
+  border: 1px solid var(--ink-150);
+  border-radius: var(--radius-md);
+  background: white;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.mech-svc:hover { border-color: var(--ink-300); box-shadow: var(--shadow-sm); }
+.mech-svc-head { display: flex; justify-content: space-between; align-items: baseline; }
+.mech-svc-name { font-size: 15px; font-weight: 600; color: var(--ink-900); }
+.mech-svc-price {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--brand);
+}
+.mech-svc-meta { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--ink-500); }
+.mech-svc-body { font-size: 13px; color: var(--ink-600); line-height: 1.5; margin-top: 4px; }
+
+.mech-svc-foot {
+  margin-top: 32px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 18px 24px;
+  border: 1px dashed var(--ink-200);
+  border-radius: var(--radius-sm);
+  background: white;
+  font-size: 14px;
+  color: var(--ink-600);
+}
+@media (max-width: 540px) {
+  .mech-svc-foot { flex-direction: column; gap: 8px; text-align: center; }
+}
+
+/* ── How it'll work ───────────────────────────────────────── */
+.mech-steps {
+  margin: 56px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  counter-reset: ms;
+}
+@media (max-width: 980px) { .mech-steps { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 540px) { .mech-steps { grid-template-columns: 1fr; } }
+.mech-steps li {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 24px;
+  background: var(--ink-50);
+  border: 1px solid var(--ink-150);
+  border-radius: var(--radius-md);
+}
+.ms-num {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--brand);
+  line-height: 1;
+}
+.ms-t { font-size: 16px; font-weight: 600; color: var(--ink-900); margin-top: 12px; }
+.ms-b { font-size: 13px; color: var(--ink-500); line-height: 1.5; margin-top: 4px; }
+
+/* ── Mech provider CTA ────────────────────────────────────── */
+.mech-prov-grid {
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 56px;
+  align-items: center;
+}
+@media (max-width: 900px) { .mech-prov-grid { grid-template-columns: 1fr; } }
+.mech-req {
+  margin: 24px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mech-req li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+  color: var(--ink-200);
+}
+
+.founders-card {
+  padding: 28px;
+  border: 1px solid var(--ink-700);
+  border-radius: var(--radius-lg);
+  background: rgba(255,255,255,0.03);
+  backdrop-filter: blur(8px);
+}
+.founders-tag {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--brand) 20%, transparent);
+  color: var(--brand-2);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 16px;
+}
+.founders-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 12px 0;
+  border-bottom: 1px dashed var(--ink-700);
+  font-size: 13px;
+}
+.founders-row:last-of-type { border-bottom: 0; }
+.founders-row.total { padding-top: 16px; }
+.fr-l { color: var(--ink-300); }
+.fr-v {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: white;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.fr-v s { color: var(--ink-400); font-size: 14px; font-weight: 500; }
+.fr-v strong { color: white; font-weight: 700; }
+.fr-v .accent { color: var(--brand-2); }
+
+/* ── Rollout / CTA ────────────────────────────────────────── */
+.mech-cta-card { background: var(--ink-900); }
+.rollout {
+  padding: 24px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: var(--radius-lg);
+  backdrop-filter: blur(8px);
+}
+.rollout-t {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--brand-2);
+  margin-bottom: 18px;
+}
+.rollout-row {
+  display: flex;
+  gap: 16px;
+  padding: 12px 0;
+  font-size: 13px;
+  color: var(--ink-400);
+  position: relative;
+  padding-left: 28px;
+  align-items: center;
+}
+.rollout-row::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid var(--ink-500);
+}
+.rollout-row::after {
+  content: "";
+  position: absolute;
+  left: 13px;
+  top: calc(50% + 6px);
+  width: 2px;
+  height: 22px;
+  background: var(--ink-700);
+}
+.rollout-row:last-child::after { display: none; }
+.rollout-row.done { color: var(--ink-200); }
+.rollout-row.done::before { background: var(--brand-2); border-color: var(--brand-2); }
+.rollout-row.active { color: white; font-weight: 600; }
+.rollout-row.active::before { background: white; border-color: var(--brand-2); box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-2) 30%, transparent); }
+.rr-q {
+  font-family: ui-monospace, monospace;
+  font-weight: 700;
+  color: inherit;
+  font-size: 12px;
+  min-width: 70px;
+}
+.rr-l { flex: 1; }

@@ -1,6 +1,6 @@
 # Documentation Index — RayCarWash
 
-> **Last updated:** 2026-05-17
+> **Last updated:** 2026-05-19
 > **Purpose:** Single entry point for all project documentation, plans, and audits.
 > **Convention:** Every new plan MUST register here before creation.
 
@@ -14,7 +14,7 @@
 | **Integration Plans** | [`docs/integration_plans/`](./integration_plans/) | Vertical product extensions (multi-profile, vehicles, mechanic) |
 | **Technical Audit** | [`docs/audit/`](./audit/) | ~60 findings across architecture, tests, infra, web, DB |
 | **Operational Plans** | [`docs/plans/`](./plans/) | CI/CD, infrastructure, observability, hardening |
-| **Reference Docs** | [`docs/`](./) | API, backend, frontend, marketing references + ADRs |
+| **Reference Docs** | [`docs/`](./) | API, backend, frontend, portal references + ADRs |
 
 ---
 
@@ -48,6 +48,19 @@ graph TD
         A -.->|P2/P3 diferidos| M
     end
 
+    subgraph Design_Driven_Plans
+        P09[09-provider-services] --> P10[10-auth-layer]
+        P10 --> P11[11-provider-dashboard]
+        P10 --> P13[13-customer-dashboard]
+        P12[12-marketing-redesign<br/>frontend done] --> P15[15-marketing-cms]
+        P12 --> P16[16-coverage-zip]
+        P12 --> P17[17-waitlist]
+        P11 --> P14[14-mechanic-vertical]
+        P15 -.-> P14
+        P17 -.-> P14
+        I4 --> P14
+    end
+
     style H fill:#ff4444,color:#fff,stroke:#cc0000
     style C fill:#ffaa00,color:#000
     style D fill:#ffaa00,color:#000
@@ -58,6 +71,15 @@ graph TD
     style I4 fill:#4488ff,color:#fff
     style I5 fill:#4488ff,color:#fff
     style M fill:#888888,color:#fff,stroke-dasharray: 5 5
+    style P09 fill:#10b981,color:#fff
+    style P10 fill:#10b981,color:#fff
+    style P11 fill:#10b981,color:#fff
+    style P12 fill:#fbbf24,color:#000
+    style P13 fill:#10b981,color:#fff
+    style P14 fill:#10b981,color:#fff
+    style P15 fill:#10b981,color:#fff
+    style P16 fill:#10b981,color:#fff
+    style P17 fill:#10b981,color:#fff
 ```
 
 ---
@@ -78,6 +100,13 @@ graph TD
 | `08-hardening.md` | :page_facing_up: Draft | **Critical** | — | — |
 | `09-provider-services-integration.md` | :hourglass: Planning | Medium | `plan.md` Phase 5 | — |
 | `10-authorization-layer.md` | :hourglass: Planning | High | `08-hardening.md` Phase 0 | `plan.md` Phase 6 |
+| `11-provider-dashboard.md` | :hourglass: Planning | High | `09-provider-services-integration.md`, `10-authorization-layer.md` | `15-marketing-content-cms.md` |
+| `12-marketing-redesign.md` | :white_check_mark: Phases 1-4 frontend complete | High | — | `11`, `15`, `16`, `17` |
+| `13-customer-dashboard.md` | :hourglass: Planning | High | `04-vehicles.md`, `11-provider-dashboard.md` | `15-marketing-content-cms.md` |
+| `14-mechanic-vertical.md` | :hourglass: Planning | Medium | `03-mechanic.md`, `09`, `11`, `15`, `17` | — |
+| `15-marketing-content-cms.md` | :hourglass: Planning | Medium | `12-marketing-redesign.md` | — |
+| `16-coverage-zip-service.md` | :hourglass: Planning | Medium-High | `infrastructure/h3` | `15-marketing-content-cms.md` |
+| `17-waitlist-system.md` | :hourglass: Planning | Medium | `infrastructure/email` | `15-marketing-content-cms.md` |
 
 ---
 
@@ -100,6 +129,12 @@ Cada hallazgo del audit se mapea al plan que lo resuelve:
 | `plan.md` Phase 6 | Active role switcher | `01-architecture` |
 | `01-profiles.md` (E1) | ProviderProfile 1:N refactor | `01-architecture` |
 | `10-authorization-layer.md` | Enforcement inconsistente (inline checks, falta `require_permission()`) | `01-architecture` (hallazgos de exploración) |
+| `11-provider-dashboard.md` | Backend gaps surfaced by design audit: earnings time-series, JobOffer/matching split, payouts, ledger, supplies, promo codes | Design source: `raycarwash/project/` dash-*.jsx (12 views) |
+| `13-customer-dashboard.md` | Backend gaps: composite home, vehicle stats, subscriptions, loyalty, referrals, favorites, receipt PDFs | Design source: `cdash.css` + HTML manifest |
+| `14-mechanic-vertical.md` | Service category split, parts catalog, ASE cert tracking, OBD-II diagnostics, warranty model | Design source: `mechanic.jsx` |
+| `15-marketing-content-cms.md` | Hardcoded testimonials/FAQ/coverage/stats — admin CMS for non-engineer edits | Design source: marketing i18n audit |
+| `16-coverage-zip-service.md` | No `service_zip_codes` table — Coverage.tsx uses hardcoded 5-ZIP allowlist | Design source: `Coverage.tsx` + `dash-schedule.jsx` zones |
+| `17-waitlist-system.md` | Mechanic/coverage waitlist forms only have client state, no persistence | Design source: `MechanicHero/CTA.tsx` + `Coverage.tsx` notify-me |
 
 > **Full mapping**: See [`docs/audit/06-cross-reference-and-standards.md`](./audit/06-cross-reference-and-standards.md) section 3
 

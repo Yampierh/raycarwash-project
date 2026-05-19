@@ -1,0 +1,1253 @@
+{
+  "meta": {
+    "title": "RayCarWash — Mobile car wash & detailing in Fort Wayne",
+    "description": "Book a trusted mobile car wash and detailing service that comes to you. Interior and exterior cleaning at your home or office, on your schedule.",
+    "ogAlt": "RayCarWash — mobile car wash and detailing"
+  },
+  "nav": {
+    "home": "Home",
+    "how": "How it works",
+    "services": "Services",
+    "about": "About",
+    "contact": "Contact",
+    "detailers": "For detailers",
+    "faq": "FAQ",
+    "coverage": "Coverage",
+    "login": "Log in",
+    "signup": "Sign up",
+    "logout": "Sign out",
+    "dashboard": "Dashboard",
+    "openApp": "Open app",
+    "getApp": "Get the app",
+    "audienceRiders": "Riders",
+    "audienceDetailers": "Detailers",
+    "pageRiders": "Riders",
+    "pageDetailers": "Detailers",
+    "pageMechanic": "Mechanic",
+    "newBadge": "new"
+  },
+  "hero": {
+    "kicker": "Mobile detailing · Fort Wayne, IN",
+    "h1Client": "A spotless car,",
+    "h1ClientAccent": "at your door.",
+    "h1Detailer": "Detail cars.",
+    "h1DetailerAccent": "Skip the office.",
+    "subClient": "Book a vetted detailer to your driveway in minutes. They bring water, power, and pro-grade products — you keep your day.",
+    "subDetailer": "Bring the skills. We bring the clients, the schedule, and the payouts straight to your bank.",
+    "ctaPrimary": "Download the app",
+    "ctaSecondary": "Become a detailer",
+    "ctaDetailerApply": "Apply to detail",
+    "ctaDetailerEarnings": "See earnings",
+    "downloadIos": "Download the app",
+    "downloadAndroid": "Get on Google Play",
+    "bulletsClient": [
+      "Vetted and insured pros",
+      "Flat-rate pricing, no surprises",
+      "Live ETA and before/after photos"
+    ],
+    "bulletsDetailer": [
+      "Set your own hours and service area",
+      "Get paid quickly after each job",
+      "Verified clients · no-shows tracked"
+    ],
+    "stepsClient": ["Book", "Detailer en route", "In progress", "Complete"],
+    "stepsDetailer": ["Job offered", "Today's schedule", "Earnings", "Profile"],
+    "appStoreAlt": "Download on the App Store",
+    "playStoreAlt": "Get it on Google Play"
+  },
+  "how": {
+    "kicker": "How it works",
+    "h2Client": "Simple. Fast. Done right.",
+    "h2Detailer": "Onboard quickly. Earn from your first job.",
+    "subClient": "From booking to a clean car, everything is built around your time.",
+    "subDetailer": "We handle the admin so you spend your hours on the work.",
+    "stepsClient": [
+      {
+        "title": "Book in seconds",
+        "body": "Pick a service, add your vehicle, choose a time. Get an instant flat quote."
+      },
+      {
+        "title": "We come to you",
+        "body": "A nearby vetted detailer is dispatched. Track them live in the app."
+      },
+      {
+        "title": "Work happens",
+        "body": "They bring water, power, and pro products. You don't lift a finger."
+      },
+      {
+        "title": "Pay & review",
+        "body": "Pay securely after the job. Rate your detailer in two taps."
+      }
+    ],
+    "stepsDetailer": [
+      {
+        "title": "Apply",
+        "body": "Tell us about your experience and the services you offer."
+      },
+      {
+        "title": "Verify",
+        "body": "Identity, background check, and portfolio review — all in-app."
+      },
+      {
+        "title": "Accept jobs",
+        "body": "Set your area. Get matched. Decline anything that doesn't fit."
+      },
+      {
+        "title": "Get paid",
+        "body": "Funds are released shortly after a job is marked complete."
+      }
+    ]
+  },
+  "trust": {
+    "items": [
+      {
+        "title": "Verified detailers",
+        "body": "Identity and background checks before any job."
+      },
+      {
+        "title": "Insured service",
+        "body": "Your vehicle is protected during every visit."
+      },
+      {
+        "title": "Satisfaction guarantee",
+        "body": "Not happy? We'll re-do it or refund."
+      }
+    ]
+  },
+  "coverage": {
+    "kicker": "Coverage",
+    "h2": "Live in Fort Wayne. Expanding fast.",
+    "sub": "We're operating across Fort Wayne and surrounding suburbs today. New neighborhoods are added as demand grows — request yours below.",
+    "areas": [
+      { "name": "Fort Wayne", "primary": true },
+      { "name": "Aboite" },
+      { "name": "Huntertown" },
+      { "name": "Leo-Cedarville" },
+      { "name": "New Haven" },
+      { "name": "Waynedale" }
+    ],
+    "hqLabel": "HQ",
+    "zipPlaceholder": "Your ZIP code",
+    "zipSubmit": "Check coverage",
+    "legendHq": "HQ",
+    "legendArea": "Service area",
+    "legendRadius": "Service radius"
+  },
+  "services": {
+    "kicker": "Services",
+    "h2": "Pick the level of clean.",
+    "sub": "Three core packages today, with add-ons for pet hair, headlight restoration, ceramic spray sealant and more inside the app.",
+    "fromLabel": "from",
+    "items": [
+      {
+        "name": "Exterior wash",
+        "price": "$49",
+        "duration": "45–60 min",
+        "features": [
+          "Hand wash & dry",
+          "Wheels and tires",
+          "Spray wax finish"
+        ]
+      },
+      {
+        "name": "Interior detail",
+        "price": "$89",
+        "duration": "1.5–2 hr",
+        "features": [
+          "Full vacuum",
+          "Steam-clean upholstery",
+          "Dashboard & door panels",
+          "Glass cleaning"
+        ]
+      },
+      {
+        "name": "Full detail",
+        "price": "$149",
+        "duration": "3–4 hr",
+        "features": [
+          "Everything in Exterior + Interior",
+          "Clay-bar decontamination",
+          "Tire dressing",
+          "Showroom-grade finish"
+        ]
+      }
+    ],
+    "footnote": "Prices shown are starting prices for sedan-class vehicles. Final quote is generated in the app based on vehicle size, condition, and selected add-ons."
+  },
+  "detailers": {
+    "kicker": "For detailers",
+    "h2": "Run your own detailing business — without the marketing.",
+    "sub": "Bring your skills. We bring the clients, the schedule, and the payouts.",
+    "earnLabel": "What detailers value",
+    "earnRows": [
+      { "lbl": "Steady job flow", "val": "Built-in pipeline" },
+      { "lbl": "Schedule control", "val": "Your hours" },
+      { "lbl": "Fast payouts", "val": "After each job" }
+    ],
+    "earnTag": "No cold calls. No marketing budget.",
+    "benefits": [
+      {
+        "title": "Own your schedule",
+        "body": "Accept or decline any job. Set your service area and your hours."
+      },
+      {
+        "title": "Quick payouts",
+        "body": "Funds go to your bank shortly after a job is marked complete."
+      },
+      {
+        "title": "Verified clients",
+        "body": "Every customer is identity-checked. No-shows are tracked."
+      },
+      {
+        "title": "Built-in tools",
+        "body": "Routing, before/after capture, and a payout ledger — all in one app."
+      }
+    ],
+    "cta": "Apply to detail",
+    "applyNote": "Quick application · We review every submission"
+  },
+  "testimonials": {
+    "kicker": "What people say",
+    "h2": "Loved by people who'd rather not drive to a car wash.",
+    "ratingSummary": "Highly rated by early customers",
+    "items": [
+      {
+        "quote": "Booked in the morning, the truck was in my driveway a couple hours later. Insanely convenient.",
+        "name": "Maria G.",
+        "city": "Fort Wayne, IN",
+        "rating": 5
+      },
+      {
+        "quote": "My detailer sent before/after photos through the app. Felt extremely legit.",
+        "name": "Derrick P.",
+        "city": "Aboite, IN",
+        "rating": 5
+      },
+      {
+        "quote": "Full detail on my truck — looks better than the day I bought it.",
+        "name": "Jonas R.",
+        "city": "New Haven, IN",
+        "rating": 5
+      },
+      {
+        "quote": "Pricing is transparent up front. No surprise upcharges.",
+        "name": "Anna L.",
+        "city": "Fort Wayne, IN",
+        "rating": 5
+      }
+    ]
+  },
+  "faq": {
+    "kicker": "FAQ",
+    "h2": "Questions, answered.",
+    "items": [
+      {
+        "q": "What area do you serve?",
+        "a": "Fort Wayne, IN and surrounding suburbs. We're expanding — let us know if you'd like service in your neighborhood."
+      },
+      {
+        "q": "Do detailers bring their own water and power?",
+        "a": "Yes. Every detailer arrives self-contained: water tanks, generators, and pro-grade products. You don't need to lift a finger."
+      },
+      {
+        "q": "How are detailers vetted?",
+        "a": "Every detailer goes through identity verification, background check, and portfolio review before accepting jobs."
+      },
+      {
+        "q": "Is my vehicle insured during service?",
+        "a": "Yes. Your vehicle is protected during every service against damage caused by the detailer."
+      },
+      {
+        "q": "How does payment work?",
+        "a": "You get a flat quote up front when you book. We authorize the card and only charge once the job is complete."
+      },
+      {
+        "q": "What if I'm not satisfied?",
+        "a": "Open a dispute in the app and our team will review it promptly. If the work doesn't meet the standard, we'll re-do it or refund you."
+      },
+      {
+        "q": "Can I tip my detailer?",
+        "a": "Absolutely — 100% of every tip goes to the detailer."
+      },
+      {
+        "q": "Do you offer recurring service?",
+        "a": "Yes. Save your vehicle and detailer to schedule weekly, bi-weekly, or monthly cleans with one tap."
+      }
+    ]
+  },
+  "contact": {
+    "kicker": "Get the app",
+    "h2Client": "Ready for a cleaner car?",
+    "h2Detailer": "Ready to start earning?",
+    "subClient": "Download RayCarWash and book your first detail in under two minutes.",
+    "subDetailer": "Apply in a few minutes. We review every submission.",
+    "applyCta": "Apply now",
+    "appStore": "App Store",
+    "playStore": "Google Play",
+    "email": "Questions? Email us at",
+    "heroPhotoLabel": "HERO PHOTO",
+    "beforeLabel": "BEFORE",
+    "afterLabel": "AFTER"
+  },
+  "footer": {
+    "tagline": "Mobile detailing, on demand.",
+    "sections": {
+      "product": "Product",
+      "company": "Company",
+      "legal": "Legal"
+    },
+    "links": {
+      "how": "How it works",
+      "services": "Services",
+      "about": "About",
+      "detailers": "Become a detailer",
+      "faq": "FAQ",
+      "login": "Login",
+      "contact": "Contact",
+      "privacy": "Privacy Policy",
+      "terms": "Terms of Service"
+    },
+    "copyright": "© {year} RayCarWash. All rights reserved."
+  },
+  "roleToggle": {
+    "client": "Client",
+    "provider": "Provider",
+    "signInAs": "Sign in as",
+    "signUpAs": "Sign up as",
+    "wrongRole": "This account isn't a {role}. Switch mode above or use a different account."
+  },
+  "login": {
+    "title": "Welcome back",
+    "sub": "Sign in to your RayCarWash account.",
+    "email": "Email",
+    "password": "Password",
+    "emailPlaceholder": "you@example.com",
+    "submit": "Sign in",
+    "submitting": "Signing in…",
+    "error": "Sign in failed. Check your credentials and try again.",
+    "noAccount": "Don't have an account yet?",
+    "signupCta": "Create one",
+    "continueGoogle": "Continue with Google",
+    "orDivider": "or"
+  },
+  "signup": {
+    "title": "Create your account",
+    "sub": "Free to join. Takes about a minute.",
+    "email": "Email",
+    "emailPlaceholder": "you@example.com",
+    "password": "Password",
+    "passwordHint": "At least 8 characters, including a number.",
+    "submit": "Continue",
+    "submitting": "Creating account…",
+    "error": "We couldn't create your account. Please try again.",
+    "haveAccount": "Already have an account?",
+    "loginCta": "Sign in",
+    "continueGoogle": "Continue with Google",
+    "orDivider": "or"
+  },
+  "signupRole": {
+    "title": "How will you use RayCarWash?",
+    "sub": "Pick the role that fits you. You can always add the other later.",
+    "client": {
+      "title": "I'm a client",
+      "body": "Book mobile detailers to come to your home or office."
+    },
+    "detailer": {
+      "title": "I want to be a detailer",
+      "body": "Get matched with clients, accept jobs, get paid the same day."
+    },
+    "continue": "Continue"
+  },
+  "onboarding": {
+    "title": "Tell us about you",
+    "sub": "A couple of details so detailers know who they're working with.",
+    "fullName": "Full name",
+    "fullNamePlaceholder": "Jane Doe",
+    "phone": "Phone number",
+    "phonePlaceholder": "+1 555 123 4567",
+    "submit": "Continue",
+    "submitting": "Saving…",
+    "error": "Couldn't save your profile. Please try again.",
+    "signingUpAs": "Signing up as {role}",
+    "roleClient": "client",
+    "roleDetailer": "detailer"
+  },
+  "detailerOnboarding": {
+    "title": "Become a RayCarWash detailer",
+    "sub": "Four quick steps and you're ready to accept jobs.",
+    "next": "Next",
+    "back": "Back",
+    "error": "Something went wrong. Please try again.",
+    "steps": {
+      "personal": "Personal info",
+      "kyc": "Verification",
+      "consent": "Consents",
+      "services": "Services"
+    },
+    "personal": {
+      "title": "Personal information",
+      "sub": "We use this to run a background check and pay you.",
+      "legalName": "Legal full name",
+      "dob": "Date of birth",
+      "address": "Street address",
+      "city": "City",
+      "state": "State",
+      "zip": "ZIP code"
+    },
+    "kyc": {
+      "title": "Identity verification",
+      "sub": "We verify every detailer to keep clients safe.",
+      "body": "Click below to start the verification. In development mode we skip the live Stripe Identity flow.",
+      "start": "Start verification",
+      "devBypassNotice": "Running in dev bypass mode — Stripe Identity skipped."
+    },
+    "consent": {
+      "title": "Consents",
+      "background": "I authorize a background check as part of my onboarding.",
+      "tos": "I agree to the RayCarWash Detailer Terms of Service."
+    },
+    "services": {
+      "title": "Choose your services",
+      "sub": "Toggle the services you want to offer. You can adjust prices later.",
+      "empty": "No services available yet. Continue and you'll be able to add them from the dashboard.",
+      "finish": "Finish onboarding"
+    },
+    "validation": {
+      "required": "Please fill in every field.",
+      "dob": "Use the YYYY-MM-DD date format.",
+      "zip": "Enter a valid 5-digit ZIP code.",
+      "consent": "Please accept both consents to continue.",
+      "atLeastOneService": "Pick at least one service to offer."
+    }
+  },
+  "about": {
+    "kicker": "About us",
+    "h1": "Mobile detailing, reimagined.",
+    "intro": "RayCarWash brings professional car care directly to your doorstep. We're transforming how people think about car maintenance — no more waiting in line at a wash bay or rearranging your schedule for a detailing appointment.",
+    "storyKicker": "Our story",
+    "storyH2": "Born from convenience",
+    "storyBody": [
+      "We started RayCarWash because we experienced the same frustration as everyone else: car care always seemed to require too much time and too many compromises. Whether it was finding someone to watch the kids while you waited at a wash, or blocking out half a day for a detail, traditional car care simply didn't fit modern life.",
+      "Our solution was simple: bring the detailer to the car. By connecting clients with vetted, independent detailers who bring everything needed to the client's location, we've eliminated the friction from car care — making it as easy as ordering a ride."
+    ],
+    "valuesKicker": "Our values",
+    "valuesH2": "What drives us",
+    "values": [
+      {
+        "title": "Convenience first",
+        "body": "Your time is valuable. We built our entire experience around fitting car care into your schedule, not the other way around."
+      },
+      {
+        "title": "Trust & safety",
+        "body": "Every detailer is background-checked and verified. Your property and vehicle are protected from day one."
+      },
+      {
+        "title": "Quality without compromise",
+        "body": "Professional-grade tools and products, delivered with the care you'd expect from seasoned experts."
+      }
+    ],
+    "ctaH2": "Ready for a cleaner car?",
+    "ctaSub": "Join thousands of satisfied customers across Fort Wayne.",
+    "ctaPrimary": "Download the app",
+    "ctaSecondary": "Become a detailer"
+  },
+  "app": {
+    "signOut": "Sign out",
+    "nav": {
+      "home": "Home",
+      "vehicles": "Vehicles",
+      "appointments": "Appointments",
+      "profile": "Profile",
+      "jobs": "Jobs",
+      "services": "Services",
+      "earnings": "Earnings"
+    }
+  },
+  "clientHome": {
+    "title": "Welcome back",
+    "greeting": "Hi {name}",
+    "sub": "Manage your bookings and vehicles.",
+    "with": "with",
+    "nextAppointment": "Next appointment",
+    "viewAll": "View all appointments",
+    "viewDetail": "View detail",
+    "stats": {
+      "upcoming": "Upcoming",
+      "vehicles": "Vehicles",
+      "completed": "Completed"
+    },
+    "status": {
+      "pending": "Pending",
+      "searching": "Searching detailer",
+      "confirmed": "Confirmed",
+      "arrived": "Detailer arrived",
+      "in_progress": "In progress",
+      "completed": "Completed",
+      "cancelled_by_client": "Cancelled",
+      "cancelled_by_detailer": "Cancelled by detailer",
+      "no_show": "No show",
+      "no_detailer_found": "No detailer found"
+    },
+    "placeholder": {
+      "title": "Book your next detail",
+      "body": "Booking from the web is coming soon. Meanwhile, open the mobile app to schedule your next detail.",
+      "cta": "Book now",
+      "comingSoon": "Coming soon on web"
+    }
+  },
+  "clientVehicles": {
+    "title": "Your vehicles",
+    "sub": "Manage the vehicles available for booking.",
+    "addVehicle": "Add vehicle",
+    "emptyTitle": "No vehicles yet",
+    "emptyBody": "Add your first vehicle so you can book a detail.",
+    "loadError": "Couldn't load your vehicles. Please retry.",
+    "edit": "Edit",
+    "delete": "Delete",
+    "confirmDelete": "Delete {label}? This can't be undone.",
+    "deleteError": "Couldn't delete the vehicle. Please try again."
+  },
+  "clientVehicleNew": {
+    "title": "Add a vehicle",
+    "sub": "Enter the details or look up by VIN to autofill.",
+    "back": "Back to vehicles",
+    "submit": "Add vehicle",
+    "submitting": "Adding…",
+    "error": "Couldn't save the vehicle."
+  },
+  "clientVehicleEdit": {
+    "title": "Edit vehicle",
+    "sub": "Update your vehicle details.",
+    "back": "Back to vehicles",
+    "submit": "Save changes",
+    "submitting": "Saving…",
+    "error": "Couldn't save the changes.",
+    "notFound": "Vehicle not found."
+  },
+  "vehicleForm": {
+    "vin": "VIN (17 chars)",
+    "vinHint": "Optional. Look it up to autofill make, model and year.",
+    "vinLength": "VIN must be exactly 17 characters.",
+    "vinLookupError": "Couldn't look up that VIN.",
+    "lookup": "Look up",
+    "make": "Make",
+    "model": "Model",
+    "year": "Year",
+    "bodyClass": "Body type",
+    "color": "Color",
+    "plate": "License plate"
+  },
+  "clientAppointments": {
+    "title": "Your appointments",
+    "sub": "Upcoming and past bookings.",
+    "book": "Book a detail",
+    "loadError": "Couldn't load your appointments.",
+    "emptyTitle": "No appointments yet",
+    "emptyBody": "When you book a detail it'll appear here.",
+    "noDetailerAssigned": "Searching for a detailer",
+    "vehicle": "Vehicle",
+    "estimate": "Estimate",
+    "final": "Final",
+    "status": {
+      "pending": "Pending",
+      "searching": "Searching",
+      "confirmed": "Confirmed",
+      "arrived": "Arrived",
+      "in_progress": "In progress",
+      "completed": "Completed",
+      "cancelled_by_client": "Cancelled",
+      "cancelled_by_detailer": "Cancelled by detailer",
+      "no_show": "No show",
+      "no_detailer_found": "No detailer found"
+    }
+  },
+  "book": {
+    "title": "Book a detail",
+    "sub": "Pick a service, a time, and a detailer near you.",
+    "back": "Back to home",
+    "backStep": "Back",
+    "next": "Next",
+    "startingAt": "Starting at",
+    "findMatches": "Find available detailers",
+    "matchError": "Couldn't find matching detailers. Try a different date or address.",
+    "confirmAndPay": "Confirm & reserve funds",
+    "authNotice": "We'll authorize the funds now and hold them until your job is completed. The detailer is paid only after marking the service done.",
+    "confirmError": "Couldn't create the booking. Please try again.",
+    "slotTaken": "That time was just taken. We refreshed the available slots — pick another time.",
+    "availableSlots": "Available times",
+    "date": "Date",
+    "address": "Service address",
+    "addressPlaceholder": "Street, City, State ZIP",
+    "locationHint": "Using your current location ({lat}, {lng}) to find nearby detailers.",
+    "notes": "Notes for the detailer (optional)",
+    "notesPlaceholder": "Anything they should know before arriving?",
+    "steps": {
+      "service": "Service & vehicles",
+      "vehicles": "Pick vehicles",
+      "addons": "Add-ons (optional)",
+      "date": "Date & address",
+      "address": "Service address",
+      "match": "Pick detailer",
+      "pay": "Pay"
+    },
+    "noVehicles": {
+      "title": "No vehicles yet",
+      "body": "Add a vehicle first so we can match it to the right service.",
+      "action": "Add vehicle"
+    },
+    "noMatches": {
+      "title": "No detailers available",
+      "body": "Try a different date or expand your area."
+    },
+    "summary": {
+      "title": "Summary",
+      "service": "Service",
+      "vehicles": "Vehicles",
+      "vehiclesCount": "{count, plural, one {# vehicle} other {# vehicles}}",
+      "when": "When",
+      "detailer": "Detailer",
+      "address": "Address"
+    }
+  },
+  "checkout": {
+    "missingKey": "Stripe is not configured. Set NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY to enable payments.",
+    "securedByStripe": "Payments secured by Stripe.",
+    "pay": "Pay {amount}",
+    "error": "Payment failed. Please check your card details and try again."
+  },
+  "clientAppointmentDetail": {
+    "title": "Appointment",
+    "back": "Back to appointments",
+    "backToHome": "Back to home",
+    "loadError": "Couldn't load this appointment.",
+    "pendingBanner": {
+      "title": "Funds reserved — waiting for detailer to confirm",
+      "body": "We've authorized your card and we're holding the funds for this job. The detailer will accept your booking shortly. You'll only be charged once they mark the service as completed."
+    },
+    "scheduled": "Scheduled for",
+    "detailer": "Detailer",
+    "searching": "Searching for a detailer",
+    "address": "Service address",
+    "vehicles": "Vehicles",
+    "vehicle": "Vehicle",
+    "yourNotes": "Your notes",
+    "detailerNotes": "Detailer notes",
+    "estimatedPrice": "Estimated price",
+    "finalPrice": "Final price",
+    "cancel": "Cancel appointment",
+    "confirmCancel": "Cancel this appointment? Refunds depend on the cancellation policy.",
+    "cancelError": "Couldn't cancel the appointment.",
+    "review": {
+      "title": "Leave a review",
+      "sub": "How did your detailer do?",
+      "starLabel": "{n} star rating",
+      "commentPlaceholder": "What stood out about the service? (optional)",
+      "submit": "Submit review",
+      "thanks": "Thanks for your feedback!"
+    },
+    "reviewError": "Couldn't submit your review.",
+    "status": {
+      "pending": "Pending",
+      "searching": "Searching",
+      "confirmed": "Confirmed",
+      "arrived": "Detailer arrived",
+      "in_progress": "In progress",
+      "completed": "Completed",
+      "cancelled_by_client": "Cancelled",
+      "cancelled_by_detailer": "Cancelled by detailer",
+      "no_show": "No show",
+      "no_detailer_found": "No detailer found"
+    }
+  },
+  "clientProfile": {
+    "title": "Your profile",
+    "sub": "Update your contact info.",
+    "email": "Email",
+    "fullName": "Full name",
+    "phone": "Phone",
+    "save": "Save changes",
+    "saving": "Saving…",
+    "saved": "Profile updated.",
+    "signOut": "Sign out",
+    "error": "Couldn't update your profile."
+  },
+  "detailerHome": {
+    "title": "Your jobs",
+    "greeting": "Hi {name}",
+    "sub": "Manage incoming bookings and track your earnings.",
+    "accepting": "Accepting jobs",
+    "paused": "Paused",
+    "loadError": "Couldn't update your status. Please try again.",
+    "activeJobs": "Active jobs",
+    "countJobs": "{count, plural, one {# job} other {# jobs}}",
+    "noRating": "No rating yet",
+    "client": "Client",
+    "stats": {
+      "jobs": "Jobs done",
+      "earnings": "Total earnings",
+      "rating": "Rating"
+    },
+    "status": {
+      "pending": "Pending",
+      "searching": "Searching",
+      "confirmed": "Confirmed",
+      "arrived": "Arrived",
+      "in_progress": "In progress",
+      "completed": "Completed",
+      "cancelled_by_client": "Cancelled by client",
+      "cancelled_by_detailer": "Cancelled",
+      "no_show": "No show",
+      "no_detailer_found": "No detailer found"
+    },
+    "verifyPending": {
+      "title": "Verification under review",
+      "body": "We're reviewing your application. We'll notify you as soon as it's approved."
+    },
+    "verifyRejected": {
+      "title": "Verification not approved",
+      "body": "Please contact support to resolve this."
+    },
+    "emptyJobs": {
+      "title": "No active jobs",
+      "body": "When a client books with you, the request will appear here."
+    }
+  },
+  "detailerJob": {
+    "title": "Job detail",
+    "back": "Back to jobs",
+    "backToJobs": "Back to jobs",
+    "loadError": "Couldn't load this job.",
+    "error": "Couldn't update the job. Please try again.",
+    "scheduled": "Scheduled for",
+    "client": "Client",
+    "phone": "Phone",
+    "address": "Service address",
+    "vehicles": "Vehicles",
+    "vehicle": "Vehicle",
+    "clientNotes": "Client notes",
+    "estimatedPrice": "Estimated price",
+    "finalPrice": "Final price",
+    "completionNotes": "Completion notes",
+    "completionNotesPlaceholder": "Anything the client should know about the job?",
+    "cancelPrompt": "Why are you cancelling this job? (optional)",
+    "actions": {
+      "confirm": "Confirm booking",
+      "markArrived": "I've arrived",
+      "start": "Start service",
+      "complete": "Mark complete",
+      "cancel": "Cancel job"
+    },
+    "status": {
+      "pending": "Pending",
+      "searching": "Searching",
+      "confirmed": "Confirmed",
+      "arrived": "Arrived",
+      "in_progress": "In progress",
+      "completed": "Completed",
+      "cancelled_by_client": "Cancelled by client",
+      "cancelled_by_detailer": "Cancelled",
+      "no_show": "No show",
+      "no_detailer_found": "No detailer found"
+    }
+  },
+  "detailerServices": {
+    "title": "Your services",
+    "sub": "Toggle the services you offer and set custom pricing.",
+    "loadError": "Couldn't load services.",
+    "emptyTitle": "No services available",
+    "emptyBody": "Once the platform adds services, you'll be able to enable them here.",
+    "basePrice": "Base",
+    "yourPrice": "Your price",
+    "editPrice": "Edit price",
+    "priceInvalid": "Enter a valid price greater than $0.",
+    "error": "Couldn't save the change."
+  },
+  "detailerProfile": {
+    "title": "Your profile",
+    "sub": "Update how you appear to clients.",
+    "bio": "Bio",
+    "bioPlaceholder": "Tell clients a bit about your experience and what makes your work stand out.",
+    "years": "Years of experience",
+    "radius": "Service radius (miles)",
+    "radiusHint": "How far from your base you're willing to travel.",
+    "memberSince": "Member since {date}",
+    "save": "Save changes",
+    "saving": "Saving…",
+    "saved": "Profile updated.",
+    "signOut": "Sign out",
+    "error": "Couldn't save your profile."
+  },
+  "detailerEarnings": {
+    "title": "Earnings",
+    "sub": "Your total earnings and completed jobs.",
+    "history": "Recent jobs",
+    "client": "Client",
+    "emptyTitle": "No completed jobs yet",
+    "emptyBody": "Once you complete your first job, your earnings will show up here.",
+    "stats": {
+      "total": "Total",
+      "jobs": "Completed jobs",
+      "average": "Avg. per job"
+    }
+  },
+  "welcome": {
+    "title": "You're signed in.",
+    "sub": "RayCarWash is mobile-first. Open the app on your phone to book a detail, manage your vehicles, or accept jobs.",
+    "openApp": "Open the mobile app",
+    "signOut": "Sign out"
+  },
+  "legal": {
+    "privacy": {
+      "title": "Privacy Policy",
+      "lastUpdated": "Last updated",
+      "intro": "This is a placeholder privacy policy. Replace this content with your real policy before going to production."
+    },
+    "terms": {
+      "title": "Terms of Service",
+      "lastUpdated": "Last updated",
+      "intro": "This is a placeholder Terms of Service. Replace this content with your real terms before going to production."
+    }
+  },
+  "notFound": {
+    "title": "Page not found",
+    "sub": "The page you were looking for doesn't exist or has been moved.",
+    "back": "Back to home"
+  },
+  "ridersPage": {
+    "meta": {
+      "title": "RayCarWash for riders — Mobile detailing at your door",
+      "description": "Book a vetted mobile detailer to your home or office in minutes. Track live arrival, see before/after photos, pay flat-rate."
+    },
+    "navBrandSub": "/ riders",
+    "navLinks": {
+      "how": "How it works",
+      "services": "Services",
+      "safety": "Safety",
+      "reviews": "Reviews",
+      "faq": "FAQ"
+    },
+    "hero": {
+      "kicker": "For riders · Fort Wayne, IN",
+      "h1": "Your driveway.",
+      "h1Accent": "Their pro tools.",
+      "sub": "Book a vetted mobile detailer to your home or office in minutes. Track them in real time, see before/after photos, pay flat-rate from your couch.",
+      "ctaIos": "Download the app",
+      "ctaAndroid": "Get on Google Play",
+      "quickRows": [
+        {
+          "t": "Book in minutes",
+          "b": "From service to payment in a few taps."
+        },
+        {
+          "t": "Insured every wash",
+          "b": "Your vehicle is protected during the service."
+        },
+        {
+          "t": "No surprise charges",
+          "b": "Flat quote up front. Pay only after the job is done."
+        }
+      ],
+      "credit": "Trusted by riders across Fort Wayne"
+    },
+    "journey": {
+      "kicker": "How a booking works",
+      "h2": "From dirty to spotless in four taps.",
+      "sub": "Pick a step — see what happens on your phone and what happens in your driveway.",
+      "steps": [
+        {
+          "kicker": "Step 1",
+          "title": "Pick a service",
+          "body": "Choose Exterior, Interior, or Full detail. Add your vehicle, choose add-ons. Get an instant flat quote before you commit.",
+          "tags": ["Flat quote", "Add-ons", "Vehicle profile"]
+        },
+        {
+          "kicker": "Step 2",
+          "title": "Choose a time",
+          "body": "Pick from available slots in your neighborhood. We only show times that nearby detailers can actually work.",
+          "tags": ["Same day", "Weekends OK", "Recurring"]
+        },
+        {
+          "kicker": "Step 3",
+          "title": "Watch them arrive",
+          "body": "Once a detailer accepts, you see their profile, their truck, and a live ETA on the map.",
+          "tags": ["Live ETA", "Profile + photos", "Chat"]
+        },
+        {
+          "kicker": "Step 4",
+          "title": "Pay & rate",
+          "body": "Card is charged only after the job is marked complete. Tip in-app, rate the work, save your detailer for next time.",
+          "tags": ["Pay on completion", "Save detailer", "Tip"]
+        }
+      ],
+      "next": "Next step",
+      "restart": "Restart"
+    },
+    "compare": {
+      "kicker": "Services",
+      "h2": "Pick the level of clean.",
+      "sub": "Three core packages, plus add-ons for the specifics. Final quote depends on vehicle size and condition.",
+      "bookCta": "Book",
+      "fromLabel": "from",
+      "services": [
+        {
+          "name": "Exterior wash",
+          "price": "$49",
+          "duration": "45–60 min",
+          "tag": "Quick clean"
+        },
+        {
+          "name": "Interior detail",
+          "price": "$89",
+          "duration": "1.5–2 hr",
+          "tag": "Inside-out"
+        },
+        {
+          "name": "Full detail",
+          "price": "$149",
+          "duration": "3–4 hr",
+          "tag": "Most popular"
+        }
+      ],
+      "rows": [
+        { "label": "Hand wash & dry", "values": [true, false, true] },
+        { "label": "Wheels & tires", "values": [true, false, true] },
+        { "label": "Spray wax finish", "values": [true, false, true] },
+        { "label": "Vacuum & wipe-down", "values": [false, true, true] },
+        { "label": "Steam-clean upholstery", "values": [false, true, true] },
+        { "label": "Dashboard & door panels", "values": [false, true, true] },
+        { "label": "Clay-bar decontamination", "values": [false, false, true] },
+        { "label": "Tire dressing", "values": [false, false, true] }
+      ],
+      "addonsKicker": "Add-ons",
+      "addonsTitle": "Tack any of these onto your service.",
+      "addons": [
+        { "name": "Pet hair removal", "price": "+$25" },
+        { "name": "Headlight restoration", "price": "+$40" },
+        { "name": "Ceramic spray sealant", "price": "+$60" },
+        { "name": "Engine bay cleaning", "price": "+$35" },
+        { "name": "Odor neutralizer", "price": "+$20" },
+        { "name": "Leather conditioning", "price": "+$35" }
+      ]
+    },
+    "safety": {
+      "kicker": "Trust & safety",
+      "h2": "Four checks before they touch your car.",
+      "sub": "Every detailer must clear all four. If anyone shows up who shouldn't be there, tell us — they're off the platform.",
+      "pillars": [
+        {
+          "step": "01",
+          "title": "Identity verified",
+          "body": "We verify government ID and confirm the person matches before approval.",
+          "meta": "Required for every detailer"
+        },
+        {
+          "step": "02",
+          "title": "Background checked",
+          "body": "Criminal background check before activation, with periodic re-screening for active providers.",
+          "meta": "All active detailers"
+        },
+        {
+          "step": "03",
+          "title": "Insured every job",
+          "body": "Insurance coverage protects against damage caused by a detailer during your service.",
+          "meta": "Covered per visit"
+        },
+        {
+          "step": "04",
+          "title": "Documented work",
+          "body": "Detailers capture before/after photos. Auto-attached to your receipt and dispute audit trail.",
+          "meta": "Photos every job"
+        }
+      ],
+      "dispute": {
+        "kicker": "Something went wrong?",
+        "h3": "Open a dispute. We re-do or refund.",
+        "body": "Open a dispute in the app and our team reviews it promptly. Most cases settle with a free re-service. The photo audit trail keeps everyone honest.",
+        "policyCta": "See our policy",
+        "stats": [
+          { "n": "Fast", "l": "dispute resolution" },
+          { "n": "$0", "l": "cost to you for re-service" },
+          { "n": "Trusted", "l": "long-term detailer roster" }
+        ]
+      }
+    },
+    "reviewsWall": {
+      "kicker": "Reviews",
+      "h2": "Loved by people who'd rather not drive to a car wash.",
+      "summary": "Highly rated by early customers",
+      "items": [
+        { "quote": "Booked in the morning, the truck was in my driveway a couple hours later. Insanely convenient.", "name": "Maria G.", "city": "Fort Wayne, IN", "size": "lg" },
+        { "quote": "My detailer sent before/after photos through the app. Felt extremely legit.", "name": "Derrick P.", "city": "Aboite, IN", "size": "md" },
+        { "quote": "Full detail on my truck — looks better than the day I bought it.", "name": "Jonas R.", "city": "New Haven, IN", "size": "md" },
+        { "quote": "Pricing is transparent up front. No surprise upcharges.", "name": "Anna L.", "city": "Fort Wayne, IN", "size": "sm" },
+        { "quote": "Set up a monthly recurring detail in 30 seconds. My car is permanently clean now.", "name": "Sarah K.", "city": "Huntertown, IN", "size": "md" },
+        { "quote": "Detailer arrived with everything he needed. Zero hassle from me.", "name": "Mike D.", "city": "Leo-Cedarville, IN", "size": "sm" },
+        { "quote": "I had a coffee stain I thought would never come out. It did. The steam cleaning is real.", "name": "Priya N.", "city": "Fort Wayne, IN", "size": "lg" },
+        { "quote": "Cancelled last minute. Full refund, no questions.", "name": "Tomás A.", "city": "Aboite, IN", "size": "sm" }
+      ]
+    },
+    "faq": {
+      "kicker": "FAQ",
+      "h2": "Rider questions.",
+      "items": [
+        { "q": "How much does a typical wash cost?", "a": "Exterior washes start at $49, interior details at $89, full details at $149. Final price depends on vehicle size, condition, and any add-ons. You always see a flat quote before you book." },
+        { "q": "Do I need to be home during the service?", "a": "Nope. Plenty of customers leave the keys or have us work while they're at the office. We'll send photos and a notification when it's done." },
+        { "q": "How long does a detail take?", "a": "Exterior wash: 45–60 minutes. Interior detail: 1.5–2 hours. Full detail: 3–4 hours. Add-ons extend by 20–40 minutes each." },
+        { "q": "Do detailers bring water and power?", "a": "Yes. Every detailer arrives self-contained with water tanks, generators, and pro-grade products." },
+        { "q": "What happens if it rains?", "a": "We'll reach out before the appointment to either reschedule for free or proceed if you're OK with that. Indoor parking? Service goes ahead as planned." },
+        { "q": "Can I tip in the app?", "a": "Yes. After the job, you can add a tip in any amount. 100% goes to the detailer." },
+        { "q": "How do recurring bookings work?", "a": "After your first detail, you can save the detailer and book recurring weekly, bi-weekly, or monthly cleans with one tap." },
+        { "q": "Is my data and payment info safe?", "a": "Yes. Payments are processed by a PCI-compliant payment provider. We never store your card number. Your address is shared with the detailer only after they accept the job." }
+      ]
+    },
+    "cta": {
+      "kicker": "Get the app",
+      "h2": "Ready for a cleaner car?",
+      "sub": "Download RayCarWash and book your first detail in under two minutes. Free to download, only pay for the service you book.",
+      "appStore": "App Store",
+      "playStore": "Google Play",
+      "footnotes": ["Free to download", "No subscription", "Cancel any booking free 24h+ out"],
+      "qrTitle": "Scan to download",
+      "qrBody": "Open your camera, point it at the code, tap the link."
+    }
+  },
+  "detailersPage": {
+    "meta": {
+      "title": "Detail with RayCarWash — Earn doing what you love",
+      "description": "Plug into a steady flow of vetted clients, set your own schedule, and get paid quickly after each job."
+    },
+    "navBrandSub": "/ detailers",
+    "navLinks": {
+      "earnings": "Earnings",
+      "week": "A week",
+      "tools": "Tools",
+      "requirements": "Requirements",
+      "faq": "FAQ"
+    },
+    "hero": {
+      "kicker": "Detail with RayCarWash · Fort Wayne, IN",
+      "h1": "Your hands.",
+      "h1Accent": "Our pipeline.",
+      "sub": "Stop spending Sundays running ads. Plug into a steady flow of vetted clients, set your own schedule, and get paid after the job is done.",
+      "ctaApply": "Start application",
+      "ctaEarnings": "See earnings",
+      "trustStrip": [
+        { "v": "Quick", "l": "average application" },
+        { "v": "Reviewed", "l": "by our team" },
+        { "v": "Fast", "l": "payouts to bank" }
+      ],
+      "previewTitle": "What a strong week looks like",
+      "previewSub": "Sample numbers for a busy week",
+      "previewRows": [
+        { "l": "Jobs completed", "v": "Up to you" },
+        { "l": "Avg per job", "v": "From $49" },
+        { "l": "Tips", "v": "100% yours" }
+      ],
+      "previewChips": [
+        "Highly rated",
+        "Repeat clients",
+        "Reliable pipeline"
+      ]
+    },
+    "calc": {
+      "kicker": "Earnings calculator",
+      "h2": "See what your week looks like.",
+      "sub": "Drag the sliders. We do the math — including our platform fee, so the take-home is already net.",
+      "jobsLabel": "Jobs per week",
+      "avgLabel": "Average ticket",
+      "daysLabel": "Days worked",
+      "daysWeek": "{n} / week",
+      "fineprint": "Platform fee covers payment processing, insurance, dispatch, customer support, and marketing.",
+      "bigLbl": "Net per week",
+      "bigSub": "Take-home · after platform fee",
+      "metaGross": "Gross weekly",
+      "metaPerDay": "Per day",
+      "metaMonthly": "Monthly",
+      "metaYearly": "Yearly",
+      "feeLabel": "Platform fee"
+    },
+    "week": {
+      "kicker": "A sample week",
+      "h2": "A typical busy week.",
+      "sub": "Sample schedule. Two days off. Plenty of variety.",
+      "totalLbl": "Week total",
+      "totalSub": "{jobs} jobs · {days} days worked",
+      "offTag": "Off",
+      "offMeta": "Family · errands"
+    },
+    "tools": {
+      "kicker": "Tools you get",
+      "h2": "Built by people who've held a clay bar.",
+      "sub": "The detailer app isn't a re-skin of the rider app. It's a separate workflow built for the work.",
+      "items": [
+        { "title": "Smart job dispatcher", "body": "Get matched only to jobs in your service area and price range. Auto-decline filters keep junk off your screen." },
+        { "title": "Route + day planner", "body": "See every job for the day on one map. We optimize the order so you spend less time driving and more time billing." },
+        { "title": "Before/after capture", "body": "Snap photos as you work. We attach them to the receipt and the dispute audit trail." }
+      ]
+    },
+    "requirements": {
+      "kicker": "Requirements",
+      "h2": "What you'll need to get started.",
+      "sub": "We maintain high standards so every client experience is consistent. Here's the minimum bar.",
+      "items": [
+        "Own vehicle with cargo space for equipment",
+        "Pro-grade detailing tools and products",
+        "Smartphone with data plan",
+        "Valid driver's license & auto insurance",
+        "Pass background check + identity verification",
+        "Bank account for payouts"
+      ],
+      "stepsKicker": "How to start",
+      "stepsH3": "Four steps to your first paycheck.",
+      "steps": [
+        { "t": "Apply", "b": "Tell us about your experience, your gear, and the services you offer." },
+        { "t": "Verify", "b": "Identity verification + background check. We review every submission." },
+        { "t": "Setup", "b": "Set your service area, hours, and per-service prices. We provide starting templates." },
+        { "t": "Earn", "b": "Jobs route to you automatically. Get paid after you complete each one." }
+      ]
+    },
+    "testimonials": {
+      "kicker": "From detailers",
+      "h2": "People who'd never go back.",
+      "items": [
+        { "quote": "I left my dealership job. By a few months in I was making more, and I'm home for dinner every night.", "name": "Marcus T.", "meta": "Detailer · Highly rated" },
+        { "quote": "The app routes me to jobs I would have spent days finding on Facebook. I just show up and work.", "name": "Trey W.", "meta": "Detailer · Highly rated" },
+        { "quote": "Quick payouts changed everything. I don't have to wait two weeks for an invoice to clear.", "name": "Jamal R.", "meta": "Detailer · Highly rated" }
+      ]
+    },
+    "faq": {
+      "kicker": "FAQ",
+      "h2": "Detailer questions, answered.",
+      "items": [
+        { "q": "How much does it really cost to join?", "a": "Nothing up front. We deduct a platform fee from each completed job — that covers payment processing, insurance coverage during service, dispatch, support, and marketing. You keep the rest, including 100% of tips." },
+        { "q": "Do I need to be a full-time detailer?", "a": "No. A portion of our detailers work part-time or weekends only. Set your hours and we'll route jobs to fit." },
+        { "q": "Can I bring my existing clients?", "a": "Yes. We have a referral code system — anyone you refer who books through the app gets a discount and you get a bonus on top of your usual cut." },
+        { "q": "What about insurance?", "a": "We carry commercial general liability that covers damage caused by you during a service. Your personal auto policy still covers transit. We recommend you also carry your own business liability." },
+        { "q": "How fast do I actually get paid?", "a": "Funds initiate transfer after the job is marked complete. Most banks post within a few business days; faster options may be available." },
+        { "q": "Can I decline jobs?", "a": "Always. Decline rate doesn't affect your standing as long as you don't ghost. The app shows you the full job details before you accept." },
+        { "q": "What happens if a customer disputes the work?", "a": "We use the before/after photos you captured, the timeline of the job, and the customer's complaint. Most disputes are resolved with a re-service rather than a refund." }
+      ]
+    },
+    "cta": {
+      "kicker": "Become a detailer",
+      "h2": "Ready to apply?",
+      "sub": "It takes about 4 minutes. We review every submission and follow up promptly.",
+      "ctaApply": "Start application",
+      "ctaBack": "Back to home",
+      "footnotes": ["No upfront cost", "Cancel anytime", "Keep 100% of tips"],
+      "previewTitle": "Application progress",
+      "previewSteps": [
+        { "label": "Personal info", "state": "done" },
+        { "label": "Identity verification", "state": "done" },
+        { "label": "Services & pricing", "state": "active" },
+        { "label": "Service area", "state": "pending" }
+      ],
+      "previewMeta": "Quick and guided"
+    }
+  },
+  "mechanicPage": {
+    "meta": {
+      "title": "Mobile mechanic by RayCarWash — Coming soon",
+      "description": "Oil changes, brake jobs, diagnostics — done where your car actually lives. Join the waitlist for early access."
+    },
+    "navBrandSub": "/ mechanic",
+    "navLinks": {
+      "services": "Services",
+      "how": "How it'll work",
+      "waitlist": "Waitlist",
+      "faq": "FAQ"
+    },
+    "ctaJoin": "Join waitlist",
+    "hero": {
+      "badge": "Coming soon · Fort Wayne",
+      "h1": "Mobile mechanic.",
+      "h1Accent": "In your driveway.",
+      "sub": "Oil changes, brake jobs, diagnostics, battery swaps — done where your car actually lives. No towing. No waiting rooms.",
+      "emailPlaceholder": "you@example.com",
+      "submit": "Join waitlist",
+      "meta": "Join the waitlist · Fort Wayne first, expanding from there.",
+      "thanks": "Thanks for joining the waitlist!",
+      "bullets": [
+        "No upfront commitment",
+        "Early-access pricing",
+        "Help shape the service"
+      ]
+    },
+    "services": {
+      "kicker": "Services at launch",
+      "h2": "What we plan to offer in your driveway.",
+      "sub": "Starting with the most-requested. We'll add categories based on waitlist demand.",
+      "items": [
+        { "name": "Oil change", "price": "$65", "dur": "30 min", "body": "Full-synthetic. Fresh filter. Disposal included." },
+        { "name": "Brake pads + rotors", "price": "$280", "dur": "90 min", "body": "Front or rear axle. OEM-equivalent parts." },
+        { "name": "Battery replacement", "price": "$180", "dur": "20 min", "body": "AGM or standard lead-acid. Includes core return." },
+        { "name": "Diagnostics scan", "price": "$75", "dur": "30 min", "body": "Full OBD-II read. Detailed report in the app." },
+        { "name": "Tire rotation", "price": "$35", "dur": "25 min", "body": "All four. Torque-spec'd. Pressure adjusted." },
+        { "name": "Wiper blades", "price": "$35", "dur": "10 min", "body": "Pair, installed. Right-fit guaranteed." },
+        { "name": "Air + cabin filters", "price": "$55", "dur": "20 min", "body": "Both replaced." },
+        { "name": "Spark plug replacement", "price": "$220", "dur": "60 min", "body": "Full set. Iridium or platinum." }
+      ],
+      "foot": "Don't see what you need?",
+      "footCta": "Tell us in the waitlist form"
+    },
+    "how": {
+      "kicker": "How it'll work",
+      "h2": "Same as detailing. Different toolkit.",
+      "sub": "If you've used RayCarWash for a detail, mechanic bookings will feel identical — same app, same trust system, just deeper diagnostics.",
+      "steps": [
+        { "t": "Book in the app", "b": "Pick a service. Tell us your car's year/make/model. Get a flat quote — including parts." },
+        { "t": "Pick a window", "b": "2-hour service windows. Mechanic confirms within an hour. Same-day for emergencies." },
+        { "t": "We show up loaded", "b": "Service van arrives with parts pre-pulled, tools racked, and a portable lift if needed." },
+        { "t": "Watch or walk away", "b": "Live mechanic profile, certifications, photo updates. Pay only when the work passes inspection." }
+      ]
+    },
+    "providerCta": {
+      "kicker": "For mechanics",
+      "h2": "Are you the mechanic?",
+      "sub": "We're recruiting our first mobile mechanics in Fort Wayne. ASE-certified, your own van, ready to operate. Special perks for early team members.",
+      "reqs": [
+        "ASE certification (any specialty)",
+        "Own service van + portable lift",
+        "Mobile or shop experience",
+        "Commercial liability insurance"
+      ],
+      "ctaApply": "Apply as founding mechanic",
+      "perksTag": "Founding mechanic perks",
+      "perks": [
+        { "l": "Platform fee · early period", "v": "Reduced" },
+        { "l": "Onboarding cost", "v": "Free" },
+        { "l": "Equipment financing", "v": "Available" }
+      ],
+      "spotsLabel": "Limited spots"
+    },
+    "faq": {
+      "kicker": "FAQ",
+      "h2": "Questions about the mechanic vertical.",
+      "items": [
+        { "q": "When will mechanic services launch?", "a": "We're in active planning. Join the waitlist and we'll email you the moment your ZIP code goes live." },
+        { "q": "Will mechanic prices be different from the detailing side?", "a": "Each service will have a flat parts-plus-labor price. You'll see the full quote before booking — no hourly meter, no surprise diagnostic fees." },
+        { "q": "What if my car needs work I can't get done in a driveway?", "a": "Some jobs (transmission, body work, alignment) need a shop. We'll diagnose and refer you out — and your diagnostic fee is credited toward that shop work." },
+        { "q": "Will you carry the parts on the van?", "a": "Common parts for your make/model will be pulled before the appointment. If we need something obscure, we'll come back with no second-trip fee." },
+        { "q": "Will the work be guaranteed?", "a": "Yes. Parts-and-labor warranty applies. If something we fixed fails within the warranty window, we come back free." },
+        { "q": "Can I get on the founding-customer list?", "a": "Yes — that's what the waitlist above is. Founding customers will get early-access perks." }
+      ]
+    },
+    "cta": {
+      "kicker": "Get in line",
+      "h2": "Be one of the first in line.",
+      "sub": "Beta access first. Early-access perks. We'll email you the moment your ZIP code goes live.",
+      "emailPlaceholder": "you@example.com",
+      "submit": "Join the waitlist",
+      "thanks": "Welcome to the waitlist.",
+      "footnotes": ["Free to join", "No spam", "Cancel any time"],
+      "rolloutTitle": "Rollout plan",
+      "rollout": [
+        { "q": "Phase 1", "l": "Hire founding mechanic team", "state": "active" },
+        { "q": "Phase 2", "l": "Service van fleet · gear procurement", "state": "" },
+        { "q": "Phase 3", "l": "Closed beta · waitlist invites", "state": "" },
+        { "q": "Phase 4", "l": "Public launch in Fort Wayne", "state": "" },
+        { "q": "Phase 5", "l": "Expand to more cities", "state": "" }
+      ]
+    }
+  }
+}
