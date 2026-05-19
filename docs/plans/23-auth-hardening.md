@@ -298,11 +298,56 @@ async def get_session_cached(
 
 ### Fase 2 — Sessions Table + Device Tracking (2 días)
 
-**Día 1 — Popular device_name**
-1. Modificar `LoginRequest` schema para aceptar `device_name: str | None`
-2. Frontend debe enviar `device_name` desde el client (navigator.platform, user-agent parsing)
-3. En los routers de login/social/refresh, extraer y pasar `device_name`
-4. Inferir `device_type` desde user-agent (mobile/desktop/tablet/api)
+**Día 1 — Popular device_name con `user_agents` lib**
+1. Agregar dependencia: `pip install user-agents` (PyPI)
+2. Crear `infrastructure/geoip/device_parser.py`:
+```python
+from user_agents import parse
+
+def parse_device_name(user_agent: str | None) -> str | None:
+    """Extrae nombre descriptivo del dispositivo desde el User-Agent."""
+    if not user_agent:
+        return None
+    ua = parse(user_agent)
+    parts = []
+    if ua.device.family and ua.device.family != "Other":
+        parts.append(ua.device.family)
+    if ua.os.family and ua.os.family != "Other":
+        parts.append(ua.os.family)
+    if ua.browser.family and ua.browser.family != "Other":
+        parts.append(ua.browser.family)
+    return " · ".join(parts) if parts else None
+
+def parse_device_type(user_agent: str | None) -> str:
+    """mobile | tablet | desktop | api"""
+    if not user_agent:
+        return "api"
+    ua = parse(user_agent)
+    if ua.is_mobile:
+        return "mobile"
+    if ua.is_tablet:
+        return "tablet"
+    if ua.is_pc:
+        return "desktop"
+    return "api"
+
+def parse_device_fingerprint(user_agent: str | None, device_name: str | None) -> str:
+    """Hash único para reconocer dispositivos conocidos."""
+    raw = f"{user_agent or ''}|{device_name or ''}"
+    return hashlib.sha256(raw.encode()).hexdigest()
+```
+
+3. Modificar `LoginRequest` schema para aceptar `device_name: str | None` (opcional, respaldo si no se puede inferir del UA)
+4. En los routers de login/social/refresh, llamar `parse_device_name(ua)` + `parse_device_type(ua)`
+5. Frontend puede enviar `device_name` explícito como respaldo
+
+**Populate login_history con metadata enriquecida:**
+En el mismo login flow, agregar a `UserLoginHistory`:
+```python
+login_history.device_name = parse_device_name(user_agent)
+login_history.ip_location = f"{geo.city}, {geo.country}"  # de MaxMind lookup
+```
+Hoy `device_name` siempre es `None` — esto lo corrige sin cambios de schema.
 
 **Día 2 — Session Schemas + Endpoints**
 1. Actualizar `SessionRead` schema:
@@ -388,14 +433,16 @@ async def _has_permission_cached(user: User, permission_name: str) -> bool:
 
 ### Fase 4 — ABAC: Context-aware Authorization (2 días)
 
-**Día 1 — OwnershipChecker**
-1. Crear `OwnershipChecker` class en `domains/auth/service.py`:
+**Principio:** ABAC **NO vive en auth**. Cada dominio es dueño de sus políticas de acceso. Auth solo provee el hook `get_current_user()` — las reglas de ownership pertenecen al recurso.
+
+**Día 1 — Policies por dominio**
+
+1. Crear `domains/appointments/policies.py`:
 ```python
-class OwnershipChecker:
-    """Context-aware access control. Separa quién eres (RBAC) de qué posees (ABAC)."""
+class AppointmentPolicies:
 
     @staticmethod
-    def can_access_appointment(user: User, appointment: Appointment) -> bool:
+    def can_read(user: User, appointment: Appointment) -> bool:
         if user.is_admin():
             return True
         if appointment.client_id == user.id:
@@ -405,16 +452,8 @@ class OwnershipChecker:
         return False
 
     @staticmethod
-    def can_access_payment(user: User, payment: Payment) -> bool:
-        if user.is_admin():
-            return True
-        if payment.user_id == user.id:
-            return True
-        return False
-
-    @staticmethod
-    def can_modify_appointment(user: User, appointment: Appointment) -> bool:
-        """Solo client o detailer asignado pueden modificar. Admin también."""
+    def can_write(user: User, appointment: Appointment) -> bool:
+        """Modificar: solo dueño del recurso + estado permitido."""
         if user.is_admin():
             return True
         if appointment.status not in ALLOWS_MODIFICATION:
@@ -424,35 +463,86 @@ class OwnershipChecker:
         if appointment.detailer_id == user.id:
             return True
         return False
-
-    @staticmethod
-    def enforce(target: str, user: User, resource: Any) -> None:
-        checker = {
-            "appointment:read": OwnershipChecker.can_access_appointment,
-            "appointment:write": OwnershipChecker.can_modify_appointment,
-            "payment:read": OwnershipChecker.can_access_payment,
-        }
-        fn = checker.get(target)
-        if fn and not fn(user, resource):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Access denied: you don't own this {target.split(':')[0]}",
-            )
 ```
 
-**Día 2 — Reemplazar 8 inline checks**
-Migrar ocurrencias de `is_admin()` / `is_detailer()`:
+2. Crear `domains/payments/policies.py`:
+```python
+class PaymentPolicies:
 
-| Archivo | Línea | Reemplazo |
-|---------|-------|-----------|
-| `appointments/router.py:254` | `is_detailer()` | `OwnershipChecker.enforce("appointment:read", user, appointment)` |
-| `appointments/router.py:262` | `is_detailer()` | `OwnershipChecker.enforce("appointment:write", user, appointment)` |
-| `appointments/router.py:315` | `is_admin()` | `OwnershipChecker.enforce("appointment:read", user, appointment)` |
-| `appointments/service.py:455` | `is_admin()` | `OwnershipChecker.enforce("appointment:write", user, appointment)` |
-| `providers/router.py:472` | `is_detailer()` | `require_permission("read", "providers")` |
-| `realtime/router.py:87` | `is_admin()` | `OwnershipChecker.enforce("appointment:read", user, booking)` |
-| `realtime/router.py:91` | `is_detailer()` | `require_permission("read", "appointments")` |
-| `avatar_router.py:39` | `is_detailer()` | `require_permission("read", "providers")` |
+    @staticmethod
+    def can_read(user: User, payment: Payment) -> bool:
+        if user.is_admin():
+            return True
+        return payment.user_id == user.id
+```
+
+3. Crear `domains/providers/policies.py`:
+```python
+class ProviderPolicies:
+
+    @staticmethod
+    def can_read_profile(user: User, provider: ProviderProfile) -> bool:
+        if user.is_admin():
+            return True
+        return provider.user_id == user.id
+
+    @staticmethod
+    def can_write_profile(user: User, provider: ProviderProfile) -> bool:
+        return provider.user_id == user.id
+```
+
+**Uso en routers:**
+```python
+from domains.appointments.policies import AppointmentPolicies
+
+@router.get("/appointments/{id}")
+async def get_appointment(
+    id: UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    appointment = await AppointmentRepository(db).get_by_id(id)
+    if not appointment:
+        raise HTTPException(404)
+    if not AppointmentPolicies.can_read(user, appointment):
+        raise HTTPException(403, "Access denied")
+    return appointment
+```
+
+**Patrón opcional — decorator/helper:**
+```python
+def enforce_policy(policy_fn):
+    """Decorator-helper para no repetir el patrón if-not-policy en cada handler."""
+    async def wrapper(
+        resource_id: UUID,
+        user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db),
+    ):
+        resource = await resolve_resource(resource_id, db)
+        if not policy_fn(user, resource):
+            raise HTTPException(403)
+        return resource
+    return wrapper
+```
+
+**¿Por qué policies en cada dominio y no un OwnershipChecker central?**
+- El acoplamiento: `auth` no debería conocer `Appointment.client_id` ni `Payment.user_id`
+- SRP: si cambia la lógica de negocio de appointments, tocas `appointments/policies.py`, no `auth/service.py`
+- Testeabilidad: cada policy se testea con su dominio, sin imports circulares
+
+**Día 2 — Reemplazar 8 inline checks**
+Migrar ocurrencias de `is_admin()` / `is_detailer()` usando las policies de cada dominio:
+
+| Archivo | Línea | Actual | Reemplazo |
+|---------|-------|--------|-----------|
+| `appointments/router.py:254` | `is_detailer()` | `AppointmentPolicies.can_read(user, appointment)` |
+| `appointments/router.py:262` | `is_detailer()` | `AppointmentPolicies.can_write(user, appointment)` |
+| `appointments/router.py:315` | `is_admin()` | `AppointmentPolicies.can_read(user, appointment)` |
+| `appointments/service.py:455` | `is_admin()` | `AppointmentPolicies.can_write(user, appointment)` |
+| `providers/router.py:472` | `is_detailer()` | `ProviderPolicies.can_read_profile(user, provider)` |
+| `realtime/router.py:87` | `is_admin()` | `AppointmentPolicies.can_read(user, booking)` |
+| `realtime/router.py:91` | `is_detailer()` | ya cubierto por `require_permission("read", "appointments")` |
+| `avatar_router.py:39` | `is_detailer()` | `ProviderPolicies.can_read_profile(user, provider)` |
 
 **Regla:** Cada reemplazo incluye test que verifica que el comportamiento no cambió.
 
@@ -461,10 +551,40 @@ Migrar ocurrencias de `is_admin()` / `is_detailer()`:
 ### Fase 5 — Suspicious Activity Detection (3 días)
 
 **Día 1 — Geo-IP + Impossible Travel**
-1. Integrar geoip lookup (MaxMind GeoLite2 o similar):
-   - `infrastructure/geoip/client.py` — wrapper ligero
-   - Cache en Redis: `geoip:{ip}` → `{country, city, lat, lon}`
+1. Integrar geoip lookup con **MaxMind GeoLite2** (gratuito, ~99.8% accuracy país):
+   - `pip install geoip2`
+   - Descargar `GeoLite2-City.mmdb` desde maxmind.com (free license)
+   - Montar en `infrastructure/geoip/client.py`:
+```python
+import geoip2.database
+from dataclasses import dataclass
+
+@dataclass
+class GeoLocation:
+    country: str | None   # "US"
+    city: str | None      # "Fort Wayne"
+    lat: float | None
+    lon: float | None
+
+class GeoIPClient:
+    def __init__(self, db_path: str = "data/GeoLite2-City.mmdb"):
+        self._reader = geoip2.database.Reader(db_path)
+
+    async def lookup(self, ip: str) -> GeoLocation | None:
+        try:
+            resp = self._reader.city(ip)
+            return GeoLocation(
+                country=resp.country.iso_code,
+                city=resp.city.name,
+                lat=resp.location.latitude,
+                lon=resp.location.longitude,
+            )
+        except Exception:
+            return None  # IP privada o inválida → skip
+```
+   - Cache en Redis: `geoip:{ip}` → JSON de GeoLocation
    - TTL: 24h (las IPs no cambian de país frecuentemente)
+   - Warmup: precargar IPs de sessions activas al iniciar
 
 2. En `get_current_user`, después de validar sesión:
 ```python
@@ -600,14 +720,22 @@ class AnomalyEvent(Base):
 - [ ] `device_name` se popula desde login request
 - [ ] `require_permission("read", "appointments")` retorna 403 si falta permiso
 - [ ] Admin bypass: admin pasa cualquier `require_permission()`
-- [ ] `OwnershipChecker` funciona: admin, client dueño, detailer asignado, ajenos
+- [ ] `AppointmentPolicies.can_read()` funciona: admin, client dueño, detailer asignado, ajenos
+- [ ] `AppointmentPolicies.can_write()` respeta estado del appointment (solo si ALLOWS_MODIFICATION)
+- [ ] `PaymentPolicies.can_read()` funciona: admin, payment.user_id
+- [ ] `ProviderPolicies.can_read_profile()` funciona: admin, provider.user_id
 - [ ] 0 ocurrencias de `is_admin()` / `is_detailer()` inline en routers (post-migración)
+- [ ] `parse_device_name()` extrae "iPhone · iOS · Safari" correctamente
+- [ ] `parse_device_type()` clasifica mobile/tablet/desktop/api
+- [ ] `parse_device_fingerprint()` produce hash consistente para mismo UA+device_name
+- [ ] login_history.device_name ya no es NULL
 - [ ] Impossible travel detecta US→CN en 5 min
+- [ ] MaxMind GeoIP lookup con cache Redis funciona
 - [ ] New device login logged como anomaly
 - [ ] IP binding opcional funciona (on/off)
 - [ ] Session cleanup worker revoca expiradas + limpia cache
 - [ ] Tests existentes (70 auth + 19 appointments + 17 user_flows + 27 admin) siguen verdes
-- [ ] Tests nuevos: session validation (4), device tracking (3), RBAC (4), ABAC (4), anomaly (3), ip binding (2), worker (1)
+- [ ] Tests nuevos: session validation (4), device tracking (3), RBAC (4), ABAC policies (6), anomaly (3), ip binding (2), worker (1)
 - [ ] `mypy` + `ruff` verde
 
 ---
@@ -619,12 +747,12 @@ class AnomalyEvent(Base):
 | Session DB lookup en cada request añade latency | Redis cache con TTL 5min + `update_last_active` es fire-and-forget async. Session lookup es PK indexado = ~1ms. |
 | Redis caído = auth caído | `get_session_cached()` fallback a DB lookup directo con try/except. Log warning si Redis no responde. |
 | Rollback difícil si `sid` es requerido | `AUTH_ENFORCE_SESSION = False` durante rollout. Si token no tiene `sid`, skip session check. |
-| `device_name` del frontend no es confiable | Es metadata informativa, no security boundary. La session validation depende de `sid` + `revoked`, no del device. |
+| `device_name` del frontend no es confiable | Es metadata informativa, no security boundary. La session validation depende de `sid` + `revoked`, no del device. Usar `user_agents` lib como fuente primaria. |
 | Impossible travel falsos positivos (VPN, proxy) | Configurable por severity. Default: solo log + alert, no revocar. Step-up auth como acción intermedia. |
-| GeoIP lookup latency | Cache en Redis con TTL 24h. Si cache miss, fire-and-forget sin bloquear request. |
+| GeoIP lookup latency | Cache en Redis con TTL 24h. Si cache miss, fire-and-forget sin bloquear request. Warmup de IPs activas al startup. |
 | Sesiones existentes sin `sid` en tokens | Backward compat: tokens sin `sid` usan `token_version` como fallback (comportamiento actual). No se fuerza re-login. |
 | Permission cache stale si role cambia | Invalidar `permissions:{user_id}` cuando admin modifica roles. TTL 10 min es aceptable. |
-| ABAC reglas nuevas pueden bloquear acceso legítimo | Tests por cada combinación (admin, client dueño, client no dueño, detailer asignado, no asignado). |
+| ABAC policies duplicadas entre dominios | No hay duplicación — cada dominio modela sus propias reglas de ownership. Si hay patrones comunes, extraer a `shared/policies.py` post-Fase 4. |
 | `is_current` en sessions: el frontend podría auto-revocarse | El backend marca `is_current` comparando con `payload["sid"]`. El frontend debe deshabilitar botón en sesión actual. |
 
 ---
@@ -633,10 +761,11 @@ class AnomalyEvent(Base):
 
 | Plan | Relación |
 |------|----------|
-| `10-authorization-layer.md` | **Ahora reemplazado por Fase 3 + Fase 4 de este plan.** Este plan absorbe el scope del plan 10. |
 | `08-hardening.md` | Independiente (security hardening paralelo) |
 | `22-security-architecture-audit.md` | Independiente (audit findings, no auth gaps) |
-| `frontend/` | Enviar `device_name` desde login + mostrar sessions con metadata UX |
+| `frontend/` | Enviar `device_name` desde login (opcional, respaldo) + mostrar sessions con metadata UX |
+
+**Nota:** Este plan absorbe el scope de `10-authorization-layer.md` (RBAC runtime + ABAC).
 
 ---
 
@@ -703,13 +832,31 @@ Fase 4 (day 5):
 ```text
 Access Token → identidad       → quién eres
 Session      → control         → desde dónde, con qué, deberías seguir teniendo acceso?
-RBAC         → intención       → qué puedes hacer en el sistema
-ABAC         → contexto        → bajo qué condiciones puedes hacerlo
+RBAC         → intención       → qué puedes hacer en el sistema (auth/)
+ABAC         → contexto        → bajo qué condiciones puedes hacerlo (cada dominio/)
+
 
 ═══════════════════════════════════════════════════
 
-get_current_user      → responde: "¿quién es y su sesión sigue activa?"
-require_permission()  → responde: "¿tiene permiso para esta acción?"
-OwnershipChecker      → responde: "¿es dueño de este recurso?"
-AnomalyDetector      → responde: "¿este comportamiento es sospechoso?"
+Layers (de abajo hacia arriba):
+┌─────────────────────────────────────────────────┐
+│  AnomalyDetector                                 │
+│  → responde: "¿este comportamiento es anómalo?" │
+├─────────────────────────────────────────────────┤
+│  Domain Policies (appointments/, payments/, ...) │
+│  → responde: "¿es dueño / tiene contexto?"      │
+├─────────────────────────────────────────────────┤
+│  require_permission() — RBAC runtime             │
+│  → responde: "¿tiene permiso para la acción?"   │
+├─────────────────────────────────────────────────┤
+│  get_current_user() — Session validation         │
+│  → responde: "¿quién es y su sesión sigue viva?"│
+└─────────────────────────────────────────────────┘
+
+═══════════════════════════════════════════════════
+
+Principio:
+  - Session y RBAC viven en auth/domain/auth por ser transversales
+  - ABAC policies viven en cada dominio de negocio
+  - Anomaly detection vive en infrastructure/geoip/ + callbacks en auth
 ```
