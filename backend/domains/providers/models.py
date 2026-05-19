@@ -165,6 +165,34 @@ class ProviderProfile(TimestampMixin, Base):
     # Stripe Connect / payout target — Phase 5+.
     payout_method_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
+    # Stripe Connect onboarding state (Plan 20 §17 + audit H10).
+    # See alembic m_019_provider_profiles_stripe_connect for the migration.
+    #
+    # Lifecycle:
+    #   not_started → pending → completed (happy path)
+    #             ╲→ pending → expired (no completion within 24h)
+    #             ╲→ rejected (Stripe rejects KYC)
+    #
+    # `payouts_enabled` / `charges_enabled` are mirrored from Stripe's
+    # account.updated webhook so the GET /me/connect-account/status
+    # endpoint can answer without a Stripe round-trip per request.
+    stripe_account_id: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True, unique=True,
+    )
+    stripe_onboarding_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="not_started",
+        server_default="not_started",
+    )
+    stripe_onboarding_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+    stripe_payouts_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false",
+    )
+    stripe_charges_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false",
+    )
+
     # Denormalized counters maintained by the m_020 trigger (Phase 9).
     total_services_completed: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0",
