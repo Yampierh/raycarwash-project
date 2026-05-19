@@ -28,6 +28,7 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from fastapi.responses import Response as FastAPIResponse
+from slowapi.errors import RateLimitExceeded
 
 from app.core.idempotency import _IdempotentReplay
 from shared.schemas import ErrorEnvelope, ErrorPayload, FieldError, Meta
@@ -155,6 +156,40 @@ def register_exception_handlers(app: FastAPI) -> None:
             message=exc.message,
             request_id=_request_id(request),
             details=_normalize_details(exc.details),
+        )
+
+    @app.exception_handler(RateLimitExceeded)
+    async def rate_limit_handler(
+        request: Request, exc: RateLimitExceeded,
+    ) -> JSONResponse:
+        # Plan 19/20/21 §"Operational Requirements" mandate ErrorEnvelope
+        # shape on 429 + a `Retry-After` header. slowapi's default handler
+        # returns `{"error": "Rate limit exceeded: ..."}`, so we override.
+        try:
+            retry_after = int(exc.limit.limit.get_expiry())
+        except Exception:
+            retry_after = 60  # safe default — most limits are per-minute
+
+        headers: dict[str, str] = {"Retry-After": str(retry_after)}
+
+        # Legacy paths: preserve the existing slowapi-default shape so
+        # un-migrated callers don't break.
+        if not _is_envelope_path(request):
+            return JSONResponse(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                content={"error": f"Rate limit exceeded: {exc.detail}"},
+                headers=headers,
+            )
+
+        return _envelope(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            code="rate_limit_exceeded",
+            message=(
+                "Too many requests. Please retry after "
+                f"{retry_after}s. Limit: {exc.detail}."
+            ),
+            request_id=_request_id(request),
+            headers=headers,
         )
 
     @app.exception_handler(_IdempotentReplay)

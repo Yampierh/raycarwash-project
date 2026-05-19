@@ -12,8 +12,6 @@ from typing import AsyncGenerator
 from fastapi import Depends, FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from slowapi import _rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -178,12 +176,14 @@ def create_application() -> FastAPI:
     )
 
     # ---- Rate limiter ----
-    # Must be set on app.state BEFORE adding the exception handler.
+    # `RateLimitExceeded` handler is now registered inside
+    # `register_exception_handlers` below so it emits the same
+    # `ErrorEnvelope` shape as every other 4xx (with `Retry-After`).
     application.state.limiter = limiter
-    application.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
     # ---- Standardized exception handlers (Phase 0) ----
-    # Maps ValidationError, HTTPException, BusinessError → ErrorEnvelope.
+    # Maps ValidationError, HTTPException, BusinessError, RateLimitExceeded,
+    # _IdempotentReplay → ErrorEnvelope.
     register_exception_handlers(application)
 
     # ---- CORS ----
