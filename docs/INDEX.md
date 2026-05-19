@@ -107,6 +107,10 @@ graph TD
 | `15-marketing-content-cms.md` | :hourglass: Planning | Medium | `12-marketing-redesign.md` | — |
 | `16-coverage-zip-service.md` | :hourglass: Planning | Medium-High | `infrastructure/h3` | `15-marketing-content-cms.md` |
 | `17-waitlist-system.md` | :hourglass: Planning | Medium | `infrastructure/email` | `15-marketing-content-cms.md` |
+| `19-api-contracts-track1-marketing.md` | :white_check_mark: Contract — approved | High | — | `12-marketing-redesign.md`, `15`, `16`, `17` |
+| `20-api-contracts-track2-provider-dashboard.md` | :white_check_mark: Contract — approved | High | `11-provider-dashboard.md`, `09` | — |
+| `21-api-contracts-track3-customer-dashboard.md` | :white_check_mark: Contract — approved | Medium | `13-customer-dashboard.md`, `04-vehicles.md` | — |
+| **`22-security-architecture-audit.md`** | :construction: **In progress — findings documented** | **Critical** | `19`, `20`, `21` (remediation applied) | All Plans |
 
 ---
 
@@ -135,12 +139,27 @@ Cada hallazgo del audit se mapea al plan que lo resuelve:
 | `15-marketing-content-cms.md` | Hardcoded testimonials/FAQ/coverage/stats — admin CMS for non-engineer edits | Design source: marketing i18n audit |
 | `16-coverage-zip-service.md` | No `service_zip_codes` table — Coverage.tsx uses hardcoded 5-ZIP allowlist | Design source: `Coverage.tsx` + `dash-schedule.jsx` zones |
 | `17-waitlist-system.md` | Mechanic/coverage waitlist forms only have client state, no persistence | Design source: `MechanicHero/CTA.tsx` + `Coverage.tsx` notify-me |
+| **`22-security-architecture-audit.md`** | 10 findings (H1–H10) across 32 endpoints — remediated via contract updates + future migrations | Audit of contract plans 19/20/21 |
 
 > **Full mapping**: See [`docs/audit/06-cross-reference-and-standards.md`](./audit/06-cross-reference-and-standards.md) section 3
 
 ---
 
-## 5. How to Add a New Plan
+## 5. Skills Reference
+
+| # | Skill | Discipline | When to Use |
+|---|-------|-----------|-------------|
+| 01 | [`docs/skills/01-backend-api-security.md`](./skills/01-backend-api-security.md) | Security | Before writing any new API endpoint |
+| 02 | [`docs/skills/02-backend-performance.md`](./skills/02-backend-performance.md) | Performance | When designing aggregate queries or cache strategy |
+| 03 | [`docs/skills/03-backend-observability.md`](./skills/03-backend-observability.md) | Observability | When adding new endpoints or workers |
+| 04 | [`docs/skills/04-api-contracts-quality.md`](./skills/04-api-contracts-quality.md) | Quality | Before finalizing any API contract |
+| 05 | [`docs/skills/05-codebase-migrations.md`](./skills/05-codebase-migrations.md) | DevOps | When restructuring directories across the monorepo |
+
+Skills are **codified professional expertise** for reuse across sprints. Each skill contains checklists, common pitfalls, and real codebase examples. See [`docs/skills/INDEX.md`](./skills/INDEX.md) for the full skill map.
+
+---
+
+## 6. How to Add a New Plan
 
 1. **Choose number**: Next available in `docs/plans/{NN}-{name}.md`
 2. **Create file**: Follow the template below
@@ -167,7 +186,7 @@ Cada hallazgo del audit se mapea al plan que lo resuelve:
 
 ---
 
-## 6. Quick Reference
+## 7. Quick Reference
 
 | What | Where |
 |------|-------|
