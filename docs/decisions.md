@@ -496,3 +496,19 @@ Phase 5 ships in seven chunks on `feat/profile-phase5`. Plan §10 ("Recursos del
 **Phase 5 backend tally**: 3 new sub-resource domains (Document + PortfolioPhoto + Achievement), 16 new provider endpoints (5 profile/status + 4 portfolio + 4 documents + 3 verification/achievements), 2 daily workers, 44 new tests (10 + 6 + 9 + 9 + 10), 0 regressions across 294-test baseline. **Backend at 338/338 green; frontend at `tsc --noEmit` clean.**
 
 **Phase 5 complete.** Provider hub + KYC + portfolio + verification flow is now end-to-end functional on mobile. The web admin's KYC review tab remains deferred per plan §7.7 staging — picks up in Phase 6 alongside the active-role switcher.
+
+---
+
+## Phase 6 implementation notes (2026-05-18)
+
+ADR-003 in action. `PATCH /api/v1/users/me/active-role` lets a multi-role user swap the role claim that future JWTs carry, with the refresh token rotated in the same call.
+
+- **Endpoint shape** — body is `{role, refresh_token}`. The refresh_token is what closes the ADR-003 attack window: the rotation is atomic on the client's current refresh, so a stolen refresh captured before the switch cannot keep emitting access tokens with the previous role. Response is `{access_token, refresh_token, active_role}`.
+- **Validation** — target role must already be in `user.user_roles`; otherwise 403 `permission_denied`. `admin` is rejected at the Pydantic Literal layer (422) so the consumer switcher never touches it. **Deliberate departure from plan §2.3**: no KYC gate on switching to detailer/mechanic. After E1 a user can hold a detailer profile without KYC; blocking the switch would lock them out of their own onboarding dashboard. KYC stays where it belongs — `is_active=true` (booking visibility) on `ProviderProfile`.
+- **Token wiring** — service mints the new access token via `AuthService.create_access_token(user.id, target, token_version)` so the `role` claim carries the target. `AuthService.rotate_refresh_token` issues the new refresh in the same family. Side effect: subsequent `/auth/refresh` calls now prefer `user.active_role` over `primary_role`, so a refreshed access token doesn't silently revert to the previous role.
+- **Audit** — `AuditAction.ROLE_SWITCHED` already existed; service emits a row with `old_value={"active_role": prev}` and `new_value={"active_role": target}` + the `audit_ctx` (ip / UA / request_id).
+- **Mobile** — new `RoleSwitcher` component (`frontend/src/components/RoleSwitcher.tsx`) rendered at the top of `ProfileScreen` and `DetailerProfileScreen` only when `available_roles.length > 1`. On tap: calls `switchActiveRole`, persists both tokens via `saveToken` + `saveRefreshToken`, updates Zustand snapshot, then `navigation.reset` into the destination stack (`Main` for client/mechanic, `DetailerMain` for detailer). Mechanic shell deferred until E3 ships a dedicated UI — falls back to `Main`. Error path surfaces `permission_denied` / `kyc_required` / fallback via `Alert`.
+
+12 endpoint tests in `tests/test_users_active_role.py`: happy path, claim contents, persistence, refresh rotation revoking the old token, /auth/refresh after switch preserving active_role, 403 on unassigned role, 422 on admin or unknown role, 401 without auth or with bad refresh, client target works, audit row format. Frontend `tsc --noEmit` clean.
+
+**Master plan Phases 0–6 complete.** Phases 7 (notifications + privacy + public view), 8 (GDPR + historiales especializados), and 9 (polish + analytics + load tests) remain. Integration plans E0 + E1 also shipped in parallel; E2/E3/E4 + plan 08-hardening remain.

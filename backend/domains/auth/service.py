@@ -712,10 +712,15 @@ class AuthService:
         if user is None or not user.is_active or user.is_deleted:
             raise credentials_exception
 
-        new_access  = AuthService.create_access_token(user.id, user.primary_role or "client", token_version=getattr(user, "token_version", 1))
+        # Phase 6 / ADR-003: prefer active_role when set so /auth/refresh
+        # preserves whichever role the user last switched to. Falls back to
+        # primary_role for single-role users that never touched the
+        # switcher.
+        effective_role = user.active_role or user.primary_role or "client"
+        new_access  = AuthService.create_access_token(user.id, effective_role, token_version=getattr(user, "token_version", 1))
         new_refresh = await AuthService.create_refresh_token(
             user.id,
-            user.primary_role or "client",
+            effective_role,
             db,
             family_id=token_row.family_id,
         )
