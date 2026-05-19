@@ -32,6 +32,12 @@ from workers.token_cleanup_worker import token_cleanup_worker
 from app.db.seed import seed_addons, seed_services, seed_service_categories, seed_specialties
 from app.db.seed_rbac import seed_rbac
 from app.db.detailer_seed import seed_detailers
+from app.db.seed_public import (
+    seed_coverage_zips,
+    seed_coverage_zones,
+    seed_faq,
+    seed_testimonials,
+)
 
 from infrastructure.db.base import Base
 
@@ -116,6 +122,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     async with AsyncSessionLocal() as seed_session:
         await seed_detailers(seed_session)
         logger.info("✅  Test detailers seeded.")
+
+    # Plan 19 Track 1 — marketing public content (testimonials, FAQ,
+    # coverage zones, ZIP lookup). Each function is idempotent.
+    async with AsyncSessionLocal() as seed_session:
+        await seed_testimonials(seed_session)
+        await seed_faq(seed_session)
+        await seed_coverage_zones(seed_session)
+        await seed_coverage_zips(seed_session)
+        logger.info("✅  Public marketing content seeded (Plan 19).")
 
     # Redis pool — real Redis if available, else fakeredis in dev
     app.state.redis = await init_redis_pool(settings.REDIS_URL)
