@@ -185,9 +185,17 @@ async def get_detailer_benchmarks(
 @limiter.limit("3/minute")
 async def submit_contact(
     request: Request,
-    body: ContactRequest,
+    body: Annotated[ContactRequest, Body()],
+    service: PublicService = Depends(_service),
 ) -> Envelope[ContactResponse]:
-    raise _NOT_IMPLEMENTED
+    ip = request.client.host if request.client else None
+    return Envelope(
+        data=await service.submit_contact(
+            body,
+            ip_address=ip,
+            user_agent=request.headers.get("user-agent"),
+        )
+    )
 
 
 # 8. Waitlist join ──────────────────────────────────────────────────────
@@ -201,9 +209,10 @@ async def submit_contact(
 @limiter.limit("3/minute")
 async def join_waitlist(
     request: Request,
-    body: WaitlistJoinRequest,
+    body: Annotated[WaitlistJoinRequest, Body()],
+    service: PublicService = Depends(_service),
 ) -> Envelope[WaitlistJoinResponse]:
-    raise _NOT_IMPLEMENTED
+    return Envelope(data=await service.join_waitlist(body))
 
 
 # 9. Waitlist count ─────────────────────────────────────────────────────

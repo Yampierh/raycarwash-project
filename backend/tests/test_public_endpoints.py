@@ -245,3 +245,189 @@ async def test_waitlist_count_with_entries(client_with_db):
     assert body["count"] == 5
     # 5 / 80 → ceil() → 1 week
     assert body["avg_wait_weeks"] == "1 weeks"
+
+
+# ─── Contact form (POST /contact) ──────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_contact_happy_path(client: AsyncClient):
+    """Successful submission returns 201 + envelope with new id."""
+    r = await client.post(
+        "/api/v1/public/contact",
+        json={
+            "name": "Alex Reyes",
+            "email": "alex@example.com",
+            "subject": "Question about coverage",
+            "message": "Do you serve 46765?",
+        },
+    )
+    assert r.status_code == 201
+    data = r.json()["data"]
+    assert data["status"] == "received"
+    # id is a UUID — at least 36 chars with hyphens
+    assert len(data["id"]) == 36 and data["id"].count("-") == 4
+
+
+@pytest.mark.asyncio
+async def test_contact_email_is_lowercased(client_with_db):
+    """Email normalisation happens in the Pydantic validator —
+    UPPERCASE input must be stored as lowercase."""
+    ac, db_session = client_with_db
+    from sqlalchemy import select
+    from domains.public.models import ContactSubmission
+
+    r = await ac.post(
+        "/api/v1/public/contact",
+        json={
+            "name": "Casey",
+            "email": "CASEY@EXAMPLE.COM",
+            "message": "hi",
+        },
+    )
+    assert r.status_code == 201
+    rows = (await db_session.execute(select(ContactSubmission))).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].email == "casey@example.com"
+
+
+@pytest.mark.asyncio
+async def test_contact_validation_errors(client: AsyncClient):
+    """Pydantic field constraints fire 422."""
+    bad_payloads = [
+        {"email": "x@y.com", "message": "hi"},                  # name missing
+        {"name": "X", "message": "hi"},                          # email missing
+        {"name": "X", "email": "x@y.com"},                       # message missing
+        {"name": "X", "email": "not-an-email", "message": "hi"}, # bad email
+        {"name": "X", "email": "x@y.com", "message": "y" * 5001}, # message too long
+    ]
+    for payload in bad_payloads:
+        r = await client.post("/api/v1/public/contact", json=payload)
+        assert r.status_code == 422, f"payload {payload!r} should 422, got {r.status_code}"
+
+
+@pytest.mark.asyncio
+async def test_contact_20_per_day_per_email_cap(client_with_db):
+    """The slowapi 3/min/IP cap is bypassed in tests (rate limiter
+    disabled). The per-email/day cap is service-layer logic that fires
+    even without slowapi — verifies it returns 429 with the
+    rate_limit_exceeded code from BusinessError."""
+    ac, db_session = client_with_db
+    from datetime import datetime, timezone
+    from domains.public.models import ContactSubmission
+
+    email = "spammy@example.com"
+    # Seed 20 prior submissions today
+    now = datetime.now(timezone.utc)
+    for i in range(20):
+        db_session.add(ContactSubmission(
+            name=f"S {i}",
+            email=email,
+            message="prior",
+            created_at=now,
+        ))
+    await db_session.commit()
+
+    r = await ac.post(
+        "/api/v1/public/contact",
+        json={"name": "S", "email": email, "message": "one more"},
+    )
+    assert r.status_code == 429
+    body = r.json()
+    assert body["error"]["code"] == "rate_limit_exceeded"
+
+
+# ─── Waitlist join (POST /waitlist/join) ───────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_waitlist_join_happy_path(client: AsyncClient):
+    r = await client.post(
+        "/api/v1/public/waitlist/join",
+        json={"email": "first@example.com", "role": "mechanic"},
+    )
+    assert r.status_code == 201
+    data = r.json()["data"]
+    assert len(data["id"]) == 36
+    assert data["position"] == 1
+
+
+@pytest.mark.asyncio
+async def test_waitlist_join_role_defaults_to_mechanic(client_with_db):
+    """`role` is optional in the schema; default = WaitlistRole.MECHANIC."""
+    ac, db_session = client_with_db
+    from sqlalchemy import select
+    from domains.public.models import WaitlistEntry
+
+    r = await ac.post(
+        "/api/v1/public/waitlist/join",
+        json={"email": "default-role@example.com"},
+    )
+    assert r.status_code == 201
+
+    row = (await db_session.execute(select(WaitlistEntry))).scalar_one()
+    assert row.role.value == "mechanic"
+
+
+@pytest.mark.asyncio
+async def test_waitlist_join_duplicate_returns_409(client: AsyncClient):
+    """Two signups with the same email — second one must 409."""
+    payload = {"email": "dup@example.com", "role": "mechanic"}
+    r1 = await client.post("/api/v1/public/waitlist/join", json=payload)
+    r2 = await client.post("/api/v1/public/waitlist/join", json=payload)
+
+    assert r1.status_code == 201
+    assert r2.status_code == 409
+    assert r2.json()["error"]["code"] == "email_already_on_waitlist"
+
+
+@pytest.mark.asyncio
+async def test_waitlist_join_position_increments(client_with_db):
+    """Position is the row's index at insert time. With empty seed
+    (no rows pre-existing), positions go 1, 2, 3, ..."""
+    ac, _ = client_with_db
+    positions = []
+    for i in range(3):
+        r = await ac.post(
+            "/api/v1/public/waitlist/join",
+            json={"email": f"pos{i}@example.com", "role": "mechanic"},
+        )
+        assert r.status_code == 201
+        positions.append(r.json()["data"]["position"])
+    assert positions == [1, 2, 3]
+
+
+@pytest.mark.asyncio
+async def test_waitlist_join_email_normalised(client_with_db):
+    """Email is lowercased server-side, so MIXED-case retries hit the
+    UNIQUE constraint just like exact-case ones."""
+    ac, db_session = client_with_db
+    from sqlalchemy import select
+    from domains.public.models import WaitlistEntry
+
+    r1 = await ac.post(
+        "/api/v1/public/waitlist/join",
+        json={"email": "MixedCase@Example.COM", "role": "mechanic"},
+    )
+    assert r1.status_code == 201
+
+    # Stored lowercase
+    row = (await db_session.execute(select(WaitlistEntry))).scalar_one()
+    assert row.email == "mixedcase@example.com"
+
+    # Second submission with different casing still collides
+    r2 = await ac.post(
+        "/api/v1/public/waitlist/join",
+        json={"email": "mixedcase@example.com", "role": "mechanic"},
+    )
+    assert r2.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_waitlist_join_invalid_role_returns_422(client: AsyncClient):
+    """Pydantic enum validation rejects unknown roles."""
+    r = await client.post(
+        "/api/v1/public/waitlist/join",
+        json={"email": "x@example.com", "role": "manager"},
+    )
+    assert r.status_code == 422

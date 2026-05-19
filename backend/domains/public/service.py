@@ -9,6 +9,10 @@ Per AGENTS.md service-layer rules:
 """
 from __future__ import annotations
 
+from fastapi import status
+from sqlalchemy.exc import IntegrityError
+
+from app.exception_handlers import BusinessError
 from domains.public.models import FaqCategory, TestimonialRole
 from domains.public.repository import PublicRepository
 from domains.public.schemas import (
@@ -36,6 +40,15 @@ from domains.public.schemas import (
 # user-facing "X weeks" wait estimate on MechHero. Conservative
 # placeholder — refine when we have real cohort throughput data.
 _WAITLIST_AVG_SIGNUPS_PER_WEEK = 80
+
+
+# Per-email anti-spam cap on the contact form. The slowapi rate limit
+# in §10.1 (`3/min per IP`) blunts raw abuse, but a distributed actor
+# rotating IPs while reusing one email could still overwhelm support.
+# This cap fires a 429 once the same email has submitted 20 messages
+# in the last 24 hours.
+_CONTACT_MAX_PER_EMAIL_PER_DAY = 20
+_CONTACT_WINDOW_HOURS = 24
 
 
 class PublicService:
@@ -99,10 +112,66 @@ class PublicService:
         ip_address: str | None,
         user_agent: str | None,
     ) -> ContactResponse:
-        raise NotImplementedError
+        # Per-email cap. Pydantic normalised email to lowercase already.
+        count = await self.repository.count_contact_submissions_by_email_since(
+            body.email, hours=_CONTACT_WINDOW_HOURS,
+        )
+        if count >= _CONTACT_MAX_PER_EMAIL_PER_DAY:
+            raise BusinessError(
+                code="rate_limit_exceeded",
+                message=(
+                    f"This email has reached the daily contact-form limit "
+                    f"({_CONTACT_MAX_PER_EMAIL_PER_DAY} submissions in the last "
+                    f"{_CONTACT_WINDOW_HOURS} hours). Try again later."
+                ),
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
+        row = await self.repository.create_contact_submission(
+            name=body.name,
+            email=body.email,
+            subject=body.subject,
+            message=body.message,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        return ContactResponse(id=row.id, status="received")
 
     async def join_waitlist(self, body: WaitlistJoinRequest) -> WaitlistJoinResponse:
-        raise NotImplementedError
+        # Fast-path: existing email lookup avoids the DB IntegrityError
+        # round-trip for the duplicate-signup case (common — same user
+        # tapping "join" twice). The repo still races behind a UNIQUE
+        # constraint that catches concurrent inserts.
+        existing = await self.repository.get_waitlist_entry_by_email(body.email)
+        if existing is not None:
+            raise BusinessError(
+                code="email_already_on_waitlist",
+                message="This email is already on the waitlist.",
+                status_code=status.HTTP_409_CONFLICT,
+            )
+
+        # Position is `count_before_insert + 1`. The COUNT excludes
+        # soft-deleted rows so position numbers stay stable even if an
+        # admin prunes the list later. Concurrent inserts may produce
+        # duplicate positions — acceptable per Plan 19 §8 ("position is
+        # approximate") and worth less than the SELECT FOR UPDATE
+        # serialization overhead.
+        next_position = await self.repository.count_waitlist_entries() + 1
+
+        try:
+            row = await self.repository.create_waitlist_entry(
+                email=body.email, role=body.role, position=next_position,
+            )
+        except IntegrityError:
+            # Lost the race against another concurrent insert with the
+            # same email. Same 409 as the fast-path check above.
+            raise BusinessError(
+                code="email_already_on_waitlist",
+                message="This email is already on the waitlist.",
+                status_code=status.HTTP_409_CONFLICT,
+            )
+
+        return WaitlistJoinResponse(id=row.id, position=row.position or next_position)
 
     async def get_waitlist_count(self) -> WaitlistCountResponse:
         count = await self.repository.count_waitlist_entries()

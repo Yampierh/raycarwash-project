@@ -8,6 +8,8 @@ Per AGENTS.md backend conventions:
 """
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -125,15 +127,40 @@ class PublicRepository:
         ip_address: str | None = None,
         user_agent: str | None = None,
     ) -> ContactSubmission:
-        raise NotImplementedError
+        row = ContactSubmission(
+            name=name,
+            email=email,
+            subject=subject,
+            message=message,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        self.session.add(row)
+        await self.session.commit()
+        await self.session.refresh(row)
+        return row
 
     async def count_contact_submissions_by_email_since(
         self, email: str, hours: int = 24,
     ) -> int:
         """Used by the service layer to enforce the "20/day per email"
         sub-limit in Plan 19 §10.1 (the IP rate limit handles raw abuse;
-        this one catches distributed spam from the same submitter)."""
-        raise NotImplementedError
+        this one catches distributed spam from the same submitter).
+
+        Soft-deleted rows are counted intentionally — an admin soft-deleting
+        a submission shouldn't reset the abuse window.
+        """
+        since = datetime.now(timezone.utc) - timedelta(hours=hours)
+        stmt = (
+            select(func.count())
+            .select_from(ContactSubmission)
+            .where(
+                ContactSubmission.email == email,
+                ContactSubmission.created_at >= since,
+            )
+        )
+        result = await self.session.execute(stmt)
+        return int(result.scalar_one())
 
     # ── Waitlist ──────────────────────────────────────────────────
 
@@ -142,10 +169,16 @@ class PublicRepository:
         *,
         email: str,
         role: WaitlistRole,
+        position: int | None = None,
     ) -> WaitlistEntry:
-        """Raises sqlalchemy IntegrityError on UNIQUE(email) collision —
-        service layer translates to 409 Conflict."""
-        raise NotImplementedError
+        """Inserts a waitlist row. Raises sqlalchemy.exc.IntegrityError on
+        UNIQUE(email) collision — the service layer catches and translates
+        to a 409 Conflict via BusinessError."""
+        row = WaitlistEntry(email=email, role=role, position=position)
+        self.session.add(row)
+        await self.session.commit()
+        await self.session.refresh(row)
+        return row
 
     async def count_waitlist_entries(
         self, role: WaitlistRole | None = None,
@@ -161,4 +194,9 @@ class PublicRepository:
         return int(result.scalar_one())
 
     async def get_waitlist_entry_by_email(self, email: str) -> WaitlistEntry | None:
-        raise NotImplementedError
+        stmt = select(WaitlistEntry).where(
+            WaitlistEntry.email == email,
+            WaitlistEntry.is_deleted.is_(False),
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
