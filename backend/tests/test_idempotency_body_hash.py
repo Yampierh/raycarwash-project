@@ -1,41 +1,47 @@
 """
-tests/test_idempotency_body_hash.py — Hotfix H2.
+tests/test_idempotency_body_hash.py — body-hash isolation regression guard.
 
-Regression guard for the idempotency cache-key collision fixed in
-IdempotencyMiddleware. Before the fix, the cache key was
-    `idempotency:{user}:{method}:{path}:{key}`
-so two requests sharing an Idempotency-Key but carrying different bodies
-would hit the same slot — the second caller received the first caller's
-response. On payments, that meant a user retrying a setup-intent with a
-corrected amount could end up charged against the original amount/card.
+Originally Hotfix H2. After the H1 refactor (Plan 22 §6.1.3) the cache
+lookup moved out of the middleware into a post-auth dep
+(`resolve_idempotency`), so these tests now wire a fake `get_current_user`
+override and declare `Depends(resolve_idempotency)` on the test route.
+The body-hash binding behaviour they verify is unchanged:
 
-The fix binds a SHA-256 prefix of the request body to the cache key:
-    `idempotency:{user}:{method}:{path}:{key}:{body_hash}`
-Different bodies = different cache slots = both executed and cached
-independently. Identical replays still hit the cache.
+  Cache key (v2):
+      idemp:v2:{user_id}:{method}:{path}:{key}:{body_hash}
+
+  Different body bytes = different body_hash = different cache slot.
+  Identical body bytes = identical hash = replay.
 
 Crucially, the middleware must re-attach the consumed body to
 `request._receive` so downstream handlers can still parse it — verified
-by the "body reaches handler" tests below.
+by the "body reaches handler" test below.
 """
 from __future__ import annotations
 
-import asyncio
-import json
 from typing import Any
-from unittest.mock import AsyncMock
+from uuid import UUID, uuid4
 
 import pytest
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from httpx import ASGITransport, AsyncClient
 
-from app.core.idempotency import IdempotencyMiddleware
+from app.core.idempotency import (
+    IdempotencyMiddleware,
+    _IdempotentReplay,
+    resolve_idempotency,
+)
+
+
+class _FakeUser:
+    def __init__(self, user_id: UUID) -> None:
+        self.id = user_id
 
 
 class _FakeRedis:
     """In-memory stand-in for redis.asyncio.Redis. Stores hashes keyed by
-    string, ignores TTLs. Sufficient to exercise the middleware's
-    serve-cached vs cache-miss branches."""
+    string, ignores TTLs. Sufficient to exercise the dep's cache slots
+    plus the middleware's response-write path."""
 
     def __init__(self) -> None:
         self.store: dict[str, dict[str, str]] = {}
@@ -51,20 +57,59 @@ class _FakeRedis:
         return True
 
 
-def _build_app() -> tuple[FastAPI, _FakeRedis, list[dict[str, Any]]]:
+def _build_app(
+    user: _FakeUser | None = None,
+    *,
+    declare_dep: bool = True,
+) -> tuple[FastAPI, _FakeRedis, list[dict[str, Any]]]:
     """Tiny FastAPI app with one POST that echoes its body and counts hits.
+
+    `user=None` builds an app whose route does NOT declare `Depends(resolve_idempotency)`
+    — used to verify that routes which haven't opted in get zero caching
+    behaviour (only body capture / receive replay).
 
     Note: httpx.ASGITransport does NOT fire lifespan events by default, so
     we bind app.state.redis directly rather than via @app.on_event.
     """
+    from domains.auth.service import get_current_user
+
     app = FastAPI()
     redis = _FakeRedis()
     hits: list[dict[str, Any]] = []
 
-    @app.post("/echo")
-    async def echo(payload: dict, request: Request):
-        hits.append(payload)
-        return {"received": payload, "hit_count": len(hits)}
+    if user is not None:
+        async def _fake_get_current_user() -> _FakeUser:
+            return user
+
+        app.dependency_overrides[get_current_user] = _fake_get_current_user
+
+    @app.exception_handler(_IdempotentReplay)
+    async def _replay(_request: Request, exc: _IdempotentReplay):
+        from fastapi.responses import Response as FastAPIResponse
+
+        return FastAPIResponse(
+            content=exc.body,
+            status_code=exc.status_code,
+            headers={
+                "content-type": exc.content_type,
+                "X-Idempotent-Replay": "true",
+            },
+        )
+
+    if declare_dep:
+        @app.post("/echo")
+        async def echo(
+            payload: dict,
+            request: Request,
+            _idem: None = Depends(resolve_idempotency),
+        ):
+            hits.append(payload)
+            return {"received": payload, "hit_count": len(hits)}
+    else:
+        @app.post("/echo")
+        async def echo(payload: dict, request: Request):
+            hits.append(payload)
+            return {"received": payload, "hit_count": len(hits)}
 
     app.add_middleware(IdempotencyMiddleware)
     app.state.redis = redis
@@ -73,7 +118,8 @@ def _build_app() -> tuple[FastAPI, _FakeRedis, list[dict[str, Any]]]:
 
 @pytest.mark.asyncio
 async def test_same_key_same_body_replays_cache():
-    app, redis, hits = _build_app()
+    user = _FakeUser(uuid4())
+    app, redis, hits = _build_app(user)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         body = {"amount_cents": 1500}
         r1 = await ac.post("/echo", json=body, headers={"Idempotency-Key": "abc"})
@@ -90,10 +136,11 @@ async def test_same_key_same_body_replays_cache():
 
 @pytest.mark.asyncio
 async def test_same_key_different_body_executes_separately():
-    """The critical regression case. Pre-fix, the second call would have
-    returned r1's body (wrong); post-fix the body hash makes them distinct
-    cache slots and the handler runs twice."""
-    app, redis, hits = _build_app()
+    """The critical body-hash regression case. Different body bytes →
+    different cache slots → handler runs twice. Identical responses are
+    NOT cross-served."""
+    user = _FakeUser(uuid4())
+    app, redis, hits = _build_app(user)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         r1 = await ac.post(
             "/echo", json={"amount_cents": 1500}, headers={"Idempotency-Key": "k1"}
@@ -120,7 +167,8 @@ async def test_body_is_reattached_for_downstream_handler():
     """Direct evidence that the middleware's body consumption doesn't
     starve the handler. Without the request._receive re-attachment, this
     test would 422 (FastAPI would see an empty JSON body)."""
-    app, redis, hits = _build_app()
+    user = _FakeUser(uuid4())
+    app, redis, hits = _build_app(user)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         resp = await ac.post(
             "/echo",
@@ -134,7 +182,8 @@ async def test_body_is_reattached_for_downstream_handler():
 @pytest.mark.asyncio
 async def test_no_idempotency_key_bypasses_middleware():
     """Requests without the header must pass through untouched."""
-    app, redis, hits = _build_app()
+    user = _FakeUser(uuid4())
+    app, redis, hits = _build_app(user)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         r1 = await ac.post("/echo", json={"x": 1})
         r2 = await ac.post("/echo", json={"x": 1})
@@ -172,8 +221,7 @@ async def test_get_method_bypasses_middleware():
 async def test_redis_outage_falls_open():
     """If Redis can't be read, the request still executes (fail-open).
     Better to lose idempotency convenience than to 500 the user."""
-    app = FastAPI()
-    hits: list[int] = []
+    user = _FakeUser(uuid4())
 
     class BrokenRedis:
         async def hgetall(self, key):
@@ -185,16 +233,31 @@ async def test_redis_outage_falls_open():
         async def expire(self, key, ttl):
             raise RuntimeError("redis is unreachable")
 
-    @app.post("/ping")
-    async def ping(payload: dict):
-        hits.append(1)
-        return {"ok": True}
-
-    app.add_middleware(IdempotencyMiddleware)
+    app, _redis, hits = _build_app(user)
     app.state.redis = BrokenRedis()
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-        resp = await ac.post("/ping", json={"k": "v"}, headers={"Idempotency-Key": "abc"})
+        resp = await ac.post(
+            "/echo", json={"k": "v"}, headers={"Idempotency-Key": "abc"}
+        )
 
     assert resp.status_code == 200
     assert len(hits) == 1
+
+
+@pytest.mark.asyncio
+async def test_route_without_dep_gets_no_cache_replay():
+    """H1 fix consequence: routes that don't declare `Depends(resolve_idempotency)`
+    do NOT get cross-request replay. They only get body capture + receive
+    replay (so handlers still parse the body correctly). This is the
+    documented behaviour for un-migrated legacy routes."""
+    app, redis, hits = _build_app(user=None, declare_dep=False)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        r1 = await ac.post("/echo", json={"x": 1}, headers={"Idempotency-Key": "abc"})
+        r2 = await ac.post("/echo", json={"x": 1}, headers={"Idempotency-Key": "abc"})
+
+    assert r1.status_code == 200
+    assert r2.status_code == 200
+    # Both ran — no v2 dep was declared, so no caching happened.
+    assert len(hits) == 2
+    assert redis.store == {}

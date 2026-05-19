@@ -27,6 +27,9 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
+from fastapi.responses import Response as FastAPIResponse
+
+from app.core.idempotency import _IdempotentReplay
 from shared.schemas import ErrorEnvelope, ErrorPayload, FieldError, Meta
 
 logger = logging.getLogger(__name__)
@@ -152,6 +155,22 @@ def register_exception_handlers(app: FastAPI) -> None:
             message=exc.message,
             request_id=_request_id(request),
             details=_normalize_details(exc.details),
+        )
+
+    @app.exception_handler(_IdempotentReplay)
+    async def idempotent_replay_handler(
+        request: Request, exc: _IdempotentReplay,
+    ) -> FastAPIResponse:
+        # Plan 22 §6.1.3 — H1 fix path. `resolve_idempotency` dep raises this
+        # on v2 cache hit; we return the cached body verbatim with a marker
+        # header so callers can distinguish replays from fresh executions.
+        return FastAPIResponse(
+            content=exc.body,
+            status_code=exc.status_code,
+            headers={
+                "content-type": exc.content_type,
+                "X-Idempotent-Replay": "true",
+            },
         )
 
     @app.exception_handler(Exception)
