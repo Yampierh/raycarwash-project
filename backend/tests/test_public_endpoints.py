@@ -431,3 +431,177 @@ async def test_waitlist_join_invalid_role_returns_422(client: AsyncClient):
         json={"email": "x@example.com", "role": "manager"},
     )
     assert r.status_code == 422
+
+
+# ─── Stats (GET /stats) ────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_stats_returns_zeros_on_fresh_db(client: AsyncClient):
+    """Fresh DB: no appointments, no reviews, no active detailers →
+    every count is 0 and the labels still render (zero is shown as
+    "0", not "0+"; the "+" suffix only kicks in at ≥100)."""
+    r = await client.get("/api/v1/public/stats")
+    assert r.status_code == 200
+    data = r.json()["data"]
+
+    assert data["deliveries"] == 0
+    assert data["deliveries_label"] == "0"
+    assert data["active_detailers"] == 0
+    assert data["total_reviews"] == 0
+    # avg_rating COALESCE'd to 0.0 on empty reviews
+    assert data["avg_rating"] == 0.0
+    assert data["avg_rating_label"] == "0.0★"
+
+    # Static placeholders (Plan 19 §5 — marketing-approved approximations)
+    assert data["avg_eta_min"] == 22
+    assert data["median_earnings_per_hr"] == 42
+
+    # Plan 19 §10.2 — 1h CDN cache
+    assert "max-age=3600" in r.headers["cache-control"]
+
+
+@pytest.mark.asyncio
+async def test_stats_aggregates_from_db(client_with_db):
+    """Seeded data: completed appointments, reviews, an active provider →
+    the response reflects the real counts and avg_rating."""
+    ac, db_session = client_with_db
+    from datetime import datetime, timezone
+
+    from sqlalchemy import select
+    from domains.appointments.models import Appointment, AppointmentStatus
+    from domains.auth.models import Role, UserRoleAssociation
+    from domains.providers.models import ProviderProfile
+    from domains.reviews.models import Review
+    from domains.services_catalog.models import Service
+    from domains.users.models import ClientProfile, OnboardingStatus, User
+
+    # Need an active detailer + a client + a service for FKs
+    detailer_role = (await db_session.execute(
+        select(Role).where(Role.name == "detailer")
+    )).scalar_one()
+    client_role = (await db_session.execute(
+        select(Role).where(Role.name == "client")
+    )).scalar_one()
+    service = (await db_session.execute(
+        select(Service).limit(1)
+    )).scalar_one()
+
+    detailer = User(
+        email="stats-d@example.com",
+        full_name="Stats Detailer",
+        password_hash="x",
+        is_active=True,
+        onboarding_status=OnboardingStatus.COMPLETED,
+    )
+    customer = User(
+        email="stats-c@example.com",
+        full_name="Stats Customer",
+        password_hash="x",
+        is_active=True,
+        onboarding_status=OnboardingStatus.COMPLETED,
+    )
+    db_session.add_all([detailer, customer])
+    await db_session.flush()
+    db_session.add_all([
+        UserRoleAssociation(user_id=detailer.id, role_id=detailer_role.id),
+        UserRoleAssociation(user_id=customer.id, role_id=client_role.id),
+        ProviderProfile(
+            user_id=detailer.id,
+            bio="bio",
+            years_of_experience=3,
+            service_radius_miles=25,
+            timezone="America/Indiana/Indianapolis",
+            is_accepting_bookings=True,
+        ),
+        ClientProfile(user_id=customer.id),
+    ])
+
+    # Two completed appointments + one in_progress (only completed count).
+    # Reviews go 5★ on the first, 3★ on the second; in_progress has no
+    # review (would violate UNIQUE(appointment_id) + business rule).
+    completed_appts: list[Appointment] = []
+    for status in (
+        AppointmentStatus.COMPLETED,
+        AppointmentStatus.COMPLETED,
+        AppointmentStatus.IN_PROGRESS,
+    ):
+        appt = Appointment(
+            client_id=customer.id,
+            detailer_id=detailer.id,
+            service_id=service.id,
+            scheduled_time=datetime(2026, 5, 19, tzinfo=timezone.utc),
+            estimated_price=10_000,
+            status=status,
+        )
+        db_session.add(appt)
+        await db_session.flush()
+        if status == AppointmentStatus.COMPLETED:
+            completed_appts.append(appt)
+
+    for appt, rating in zip(completed_appts, [5, 3]):
+        db_session.add(Review(
+            appointment_id=appt.id,
+            reviewer_id=customer.id,
+            detailer_id=detailer.id,
+            rating=rating,
+        ))
+
+    await db_session.commit()
+
+    r = await ac.get("/api/v1/public/stats")
+    data = r.json()["data"]
+
+    # 2 completed appointments → deliveries=2 (label "2", <100 threshold)
+    assert data["deliveries"] == 2
+    assert data["deliveries_label"] == "2"
+    # 1 active provider
+    assert data["active_detailers"] == 1
+    # 2 reviews (5★ + 3★ → avg 4.0)
+    assert data["total_reviews"] == 2
+    assert data["avg_rating"] == 4.0
+    assert data["avg_rating_label"] == "4.0★"
+
+
+@pytest.mark.asyncio
+async def test_stats_label_rounding(client: AsyncClient):
+    """`_format_round_with_plus` rules — unit-test through the API.
+    We can't easily insert 100+ appointments here, so we directly
+    test the helper."""
+    from domains.public.service import _format_round_with_plus
+
+    assert _format_round_with_plus(0) == "0"
+    assert _format_round_with_plus(47) == "47"
+    assert _format_round_with_plus(100) == "100+"
+    assert _format_round_with_plus(437) == "400+"
+    assert _format_round_with_plus(2_437) == "2,400+"
+    assert _format_round_with_plus(15_999) == "15,900+"
+
+
+# ─── Detailer benchmarks (GET /stats/detailer-benchmarks) ──────────────
+
+
+@pytest.mark.asyncio
+async def test_detailer_benchmarks_returns_static_marketing_values(client: AsyncClient):
+    """Static config — no DB dependency. Verifies the cents convention
+    holds (e.g. median_weekly=184_000 == $1,840) and the labels match
+    the prototype copy."""
+    r = await client.get("/api/v1/public/stats/detailer-benchmarks")
+    assert r.status_code == 200
+    data = r.json()["data"]
+
+    # Cents convention
+    assert data["median_weekly"] == 184_000
+    assert data["top_quartile_weekly"] == 272_000
+    assert data["top_10pct_weekly"] == 340_000
+    assert data["avg_per_job"] == 11_200
+
+    # Pre-formatted labels for display
+    assert data["median_weekly_label"] == "$1,840 / wk"
+    assert data["top_quartile_weekly_label"] == "$2,720 / wk"
+    assert data["top_10pct_weekly_label"] == "$3,400+ / wk"
+    assert data["avg_per_job_label"] == "$112"
+
+    # Plan 19 §10.2 — 24h CDN cache
+    cc = r.headers.get("cache-control", "")
+    assert "max-age=86400" in cc

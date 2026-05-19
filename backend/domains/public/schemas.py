@@ -128,7 +128,13 @@ class StatsResponse(_BaseSchema):
 
 class DetailerBenchmarksResponse(_BaseSchema):
     """Marketing-approved earnings benchmarks for detailer recruitment.
-    Static config at launch; later replaced with real-aggregated values."""
+    Static config at launch; later replaced with real-aggregated values.
+
+    All `*_weekly` and `avg_per_job` fields are **integer cents** per
+    the AGENTS.md project convention (`median_weekly=184_000` = $1,840).
+    The accompanying `*_label` strings are pre-formatted for display
+    so the portal doesn't have to choose a locale at render time.
+    """
 
     median_weekly: int
     median_weekly_label: str

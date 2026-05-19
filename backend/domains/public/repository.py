@@ -104,11 +104,58 @@ class PublicRepository:
     # ── Aggregate stats ───────────────────────────────────────────
 
     async def fetch_stats_snapshot(self) -> dict:
-        """Returns a dict matching `StatsResponse` fields. Pulls from the
-        live `appointments`, `provider_profiles`, and `reviews` tables
-        via cheap COUNT/AVG aggregates with results cached at the
-        service layer (1h TTL per Plan 19 §10.2)."""
-        raise NotImplementedError
+        """Returns the four DB-derived metrics for `GET /public/stats`:
+        completed deliveries, average review rating, active detailer
+        count, and total review count. The two remaining
+        `StatsResponse` fields (avg_eta_min, median_earnings_per_hr)
+        live in the service layer as static placeholders until we have
+        the earnings + assignment-timing data to compute them.
+
+        Soft-delete-filtered. COALESCE(AVG, 0) so a fresh DB doesn't
+        return NULL where the schema requires a number.
+        """
+        from domains.appointments.models import Appointment, AppointmentStatus
+        from domains.providers.models import ProviderProfile
+        from domains.reviews.models import Review
+
+        deliveries_q = (
+            select(func.count())
+            .select_from(Appointment)
+            .where(
+                Appointment.status == AppointmentStatus.COMPLETED,
+                Appointment.is_deleted.is_(False),
+            )
+        )
+        avg_rating_q = (
+            select(func.coalesce(func.avg(Review.rating), 0.0))
+            .select_from(Review)
+            .where(Review.is_deleted.is_(False))
+        )
+        active_detailers_q = (
+            select(func.count())
+            .select_from(ProviderProfile)
+            .where(
+                ProviderProfile.is_active.is_(True),
+                ProviderProfile.is_deleted.is_(False),
+            )
+        )
+        total_reviews_q = (
+            select(func.count())
+            .select_from(Review)
+            .where(Review.is_deleted.is_(False))
+        )
+
+        deliveries = int((await self.session.execute(deliveries_q)).scalar_one())
+        avg_rating = float((await self.session.execute(avg_rating_q)).scalar_one())
+        active_detailers = int((await self.session.execute(active_detailers_q)).scalar_one())
+        total_reviews = int((await self.session.execute(total_reviews_q)).scalar_one())
+
+        return {
+            "deliveries": deliveries,
+            "avg_rating": round(avg_rating, 2),
+            "active_detailers": active_detailers,
+            "total_reviews": total_reviews,
+        }
 
     async def fetch_detailer_benchmarks(self) -> dict:
         """Static-config initially. Later: percentile aggregation over

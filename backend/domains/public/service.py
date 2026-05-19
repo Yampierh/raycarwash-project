@@ -51,6 +51,20 @@ _CONTACT_MAX_PER_EMAIL_PER_DAY = 20
 _CONTACT_WINDOW_HOURS = 24
 
 
+def _format_round_with_plus(value: int) -> str:
+    """Plan 22 H6 mitigation — display labels for /public/stats hide the
+    exact business volume.
+
+      <100  → exact ("47")
+      <1K   → round-down-to-100 + "+" ("400+")
+      ≥1K   → round-down-to-100 + comma + "+" ("2,400+")
+    """
+    if value < 100:
+        return str(value)
+    rounded = (value // 100) * 100
+    return f"{rounded:,}+"
+
+
 class PublicService:
     def __init__(self, repository: PublicRepository) -> None:
         self.repository = repository
@@ -100,10 +114,50 @@ class PublicService:
         )
 
     async def get_stats(self) -> StatsResponse:
-        raise NotImplementedError
+        # Plan 22 H6 mitigation: business volume is rounded/labeled
+        # before leaving the API so competitors can't track exact
+        # growth from the public stats endpoint. The numeric fields
+        # carry the raw value (frontend uses them for animated
+        # counters); the *_label fields are pre-rounded for display.
+        snapshot = await self.repository.fetch_stats_snapshot()
+
+        # Static placeholders for metrics that need data we don't
+        # have yet. Plan 19 §5 documents these as "marketing-approved
+        # approximations" rather than real-time.
+        AVG_ETA_MIN = 22
+        MEDIAN_EARNINGS_PER_HR = 42
+
+        return StatsResponse(
+            deliveries=snapshot["deliveries"],
+            deliveries_label=_format_round_with_plus(snapshot["deliveries"]),
+            avg_eta_min=AVG_ETA_MIN,
+            avg_eta_label=f"{AVG_ETA_MIN} min",
+            avg_rating=snapshot["avg_rating"],
+            avg_rating_label=f"{snapshot['avg_rating']:.1f}★",
+            active_detailers=snapshot["active_detailers"],
+            active_detailers_label=str(snapshot["active_detailers"]),
+            median_earnings_per_hr=MEDIAN_EARNINGS_PER_HR,
+            median_earnings_label=f"${MEDIAN_EARNINGS_PER_HR}/hr",
+            total_reviews=snapshot["total_reviews"],
+            total_reviews_label=_format_round_with_plus(snapshot["total_reviews"]),
+        )
 
     async def get_detailer_benchmarks(self) -> DetailerBenchmarksResponse:
-        raise NotImplementedError
+        # Marketing-approved benchmark values per Plan 19 §6. Static at
+        # launch; later replaced with real percentile aggregation over
+        # `provider_earnings` once we have enough data to compute it.
+        # Numbers come from the prototype `ForDetailersSplit` block in
+        # `raycarwash/project/src/detailers-b.jsx` and `EarningsCalc`.
+        return DetailerBenchmarksResponse(
+            median_weekly=184_000,        # $1,840
+            median_weekly_label="$1,840 / wk",
+            top_quartile_weekly=272_000,  # $2,720
+            top_quartile_weekly_label="$2,720 / wk",
+            top_10pct_weekly=340_000,     # $3,400
+            top_10pct_weekly_label="$3,400+ / wk",
+            avg_per_job=11_200,           # $112
+            avg_per_job_label="$112",
+        )
 
     async def submit_contact(
         self,

@@ -156,8 +156,18 @@ async def check_coverage(
 
 @router.get("/stats", response_model=Envelope[StatsResponse])
 @limiter.limit("60/minute")
-async def get_stats(request: Request) -> Envelope[StatsResponse]:
-    raise _NOT_IMPLEMENTED
+async def get_stats(
+    request: Request,
+    response: Response,
+    service: PublicService = Depends(_service),
+) -> Envelope[StatsResponse]:
+    # Plan 19 §10.2 — 1h CDN cache.
+    # Plan 22 H6 — no query params here on purpose. Without a date
+    # range knob, a competitor can't enumerate historical growth.
+    response.headers["Cache-Control"] = (
+        "public, max-age=3600, stale-while-revalidate=300"
+    )
+    return Envelope(data=await service.get_stats())
 
 
 # 6. Detailer benchmarks ────────────────────────────────────────────────
@@ -170,8 +180,16 @@ async def get_stats(request: Request) -> Envelope[StatsResponse]:
 @limiter.limit("60/minute")
 async def get_detailer_benchmarks(
     request: Request,
+    response: Response,
+    service: PublicService = Depends(_service),
 ) -> Envelope[DetailerBenchmarksResponse]:
-    raise _NOT_IMPLEMENTED
+    # Plan 19 §10.2 — 24h CDN cache. Marketing-approved benchmark
+    # numbers refresh rarely (manual update); aggressive caching is
+    # safe and keeps the EarningsCalc on the detailers page snappy.
+    response.headers["Cache-Control"] = (
+        "public, max-age=86400, stale-while-revalidate=3600"
+    )
+    return Envelope(data=await service.get_detailer_benchmarks())
 
 
 # 7. Contact ────────────────────────────────────────────────────────────
