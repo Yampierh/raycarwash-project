@@ -255,3 +255,75 @@ class UserLoginHistory(Base):
 
     def __repr__(self) -> str:
         return f"<UserLoginHistory user_id={self.user_id} at={self.login_at} success={self.was_successful}>"
+
+
+# ── Sessions (Plan 23 Fase 1) ─────────────────────────────────────── #
+
+class Session(Base):
+    """Stateful session row backing every active access token.
+
+    Created on login (1:1 with a refresh-token family); referenced by the
+    `sid` claim on access tokens. Allows real-time revocation, device
+    listing in the UX, and per-session anomaly tracking.
+
+    Per CR feedback on m_023 (Plan 23 Fase 1):
+
+      - `family_id` is the refresh-token rotation chain identifier. It is
+        intentionally NOT unique — one family represents a sequence of
+        rotations, not a session-id. There is also no FK to
+        `refresh_tokens.family_id` because that column doesn't have a
+        unique constraint and app-level integrity is sufficient.
+
+      - Indexes live in the Alembic migration only, NOT in
+        `__table_args__`. Keeping them in one place avoids the
+        ORM/migration drift class of bugs.
+
+      - `last_active_at` and `created_at` use server_default=NOW() so the
+        DB is the single source of truth (no Python default that could
+        diverge from the migration).
+    """
+
+    __tablename__ = "sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4,
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    # NOT unique by design — see class docstring.
+    family_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+
+    device_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    device_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
+    # IPv4 and IPv6 both fit in 45 chars (`ffff:ffff:ffff:ffff:ffff:ffff:255.255.255.255`).
+    ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    ip_country: Mapped[str | None] = mapped_column(String(4), nullable=True)
+    ip_city: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
+    user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    last_active_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now(),
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sa.func.now(),
+    )
+
+    revoked: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=sa.false(),
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+
+    user: Mapped[User] = relationship("User", lazy="select")
+
+    def __repr__(self) -> str:
+        return (
+            f"<Session id={self.id} user_id={self.user_id} "
+            f"device={self.device_name!r} revoked={self.revoked}>"
+        )

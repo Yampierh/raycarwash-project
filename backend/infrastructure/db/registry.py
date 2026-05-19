@@ -18,7 +18,7 @@ from domains.auth.models import (  # noqa: F401
     Permission, Role, RolePermission, UserRoleAssociation,
     RefreshToken, PasswordResetToken,
     WebAuthnCredential, AuthProvider,
-    UserLoginHistory,
+    UserLoginHistory, Session,
 )
 from domains.auth.totp_credential import TotpCredential  # noqa: F401
 from domains.users.pending_contact_change import PendingContactChange  # noqa: F401
