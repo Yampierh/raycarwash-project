@@ -99,8 +99,8 @@ graph TD
 | `07-observability.md` | :page_facing_up: Draft | Medium | `06-infrastructure.md` | `08-hardening.md` Phase 2 |
 | `08-hardening.md` | :page_facing_up: Draft | **Critical** | — | — |
 | `09-provider-services-integration.md` | :hourglass: Planning | Medium | `plan.md` Phase 5 | — |
-| `10-authorization-layer.md` | :hourglass: Planning | High | `08-hardening.md` Phase 0 | `plan.md` Phase 6 |
-| `11-provider-dashboard.md` | :hourglass: Planning | High | `09-provider-services-integration.md`, `10-authorization-layer.md` | `15-marketing-content-cms.md` |
+| `10-authorization-layer.md` | :recycle: **Absorbed by `23-auth-hardening.md` Fases 3-4** | High | — | — |
+| `11-provider-dashboard.md` | :hourglass: Planning | High | `09-provider-services-integration.md`, `23-auth-hardening.md` | `15-marketing-content-cms.md` |
 | `12-marketing-redesign.md` | :white_check_mark: Phases 1-4 frontend complete | High | — | `11`, `15`, `16`, `17` |
 | `13-customer-dashboard.md` | :hourglass: Planning | High | `04-vehicles.md`, `11-provider-dashboard.md` | `15-marketing-content-cms.md` |
 | `14-mechanic-vertical.md` | :hourglass: Planning | Medium | `03-mechanic.md`, `09`, `11`, `15`, `17` | — |
@@ -111,6 +111,7 @@ graph TD
 | `20-api-contracts-track2-provider-dashboard.md` | :white_check_mark: Contract — approved | High | `11-provider-dashboard.md`, `09` | — |
 | `21-api-contracts-track3-customer-dashboard.md` | :white_check_mark: Contract — approved | Medium | `13-customer-dashboard.md`, `04-vehicles.md` | — |
 | **`22-security-architecture-audit.md`** | :construction: **In progress — findings documented** | **Critical** | `19`, `20`, `21` (remediation applied) | All Plans |
+| **`23-auth-hardening.md`** | :hourglass: Planning | **Critical** | None | — (absorbe `10-authorization-layer.md`) |
 
 ---
 
@@ -132,7 +133,8 @@ Cada hallazgo del audit se mapea al plan que lo resuelve:
 | `plan.md` Phase 5 | Service layer reorg (AdminService, PaymentsRepo) | `01-architecture` |
 | `plan.md` Phase 6 | Active role switcher | `01-architecture` |
 | `01-profiles.md` (E1) | ProviderProfile 1:N refactor | `01-architecture` |
-| `10-authorization-layer.md` | Enforcement inconsistente (inline checks, falta `require_permission()`) | `01-architecture` (hallazgos de exploración) |
+| `10-authorization-layer.md` | Enforcement inconsistente — **absorbido por** `23-auth-hardening.md` Fases 3-4 | `01-architecture` (hallazgos de exploración) |
+| **`23-auth-hardening.md`** | Auth gaps: session binding, device tracking, RBAC runtime, ABAC, anomaly detection | Internal auth architecture audit |
 | `11-provider-dashboard.md` | Backend gaps surfaced by design audit: earnings time-series, JobOffer/matching split, payouts, ledger, supplies, promo codes | Design source: `raycarwash/project/` dash-*.jsx (12 views) |
 | `13-customer-dashboard.md` | Backend gaps: composite home, vehicle stats, subscriptions, loyalty, referrals, favorites, receipt PDFs | Design source: `cdash.css` + HTML manifest |
 | `14-mechanic-vertical.md` | Service category split, parts catalog, ASE cert tracking, OBD-II diagnostics, warranty model | Design source: `mechanic.jsx` |
@@ -140,7 +142,6 @@ Cada hallazgo del audit se mapea al plan que lo resuelve:
 | `16-coverage-zip-service.md` | No `service_zip_codes` table — Coverage.tsx uses hardcoded 5-ZIP allowlist | Design source: `Coverage.tsx` + `dash-schedule.jsx` zones |
 | `17-waitlist-system.md` | Mechanic/coverage waitlist forms only have client state, no persistence | Design source: `MechanicHero/CTA.tsx` + `Coverage.tsx` notify-me |
 | **`22-security-architecture-audit.md`** | 10 findings (H1–H10) across 32 endpoints — remediated via contract updates + future migrations | Audit of contract plans 19/20/21 |
-
 > **Full mapping**: See [`docs/audit/06-cross-reference-and-standards.md`](./audit/06-cross-reference-and-standards.md) section 3
 
 ---
