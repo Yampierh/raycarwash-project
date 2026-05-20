@@ -177,18 +177,18 @@ admin endpoints; some reuse existing ones.
 The total scope is huge (~30 new endpoints, ~8 new tables, 2-3 third-
 party integrations). Recommended slicing:
 
-### Wave 1 — Auth pages backend (frontend can ship)
-- **S-1** Add `staff` role distinction
-- **P-7** Promote `verification_status` → state machine + `application_status`
-- **P-1** `ssn_last_4_encrypted` column on `provider_profiles` + signup endpoint accepts it
-- **P-3** `water_tank_gallons` + `services_offered` columns
-- **P-2** + **A-1** `cities` table + `home_city_code` on profile
-- **C-1** Vehicle price-estimate endpoint
-- **C-3** Address ZIP gate
+### Wave 1 — Auth pages backend (frontend can ship) — ✅ DONE
+- ✅ **S-1** Add `staff` role distinction — `909a23e`
+- ✅ **P-7** Promote `verification_status` → state machine + `application_status` column + `POST /provider-profile/submit` — `909a23e` + `6fa9fef`
+- ✅ **P-1** `ssn_last_4_encrypted` column on `provider_profiles` + signup endpoint accepts it — `909a23e` + `da92957`
+- ✅ **P-3** `water_tank_gallons` + `services_offered` columns + PATCH wired — `909a23e` + `da92957`
+- ✅ **P-2** + **A-1** `cities` table + `home_city_code` on profile + 5-city seed — `909a23e`
+- ✅ **C-1** Vehicle price-estimate endpoint (anonymous) — `3aa4b25`
+- ✅ **C-3** Address ZIP gate (opt-in via `enforce_coverage_check` body flag) — `f4e0103`
 
-**Outcome:** Customer + Provider + Staff login/signup pages are fully
-wireable against the backend. Provider signup steps 5 (Checkr) and 7
-(Plaid) remain manual review fallbacks until Wave 3.
+**Outcome (achieved):** Customer + Provider + Staff login/signup pages
+are fully wireable against the backend. Provider signup steps 5 (Checkr)
+and 7 (Plaid) remain manual review fallbacks until Wave 3.
 
 ### Wave 2 — Admin dashboard MVP (5 most-used views)
 - Operations overview endpoint (KPIs + heatmap from existing data)
@@ -258,13 +258,35 @@ inbox, surge config, finance dashboard, marketing CMS deferred.
 
 ## 10. Next Implementation Step
 
-Start with **Wave 1 / item S-1** (add `staff` role distinction). It's
-the smallest possible change that unblocks the next chunk
-(`require_role("staff", "admin")` adoption) and has zero cross-domain
-ripple. Follow with P-1/P-3/A-1 (provider signup column additions +
-cities table) as a single migration M24.
+**Wave 1 is closed** (8 items shipped — see §11 tracker). Auth pages
+across customer / provider / staff are fully wireable against the
+backend modulo the Wave 3 integrations (Checkr, Plaid) which fall
+back to manual review until then.
 
-Subsequent steps proceed per §6 wave order.
+The natural next chunk is **Wave 2 — Admin Dashboard MVP** (§6):
+the 5 most-used views (Operations overview, Bookings management,
+Detailers approve/suspend/performance, Customers segments + credits,
+Reviews moderation queue).
+
+A reasonable slicing for Wave 2:
+
+| Slice | Endpoint(s) | Why first |
+|-------|-------------|-----------|
+| **W2-A** | `GET /api/v1/admin/ops/dashboard` (KPIs + heatmap) | Read-only aggregates over existing tables; no new schema; unblocks the ops overview view that ops checks first thing every morning. |
+| **W2-B** | `POST /api/v1/admin/appointments/{id}/refund` + `POST /reassign` | Extend the existing admin appointments router; uses existing FSM + payments. Highest-frequency support-staff action after refunds. |
+| **W2-C** | `POST /api/v1/admin/detailers/{id}/{approve\|suspend}` | Extends `verification_status` state machine + existing admin detailer endpoints. Closes the loop on Plan 24 P-7 (`submitted → approved/rejected`). |
+| **W2-D** | `GET /api/v1/admin/reviews/queue` + `POST /{id}/{approve\|hide}` | New `review_flags` table (Plan 24 §5.2 A-5); auto-flag rules ship as static (low rating + profanity keyword) and refine later. |
+| **W2-E** | `GET /api/v1/admin/customers?segment=` + `POST /{id}/credits` | New `customer_credits` table (A-8). Customers view + credit issuance — needed for support tickets. |
+
+Pre-requisite for **W2-C** (`approve/suspend`): finalize the
+`application_status` state machine — define which roles can trigger
+which transitions, and gate `require_role("staff", "admin")` on those
+routes.
+
+If Plan 23 Fase 1 days 2-3 (SessionRepository + Redis cache +
+session-aware `get_current_user`) lands first, the admin endpoints
+inherit real-time session revocation for free — worth considering
+before W2 starts.
 
 ---
 
