@@ -22,7 +22,11 @@ npm run dev:admin        # Next.js admin on :3000
 npm run dev:portal       # Next.js portal on :3001
 
 cd backend
-python -m pytest tests/test_auth.py tests/test_appointments.py tests/test_user_flows.py tests/test_admin.py -q
+python -m pytest \
+  tests/test_auth.py tests/test_appointments.py tests/test_user_flows.py tests/test_admin.py \
+  tests/test_appointments_cancel.py tests/test_public_endpoints.py \
+  tests/test_idempotency_body_hash.py tests/test_idempotency_v2_user_scope.py \
+  tests/test_rate_limit_handler.py tests/test_users_provider_profile.py -q
 
 cd backend && alembic upgrade head
 ```
@@ -69,7 +73,9 @@ SecureStore keys: `raycarwash_jwt_token`, `raycarwash_onboarding_token`, `raycar
 backend/
 ├── main.py                 # composition root: lifespan, middleware, health, seed
 ├── api/router.py           # aggregates all domain routers
-├── domains/{auth,admin,users,providers,vehicles,...}  + notifications, realtime, audit
+├── domains/{auth,admin,users,providers,vehicles,appointments,
+│           services_catalog,reviews,payments,matching,realtime,audit,
+│           notifications,public,locations}
 ├── infrastructure/{db,redis,email,nhtsa,h3,stripe}
 ├── shared/schemas.py       # Envelope[T], PaginatedEnvelope[T], ErrorEnvelope
 ├── workers/                # background asyncio: location, assignment, audit redaction
@@ -130,9 +136,17 @@ JWT in query param (headers unavailable post-handshake). Frontend hook: `useAppo
 | `test_appointments.py` | 19/19 | All pass |
 | `test_user_flows.py` | 17/17 | Client + detailer registration flows |
 | `test_admin.py` | 27/27 | Users/roles/permissions |
+| `test_appointments_cancel.py` | 8/8 | Plan 21 §2 — customer cancel wrapper of FSM, refund preview policy |
+| `test_idempotency_body_hash.py` | 7/7 | Body-hash isolation under the v2 dep (Plan 22 §6.1.3) |
+| `test_idempotency_v2_user_scope.py` | 4/4 | H1 cross-user collision regression (Plan 22 §6.1.3) |
+| `test_rate_limit_handler.py` | 3/3 | Envelope-shaped 429 + Retry-After (Plan 19 §10) |
+| `test_public_endpoints.py` | 28/28 | Plan 19 Track 1 — all 9 public endpoints |
+| `test_users_provider_profile.py` | 14/14 | Includes Plan 24 Wave 1 signup fields (ssn/city/tank/skills) |
 | `test_detailers.py` | ⚠️ | Edge cases (profile fixture) |
 | `test_matching.py` | ⚠️ | Requires real Redis (H3 spatial) |
 | `test_vehicles.py` | ⚠️ | body_class / onboarding edge cases |
+
+Standard green suite (above, excluding the ⚠️ files): **199/199** in ~5 min.
 
 Sprint 9 admin extensions (appointments/verifications/payments) ship without dedicated tests.
 

@@ -107,12 +107,12 @@ graph TD
 | `15-marketing-content-cms.md` | :hourglass: Planning | Medium | `12-marketing-redesign.md` | — |
 | `16-coverage-zip-service.md` | :hourglass: Planning | Medium-High | `infrastructure/h3` | `15-marketing-content-cms.md` |
 | `17-waitlist-system.md` | :hourglass: Planning | Medium | `infrastructure/email` | `15-marketing-content-cms.md` |
-| `19-api-contracts-track1-marketing.md` | :white_check_mark: Contract — approved | High | — | `12-marketing-redesign.md`, `15`, `16`, `17` |
+| `19-api-contracts-track1-marketing.md` | :white_check_mark: **Done — 9/9 endpoints shipped** | High | — | `12-marketing-redesign.md`, `15`, `16`, `17` |
 | `20-api-contracts-track2-provider-dashboard.md` | :white_check_mark: Contract — approved | High | `11-provider-dashboard.md`, `09` | — |
-| `21-api-contracts-track3-customer-dashboard.md` | :white_check_mark: Contract — approved | Medium | `13-customer-dashboard.md`, `04-vehicles.md` | — |
-| **`22-security-architecture-audit.md`** | :construction: **In progress — findings documented** | **Critical** | `19`, `20`, `21` (remediation applied) | All Plans |
-| **`23-auth-hardening.md`** | :hourglass: Planning | **Critical** | None | — (absorbe `10-authorization-layer.md`) |
-| **`24-auth-pages-and-admin-dashboard.md`** | :hourglass: Planning | High | `22`, `23`, `m_019` | `19`, `20`, `21` |
+| `21-api-contracts-track3-customer-dashboard.md` | :construction: **In progress — §2 cancel shipped** | Medium | `13-customer-dashboard.md`, `04-vehicles.md` | — |
+| **`22-security-architecture-audit.md`** | :construction: **In progress — H1 fixed in code; D1-D8 reconciled** | **Critical** | `19`, `20`, `21` (remediation applied) | All Plans |
+| **`23-auth-hardening.md`** | :construction: **Fase 1 day 1 done (Session ORM + migration)** | **Critical** | None | — (absorbe `10-authorization-layer.md`) |
+| **`24-auth-pages-and-admin-dashboard.md`** | :construction: **Wave 1 in progress** (S-1, P-1/2/3/7, A-1 done; signup PATCH wired) | High | `22`, `23`, `m_019` | `19`, `20`, `21` |
 
 ---
 

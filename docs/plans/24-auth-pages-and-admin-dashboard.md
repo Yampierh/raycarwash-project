@@ -265,3 +265,50 @@ ripple. Follow with P-1/P-3/A-1 (provider signup column additions +
 cities table) as a single migration M24.
 
 Subsequent steps proceed per §6 wave order.
+
+---
+
+## 11. Implementation Status (live tracker)
+
+> Updated 2026-05-19 — refreshes per commit. Items reference §3/§5 IDs.
+
+### Wave 1 — Auth pages backend
+
+| ID | Item | Status | Commit |
+|----|------|--------|--------|
+| **S-1** | `staff` Role distinct from `admin` (RBAC seed + permissions) | ✅ Done | `909a23e` |
+| **P-1** | `provider_profiles.ssn_last_4_encrypted` column + PATCH accepts `ssn_last_4` | ✅ Done | `909a23e` schema · `da92957` API |
+| **P-2** | `home_city_code` column + `cities` lookup + active-city validation on PATCH | ✅ Done | `909a23e` schema · `da92957` API |
+| **P-3** | `water_tank_gallons` + `services_offered` columns + PATCH wired (Literal enum on skills) | ✅ Done | `909a23e` schema · `da92957` API |
+| **P-7** | `application_status` column (state machine) | 🟡 Column added; submit + admin-approval endpoints pending | `909a23e` (column only) |
+| **A-1** | `cities` table + `City` ORM + 5-city seed (fwa active; ind/col/cin/lou pilot) | ✅ Done | `909a23e` |
+| **P-6** | Work vehicle vs personal vehicle distinction | ⏳ Pending | — |
+| **P-4** | Checkr background-check adapter | ⏳ Pending (Wave 3) | — |
+| **P-5** | Plaid bank-link adapter | ⏳ Pending (Wave 3) | — |
+| **C-1** | `GET /api/v1/vehicles/price-estimate` | ⏳ Pending | — |
+| **C-2** | `NEW10` welcome promo persistence | ⏳ Pending (Wave 4) | — |
+| **C-3** | ZIP gate on `POST /api/v1/users/me/addresses` | ⏳ Pending | — |
+| **S-2** | Mandatory TOTP enrollment for staff role | ⏳ Pending | — |
+
+### Wave 2 — Admin dashboard MVP
+
+| ID | Item | Status |
+|----|------|--------|
+| Operations overview aggregate endpoint | ⏳ Pending | — |
+| Bookings management (refund + reassign actions) | ⏳ Pending | — |
+| Detailers approve/suspend/performance | ⏳ Pending | — |
+| Customers segments + comp credits | ⏳ Pending | — |
+| Reviews moderation queue + approve/hide | ⏳ Pending | — |
+
+### Migrations landed for this plan
+
+| Migration | Adds | Status |
+|-----------|------|--------|
+| `m_024_cities_table_and_provider_signup_fields` | `cities` table + 5 columns on `provider_profiles` | ✅ Applied |
+
+### Test coverage added
+
+| File | Tests | Notes |
+|------|-------|-------|
+| `tests/test_users_provider_profile.py` | 4 new (14 total) | P-1/P-2/P-3 PATCH happy path + city validation + SSN regex + skill enum |
+| Seed smoke test | inline | `seed_cities` inserts 5 rows + idempotent re-run |

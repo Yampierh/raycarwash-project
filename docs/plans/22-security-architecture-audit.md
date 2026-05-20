@@ -21,7 +21,7 @@ This audit examines the 32 new API contract endpoints through the lens of an **A
 
 | # | Severity | Category | Endpoint(s) | Title | Status |
 |---|----------|----------|-------------|-------|--------|
-| **H1** | **CRITICAL** | Idempotency | All mutations (cash-out, cancel, reply, etc.) | Idempotency middleware cache key doesn't include user_id | Fixed in contract 20/21 |
+| **H1** | **CRITICAL** | Idempotency | All mutations (cash-out, cancel, reply, etc.) | Idempotency middleware cache key doesn't include user_id | ✅ **Fixed in code** — commit `77105af` (deferred caching post-auth via `resolve_idempotency` dep); regression test `tests/test_idempotency_v2_user_scope.py` |
 | **H2** | **HIGH** | Rate Limiting | All Track 1 public endpoints | No rate limiting on cacheable endpoints (theft/scrape) | Fixed in contract 19 |
 | **H3** | **HIGH** | Performance | `GET /me/dashboard` (both provider + customer) | Aggregate endpoint queries 7+ tables without index optimization | Fixed in contract 20/21 |
 | **H4** | **HIGH** | Validation | All POST/PUT endpoints | Missing max_length, strip, regex constraints on string inputs | Fixed in contract 19/20/21 |

@@ -460,13 +460,13 @@ Items the design surfaces but that we explicitly defer:
 
 ### 10.5 Implementation Order
 
-| Step | Endpoint(s) | Why first |
+| Step | Endpoint(s) | Status |
 |---|---|---|
-| **A** | `POST /appointments/{id}/cancel` | Already fully specified in §2 + §7.6. No new tables. Closes a Plan 21 endpoint. |
-| **B** | `GET /customers/me/dashboard` | Aggregate of existing data (appointments + favorites + vehicles). Subscriptions and recommendations fields stay empty arrays until T2/T3 land. Provides Home view minimal viability. |
-| **C** | `GET /appointments/{id}/timeline` | Reuses audit_logs; unlocks the Track view. |
-| **D** | `GET /api/v1/users/me/notification-preferences` + `PUT` | §4/§5 of original Plan 21. New small table `notification_preferences (user_id PK, push JSONB, email JSONB, sms JSONB)`. |
-| **E** | `GET /customers/me/rewards` (basic) | Returns tier + points + perks. Without `rewards_ledger` yet, points are a placeholder until T1 lands. Unlocks the Rewards view skeleton. |
-| **F+** | T1/T2/T3 tables + their endpoints | Full feature parity with the design. |
+| **A** | `POST /appointments/{id}/cancel` | ✅ **Done** — commit `70c31f8`. 8 tests pass. Reuses `AppointmentService.transition_status`; refund preview mirrors the FSM service's own branch logic. |
+| **B** | `GET /customers/me/dashboard` | ⏳ Pending. Aggregate of existing data (appointments + favorites + vehicles). Subscriptions and recommendations fields stay empty arrays until T2/T3 land. |
+| **C** | `GET /appointments/{id}/timeline` | ⏳ Pending. Reuses audit_logs; unlocks the Track view. |
+| **D** | `GET /api/v1/users/me/notification-preferences` + `PUT` | ⏳ Pending. §4/§5 of original Plan 21. New small table `notification_preferences (user_id PK, push JSONB, email JSONB, sms JSONB)`. |
+| **E** | `GET /customers/me/rewards` (basic) | ⏳ Pending. Returns tier + points + perks. Without `rewards_ledger` yet, points are a placeholder until T1 lands. |
+| **F+** | T1/T2/T3 tables + their endpoints | ⏳ Pending. Full feature parity with the design. |
 
-The implementation pass starts with A and B in this commit cycle; C onwards in follow-up commits.
+Step A landed in commit `70c31f8`; steps B onwards remain to be implemented.
