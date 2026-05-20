@@ -15,7 +15,9 @@ from app.db.seed import SIZE_MULTIPLIERS
 from domains.appointments.models import (
     Appointment,
     AppointmentAddon,
+    AppointmentCancellation,
     AppointmentStatus,
+    AppointmentStatusHistory,
     AppointmentVehicle,
     TERMINAL_STATUSES,
     VALID_TRANSITIONS,
@@ -418,6 +420,14 @@ class AppointmentService:
             },
         )
 
+        await self._appointment_repo.add_status_history(
+            appointment_id=created.id,
+            old_status=None,
+            new_status=AppointmentStatus.PENDING.value,
+            actor_id=client.id,
+            metadata={"price_cents": total_price_cents},
+        )
+
         logger.info(
             "Appointment created | id=%s client=%s detailer=%s "
             "vehicles=%d price=%d¢ duration=%dmin scheduled=%s",
@@ -612,6 +622,37 @@ class AppointmentService:
 
         await self._db.flush()
         await self._db.refresh(appointment)
+
+        await self._appointment_repo.add_status_history(
+            appointment_id=appointment.id,
+            old_status=old_status.value if old_status else None,
+            new_status=new_status.value,
+            actor_id=actor.id,
+            reason=payload.detailer_notes,
+            metadata={
+                "refund_policy":       refund_policy_applied,
+                "refund_amount_cents": refund_amount_cents,
+            },
+        )
+
+        if is_cancellation:
+            policy_norm = (
+                None if refund_policy_applied == "none"
+                else refund_policy_applied
+            )
+            await self._appointment_repo.add_cancellation(
+                appointment_id=appointment.id,
+                cancelled_by_user_id=actor.id,
+                cancelled_by_role=next(iter(actor.roles), None),
+                reason=payload.detailer_notes,
+                refund_amount_cents=refund_amount_cents if refund_amount_cents else None,
+                refund_percent=(
+                    float(refund_amount_cents / appointment.estimated_price * 100)
+                    if refund_amount_cents and appointment.estimated_price
+                    else None
+                ),
+                policy_code=policy_norm,
+            )
 
         await self._audit_repo.log(
             action=AuditAction.APPOINTMENT_STATUS_CHANGED,

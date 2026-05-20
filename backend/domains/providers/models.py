@@ -6,7 +6,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 
 from sqlalchemy import (
-    BigInteger, Boolean, Date, DateTime, ForeignKey, Index, Integer, Numeric,
+    BigInteger, Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, Numeric,
     String, Text, UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -51,6 +51,14 @@ class ProviderProfile(TimestampMixin, Base):
             "ix_provider_profiles_type_active",
             "provider_type", "is_active",
         ),
+        CheckConstraint("years_of_experience IS NULL OR years_of_experience >= 0", name="ck_provider_profiles_years_nonnegative"),
+        CheckConstraint("service_radius_miles > 0", name="ck_provider_profiles_radius_positive"),
+        CheckConstraint("average_rating IS NULL OR (average_rating >= 0 AND average_rating <= 5)", name="ck_provider_profiles_average_rating_range"),
+        CheckConstraint("total_reviews >= 0", name="ck_provider_profiles_total_reviews_nonnegative"),
+        CheckConstraint("response_rate >= 0 AND response_rate <= 1", name="ck_provider_profiles_response_rate_range"),
+        CheckConstraint("earnings_lifetime_cents >= 0", name="ck_provider_profiles_earnings_lifetime_nonnegative"),
+        CheckConstraint("total_services_completed >= 0", name="ck_provider_profiles_services_completed_nonnegative"),
+        CheckConstraint("water_tank_gallons IS NULL OR water_tank_gallons >= 0", name="ck_provider_profiles_water_tank_nonnegative"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -286,6 +294,32 @@ class ProviderProfile(TimestampMixin, Base):
 
     def __repr__(self) -> str:
         return f"<ProviderProfile user_id={self.user_id}>"
+
+
+class ProviderAvailabilityException(Base):
+    """Date/time-specific override for provider availability."""
+    __tablename__ = "provider_availability_exceptions"
+    __table_args__ = (
+        Index("ix_provider_availability_provider_start", "provider_profile_id", "starts_at"),
+        Index("ix_provider_availability_window", "starts_at", "ends_at"),
+        CheckConstraint("ends_at > starts_at", name="ck_provider_availability_ends_after_starts"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    provider_profile_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("provider_profiles.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    type: Mapped[str] = mapped_column(String(20), nullable=False, default="unavailable", server_default="unavailable")
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    provider_profile: Mapped[ProviderProfile] = relationship("ProviderProfile")
 
 
 from typing import TYPE_CHECKING

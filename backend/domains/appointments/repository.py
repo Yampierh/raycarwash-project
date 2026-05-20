@@ -38,7 +38,10 @@ from sqlalchemy import and_, func, not_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import text
 
-from domains.appointments.models import Appointment, AppointmentStatus, TERMINAL_STATUSES
+from domains.appointments.models import (
+    Appointment, AppointmentCancellation, AppointmentStatus,
+    AppointmentStatusHistory, TERMINAL_STATUSES,
+)
 
 
 def _detailer_lock_key(detailer_id: uuid.UUID) -> int:
@@ -225,6 +228,56 @@ class AppointmentRepository:
         )
         result = await self._db.execute(stmt)
         return list(result.scalars().all()), total
+
+    # ── Appointment status history (append-only operational log) ───── #
+
+    async def add_status_history(
+        self,
+        *,
+        appointment_id: uuid.UUID,
+        old_status: str | None,
+        new_status: str,
+        actor_id: uuid.UUID | None = None,
+        reason: str | None = None,
+        metadata: dict | None = None,
+    ) -> AppointmentStatusHistory:
+        entry = AppointmentStatusHistory(
+            appointment_id=appointment_id,
+            old_status=old_status,
+            new_status=new_status,
+            actor_id=actor_id,
+            reason=reason,
+            metadata_=metadata,
+        )
+        self._db.add(entry)
+        await self._db.flush()
+        return entry
+
+    # ── Appointment cancellations (snapshot for refunds/support) ───── #
+
+    async def add_cancellation(
+        self,
+        *,
+        appointment_id: uuid.UUID,
+        cancelled_by_user_id: uuid.UUID | None = None,
+        cancelled_by_role: str | None = None,
+        reason: str | None = None,
+        refund_amount_cents: int | None = None,
+        refund_percent: float | None = None,
+        policy_code: str | None = None,
+    ) -> AppointmentCancellation:
+        entry = AppointmentCancellation(
+            appointment_id=appointment_id,
+            cancelled_by_user_id=cancelled_by_user_id,
+            cancelled_by_role=cancelled_by_role,
+            reason=reason,
+            refund_amount_cents=refund_amount_cents,
+            refund_percent=refund_percent,
+            policy_code=policy_code,
+        )
+        self._db.add(entry)
+        await self._db.flush()
+        return entry
 
     async def get_by_detailer(
         self,
