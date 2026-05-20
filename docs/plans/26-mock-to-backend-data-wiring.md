@@ -240,7 +240,7 @@ The largest wave. Reads `web/portal/lib/mock/provider.ts`. Owns plan 11 implemen
 
 Reads `web/admin/lib/mock.ts`. Owns plan 24's admin §6.
 
-- `getAdminOps()` composite — backend gap; existing `domains/admin/router.py` ships partial ops endpoints. Extend.
+- `getAdminOps()` composite — **W2-A shipped** (`GET /api/v1/admin/ops/dashboard?window=&city=` — KPIs + heatmap + cities rollup). FE swap: replace `MOCK_OPS` in `web/admin/lib/mock.ts` with `getAdminOps(window, city)`; promote the `delta`/`spark` fields when the V2 prior-period query lands.
 - `getAdminBookings(filters)` — exists; extend filters.
 - `getAdminDetailers(filters)` + verification actions — exists partially; extend.
 - `getAdminCustomers(filters)` — backend gap; admin-scoped users list.

@@ -517,6 +517,12 @@ All endpoints require a Bearer token whose user has the `admin` role. Responses 
 | GET | `/api/v1/admin/payments/summary?start_date&end_date` | 4-card summary (gross, refunds, payouts, commission) |
 | GET | `/api/v1/admin/payments/ledger?page&per_page&entry_type&start_date&end_date` | Append-only ledger entries (`entry_type`: `CAPTURE \| REFUND \| PAYOUT \| CHARGE_COMMISSION \| AUTHORIZATION`) |
 
+### Ops Dashboard (Plan 24 W2-A)
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/admin/ops/dashboard?window=1h\|today\|7d\|30d\|90d&city=all\|<code>` | KPIs (GMV cents, bookings, active jobs, take rate, CSAT, cancel rate) + 7×16 demand heatmap (UTC-bucketed) + per-city rollup (detailers / online proxy / in-flight jobs). Bucketing keyed on `provider_profiles.home_city_code` until appointments carry an explicit city tag. KPI tiles return scalar `value`; `delta` and `spark` reserved (always `0` / `[]` in V1). |
+
 ---
 
 ## Stripe Webhook
