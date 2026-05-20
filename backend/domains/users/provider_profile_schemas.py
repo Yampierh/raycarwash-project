@@ -115,3 +115,19 @@ class ProviderStatusUpdateRequest(_BaseRequestSchema):
     """Body for PATCH /me/provider-status. Toggles accepting_bookings.
     Rejected with 403 kyc_required if verification_status != approved."""
     is_accepting_bookings: bool
+
+
+# ── Plan 24 Wave 1 — application submit ──────────────────────────────
+
+
+class ProviderApplicationSubmitResponse(_BaseSchema):
+    """Returned by POST /me/provider-profile/submit.
+
+    Tells the frontend the application is now in review and what
+    happens next. The `next_steps` list mirrors the post-submit
+    timeline the design's PStep8 (`provider-signup.jsx`) renders.
+    """
+
+    application_status: str
+    submitted_at: datetime
+    next_steps: list[str]

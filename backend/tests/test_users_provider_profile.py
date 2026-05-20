@@ -424,3 +424,129 @@ async def test_patch_ssn_last_4_rejects_non_digits(
             headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 422, f"SSN {bad!r} should 422"
+
+
+# ─── Plan 24 Wave 1 — submit application ─────────────────────────────────────
+
+
+async def _fill_signup_draft(
+    db_session: AsyncSession, email: str,
+) -> None:
+    """Populate every required field directly on the ProviderProfile so
+    the submit happy-path test isn't 7 PATCHes deep."""
+    from datetime import date
+    user = await _get_user(db_session, email)
+    profile = (await db_session.execute(
+        select(ProviderProfile).where(ProviderProfile.user_id == user.id)
+    )).scalar_one()
+    profile.legal_full_name = "Marcus Tate"
+    profile.date_of_birth = date(1990, 5, 1)
+    profile.ssn_last_4_encrypted = "1234"
+    profile.home_city_code = "fwa"
+    profile.service_radius_miles = 12
+    profile.water_tank_gallons = 40
+    profile.services_offered = ["soap", "vacuum"]
+    profile.background_check_consent = True
+    await db_session.commit()
+
+
+@pytest.mark.asyncio
+async def test_submit_application_happy_path(
+    client: AsyncClient, db_session: AsyncSession,
+) -> None:
+    token = await _login(client, "prov-submit@test.com")
+    await client.post(
+        "/api/v1/users/me/provider-profile",
+        json={"business_name": "Submit Detail"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    await _fill_signup_draft(db_session, "prov-submit@test.com")
+
+    resp = await client.post(
+        "/api/v1/users/me/provider-profile/submit",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()["data"]
+    assert data["application_status"] == "submitted"
+    assert "submitted_at" in data
+    assert len(data["next_steps"]) >= 3
+
+    # GET confirms the state transitioned in DB
+    follow = await client.get(
+        "/api/v1/users/me/provider-profile",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert follow.json()["data"]["application_status"] == "submitted"
+
+
+@pytest.mark.asyncio
+async def test_submit_application_lists_missing_fields(
+    client: AsyncClient,
+) -> None:
+    """Fresh draft with only business_name set → 422 with the 8
+    missing field labels."""
+    token = await _login(client, "prov-missing@test.com")
+    await client.post(
+        "/api/v1/users/me/provider-profile",
+        json={"business_name": "Empty Co"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    resp = await client.post(
+        "/api/v1/users/me/provider-profile/submit",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 422
+    body = resp.json()
+    assert body["error"]["code"] == "application_incomplete"
+    # All 8 required-field labels should be in the details list.
+    labels = {d["field"] for d in body["error"]["details"]}
+    assert "Legal full name" in labels
+    assert "SSN last 4" in labels
+    assert "Home city" in labels
+    assert "Water tank size" in labels
+    assert "Services you can offer" in labels
+    assert "Background-check consent" in labels
+
+
+@pytest.mark.asyncio
+async def test_submit_application_409_when_not_draft(
+    client: AsyncClient, db_session: AsyncSession,
+) -> None:
+    """Resubmitting after a prior submit returns 409 — state machine
+    only allows external transitions out of `submitted` (Checkr,
+    admin approval)."""
+    token = await _login(client, "prov-double@test.com")
+    await client.post(
+        "/api/v1/users/me/provider-profile",
+        json={"business_name": "Double Co"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    await _fill_signup_draft(db_session, "prov-double@test.com")
+
+    first = await client.post(
+        "/api/v1/users/me/provider-profile/submit",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert first.status_code == 200
+
+    second = await client.post(
+        "/api/v1/users/me/provider-profile/submit",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert second.status_code == 409
+    assert second.json()["error"]["code"] == "application_not_in_draft"
+
+
+@pytest.mark.asyncio
+async def test_submit_application_404_without_profile(
+    client: AsyncClient,
+) -> None:
+    """User who never activated provider mode → 404."""
+    token = await _login(client, "prov-no-profile@test.com")
+    resp = await client.post(
+        "/api/v1/users/me/provider-profile/submit",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 404

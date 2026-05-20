@@ -28,6 +28,7 @@ from app.core.step_up import require_step_up
 from domains.auth.service import get_current_user
 from domains.users.models import User
 from domains.users.provider_profile_schemas import (
+    ProviderApplicationSubmitResponse,
     ProviderProfileActivateRequest,
     ProviderProfileResponse,
     ProviderProfileUpdateRequest,
@@ -138,6 +139,34 @@ async def deactivate_provider(
 
 
 # ─── Status toggle ───────────────────────────────────────────────────────────
+
+
+# ─── Submit application (Plan 24 §3 P-7) ─────────────────────────────────────
+
+
+@router.post(
+    "/provider-profile/submit",
+    response_model=Envelope[ProviderApplicationSubmitResponse],
+    summary=(
+        "Transition application_status draft → submitted. Validates the "
+        "8 required signup fields are populated; returns 422 with the "
+        "missing-fields list on incomplete drafts."
+    ),
+    responses={
+        404: {"description": "Caller hasn't activated provider mode."},
+        409: {"description": "Application not in draft state."},
+        422: {"description": "application_incomplete: some required fields are missing."},
+    },
+)
+async def submit_application(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Envelope[ProviderApplicationSubmitResponse]:
+    service = get_provider_profile_service(db, request)
+    payload = await service.submit_application(current_user)
+    await db.commit()
+    return Envelope[ProviderApplicationSubmitResponse](data=payload)
 
 
 @router.patch(

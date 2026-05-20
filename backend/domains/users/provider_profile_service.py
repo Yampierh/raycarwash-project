@@ -32,6 +32,7 @@ from domains.providers.models import ProviderProfile, ProviderType
 from domains.providers.repository import ProviderRepository
 from domains.users.models import User
 from domains.users.provider_profile_schemas import (
+    ProviderApplicationSubmitResponse,
     ProviderProfileActivateRequest,
     ProviderProfileResponse,
     ProviderProfileUpdateRequest,
@@ -341,6 +342,103 @@ class ProviderProfileService:
             audit_ctx=self.audit_ctx,
         )
         return profile
+
+    # ─── Submit application (Plan 24 §3 P-7) ────────────────────────────────
+
+    # Field-name → human-readable label. Order matches the design's
+    # multi-step signup so the missing-fields list mirrors what the
+    # user just walked through (Step 2 first, Step 7 last).
+    _REQUIRED_SUBMIT_FIELDS: tuple[tuple[str, str], ...] = (
+        ("legal_full_name",          "Legal full name"),
+        ("date_of_birth",            "Date of birth"),
+        ("ssn_last_4_encrypted",     "SSN last 4"),
+        ("home_city_code",           "Home city"),
+        ("service_radius_miles",     "Travel radius"),
+        ("water_tank_gallons",       "Water tank size"),
+        ("services_offered",         "Services you can offer"),
+        ("background_check_consent", "Background-check consent"),
+    )
+
+    async def submit_application(
+        self, user: User,
+    ) -> ProviderApplicationSubmitResponse:
+        """Transition application_status `draft → submitted`.
+
+        Plan 24 §3 P-7. Validates that every required signup field is
+        populated; if not, returns 422 with the list of missing fields
+        so the frontend can deep-link the user back to the right step.
+
+        Subsequent transitions (`submitted → bg_check_pending →
+        docs_review → approved | rejected`) are driven by external
+        events (Checkr webhook, admin approval) — not exposed via
+        the customer-facing API.
+        """
+        profile = await self.get_or_404(user)
+
+        current = getattr(profile, "application_status", "draft")
+        if current != "draft":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "application_not_in_draft",
+                    "message": (
+                        f"Application is in '{current}' state and cannot be "
+                        f"re-submitted. Contact support if you need to amend it."
+                    ),
+                },
+            )
+
+        missing = [
+            label
+            for field, label in self._REQUIRED_SUBMIT_FIELDS
+            if not getattr(profile, field, None)
+        ]
+        # `background_check_consent` is a Boolean — the falsy check above
+        # treats `False` as "missing" which is correct (the user must
+        # explicitly tick the consent box).
+        if missing:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "code": "application_incomplete",
+                    "message": (
+                        "Some required fields are missing — finish them "
+                        "before submitting."
+                    ),
+                    "details": [{"field": label} for label in missing],
+                },
+            )
+
+        now = datetime.now(timezone.utc)
+        profile.application_status = "submitted"
+        # Reuse the existing verification timestamp so the design's
+        # PStep8 timeline can show "Submitted at" without a new column.
+        if profile.verification_submitted_at is None:
+            profile.verification_submitted_at = now
+
+        await self.db.flush()
+        await self.audit_repo.log(
+            action=AuditAction.PROVIDER_PROFILE_UPDATED,
+            entity_type="provider_profile",
+            entity_id=str(profile.id),
+            actor_id=user.id,
+            old_value={"application_status": "draft"},
+            new_value={
+                "application_status": "submitted",
+                "via": "POST /me/provider-profile/submit",
+            },
+            audit_ctx=self.audit_ctx,
+        )
+
+        return ProviderApplicationSubmitResponse(
+            application_status="submitted",
+            submitted_at=now,
+            next_steps=[
+                "Background check running — 24–48h",
+                "Document review by compliance team",
+                "Identity verification — usually instant",
+            ],
+        )
 
 
 def get_provider_profile_service(
