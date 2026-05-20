@@ -19,6 +19,8 @@ Planes de infraestructura, calidad y operaciones para RayCarWash.
 | 15 | [15-marketing-content-cms.md](./15-marketing-content-cms.md) | Admin CMS for testimonials/FAQ/coverage/templates | Medium | Planning |
 | 16 | [16-coverage-zip-service.md](./16-coverage-zip-service.md) | Service zones + ZIP lookup + provider opt-in | Medium-High | Planning |
 | 17 | [17-waitlist-system.md](./17-waitlist-system.md) | Generalized waitlist (mechanic, coverage, future verticals) | Medium | Planning |
+| 25 | [25-designer-to-next-frontend.md](./25-designer-to-next-frontend.md) | Designer→Next frontend port (auth pages + dashboards, visual only — data session swaps mocks) | High | Planning |
+| 26 | [26-mock-to-backend-data-wiring.md](./26-mock-to-backend-data-wiring.md) | Mock→Backend data wiring (mirror of 25 — swaps `lib/mock/*` for real FastAPI endpoints) | High | Planning |
 
 ## Dependency order
 
