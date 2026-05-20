@@ -26,7 +26,9 @@ python -m pytest \
   tests/test_auth.py tests/test_appointments.py tests/test_user_flows.py tests/test_admin.py \
   tests/test_appointments_cancel.py tests/test_public_endpoints.py \
   tests/test_idempotency_body_hash.py tests/test_idempotency_v2_user_scope.py \
-  tests/test_rate_limit_handler.py tests/test_users_provider_profile.py -q
+  tests/test_rate_limit_handler.py tests/test_users_provider_profile.py \
+  tests/test_users_addresses.py tests/test_vehicle_price_estimate.py \
+  tests/test_admin_ops_dashboard.py -q
 
 cd backend && alembic upgrade head
 ```
@@ -144,11 +146,12 @@ JWT in query param (headers unavailable post-handshake). Frontend hook: `useAppo
 | `test_users_provider_profile.py` | 18/18 | Plan 24 Wave 1: signup fields (ssn/city/tank/skills) + submit endpoint |
 | `test_users_addresses.py` | 12/12 | Plan 24 Wave 1 C-3: opt-in ZIP coverage gate |
 | `test_vehicle_price_estimate.py` | 9/9 | Plan 24 Wave 1 C-1: anonymous price preview |
+| `test_admin_ops_dashboard.py` | 18/18 | Plan 24 W2-A: ops KPIs + heatmap + city rollup |
 | `test_detailers.py` | ⚠️ | Edge cases (profile fixture) |
 | `test_matching.py` | ⚠️ | Requires real Redis (H3 spatial) |
 | `test_vehicles.py` | ⚠️ | body_class / onboarding edge cases |
 
-Standard green suite (above, excluding the ⚠️ files): **224/224** in ~5 min.
+Standard green suite (above, excluding the ⚠️ files): **242/242** in ~10 min.
 
 Sprint 9 admin extensions (appointments/verifications/payments) ship without dedicated tests.
 
