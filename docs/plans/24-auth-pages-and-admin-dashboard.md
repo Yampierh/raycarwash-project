@@ -287,7 +287,7 @@ Subsequent steps proceed per §6 wave order.
 | **P-5** | Plaid bank-link adapter | ⏳ Pending (Wave 3) | — |
 | **C-1** | `GET /api/v1/vehicles/price-estimate` (anonymous, model-keyword size heuristic, 2 anchor tiers) | ✅ Done | `3aa4b25` |
 | **C-2** | `NEW10` welcome promo persistence | ⏳ Pending (Wave 4) | — |
-| **C-3** | ZIP gate on `POST /api/v1/users/me/addresses` | ⏳ Pending | — |
+| **C-3** | ZIP gate on `POST /api/v1/users/me/addresses` (opt-in `enforce_coverage_check` body flag) | ✅ Done | `f4e0103` |
 | **S-2** | Mandatory TOTP enrollment for staff role | ⏳ Pending | — |
 
 ### Wave 2 — Admin dashboard MVP

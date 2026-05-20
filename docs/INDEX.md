@@ -112,7 +112,7 @@ graph TD
 | `21-api-contracts-track3-customer-dashboard.md` | :construction: **In progress — §2 cancel shipped** | Medium | `13-customer-dashboard.md`, `04-vehicles.md` | — |
 | **`22-security-architecture-audit.md`** | :construction: **In progress — H1 fixed in code; D1-D8 reconciled** | **Critical** | `19`, `20`, `21` (remediation applied) | All Plans |
 | **`23-auth-hardening.md`** | :construction: **Fase 1 day 1 done (Session ORM + migration)** | **Critical** | None | — (absorbe `10-authorization-layer.md`) |
-| **`24-auth-pages-and-admin-dashboard.md`** | :construction: **Wave 1 in progress** (S-1, P-1/2/3/7, A-1 done; signup PATCH wired) | High | `22`, `23`, `m_019` | `19`, `20`, `21` |
+| **`24-auth-pages-and-admin-dashboard.md`** | :construction: **Wave 1 done** (8 items shipped; P-4/P-5/S-2/C-2 deferred to Waves 3-4) | High | `22`, `23`, `m_019` | `19`, `20`, `21` |
 
 ---
 

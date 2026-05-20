@@ -141,12 +141,14 @@ JWT in query param (headers unavailable post-handshake). Frontend hook: `useAppo
 | `test_idempotency_v2_user_scope.py` | 4/4 | H1 cross-user collision regression (Plan 22 §6.1.3) |
 | `test_rate_limit_handler.py` | 3/3 | Envelope-shaped 429 + Retry-After (Plan 19 §10) |
 | `test_public_endpoints.py` | 28/28 | Plan 19 Track 1 — all 9 public endpoints |
-| `test_users_provider_profile.py` | 14/14 | Includes Plan 24 Wave 1 signup fields (ssn/city/tank/skills) |
+| `test_users_provider_profile.py` | 18/18 | Plan 24 Wave 1: signup fields (ssn/city/tank/skills) + submit endpoint |
+| `test_users_addresses.py` | 12/12 | Plan 24 Wave 1 C-3: opt-in ZIP coverage gate |
+| `test_vehicle_price_estimate.py` | 9/9 | Plan 24 Wave 1 C-1: anonymous price preview |
 | `test_detailers.py` | ⚠️ | Edge cases (profile fixture) |
 | `test_matching.py` | ⚠️ | Requires real Redis (H3 spatial) |
 | `test_vehicles.py` | ⚠️ | body_class / onboarding edge cases |
 
-Standard green suite (above, excluding the ⚠️ files): **199/199** in ~5 min.
+Standard green suite (above, excluding the ⚠️ files): **224/224** in ~5 min.
 
 Sprint 9 admin extensions (appointments/verifications/payments) ship without dedicated tests.
 
