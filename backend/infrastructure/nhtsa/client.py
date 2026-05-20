@@ -41,6 +41,83 @@ def map_body_to_size(body_class: str | None) -> VehicleSize:
     return VehicleSize.SMALL
 
 
+# ── Plan 24 §3 C-1 — model-keyword heuristic ──────────────────────────
+#
+# `map_body_to_size` requires an NHTSA `BodyClass` lookup (needs a VIN).
+# The customer-signup price-preview endpoint runs BEFORE the user has a
+# VIN — they've only entered year/make/model. We approximate with a
+# keyword search on the model name. Coverage is best-effort, weighted
+# to the popular nameplates in our launch markets. Unknown models fall
+# back to SMALL (cheapest tier) so we never UNDER-quote a customer.
+
+_MODEL_KEYWORD_TO_SIZE: list[tuple[tuple[str, ...], VehicleSize]] = [
+    # XL — vans, minivans, full-size haulers
+    (
+        ("transit", "sprinter", "pacifica", "odyssey", "sienna",
+         "carnival", "promaster"),
+        VehicleSize.XL,
+    ),
+    # LARGE — pickups + full-size SUVs (suburban, tahoe, etc.)
+    (
+        ("f-150", "f150", "f-250", "f-350", "silverado", "sierra",
+         "ram 1500", "tundra", "tacoma", "ranger", "colorado",
+         "frontier", "ridgeline", "titan", "gladiator",
+         "suburban", "tahoe", "yukon", "expedition", "armada",
+         "sequoia", "wagoneer"),
+        VehicleSize.LARGE,
+    ),
+    # MEDIUM — mid-size SUVs / crossovers / CUVs
+    (
+        ("pilot", "passport", "rav4", "rav-4", "cr-v", "crv",
+         "highlander", "4runner", "explorer", "edge",
+         "cherokee", "grand cherokee", "compass", "wrangler",
+         "outback", "ascent", "forester",
+         "rogue", "murano", "pathfinder",
+         "tucson", "santa fe", "kona", "telluride", "palisade",
+         "sorento", "sportage", "ev6",
+         "rx", "nx", "ux",
+         "x3", "x5", "x7", "ix",
+         "q5", "q7", "q8", "e-tron",
+         "glc", "gle", "gls", "eqe", "eqs",
+         "model y", "model x", "id.4", "id4", "mach-e",
+         "cx-5", "cx-9", "cx-30", "cx-50"),
+        VehicleSize.MEDIUM,
+    ),
+    # SMALL covered by the fall-through (sedans, coupes, hatchbacks).
+]
+
+
+# Human-readable label per size — used in the price-estimate response so
+# the frontend doesn't have to translate enum values for display.
+SIZE_LABEL: dict[VehicleSize, str] = {
+    VehicleSize.SMALL:  "Compact / Sedan",
+    VehicleSize.MEDIUM: "Mid-size SUV",
+    VehicleSize.LARGE:  "Pickup / Full-size SUV",
+    VehicleSize.XL:     "Van / Minivan",
+}
+
+
+def estimate_size_from_make_model(make: str | None, model: str | None) -> VehicleSize:
+    """Approximate a VehicleSize from year/make/model when no VIN /
+    body_class is available yet (Plan 24 §3 C-1).
+
+    Uses a keyword search against the lowercased model name. The
+    `make` is currently unused but kept in the signature so we can
+    later disambiguate (e.g. "Ranger" — Ford pickup vs Land Rover
+    Range Rover small SUV).
+
+    Falls back to SMALL on no match — the cheapest tier, so we never
+    underquote.
+    """
+    needle = (model or "").lower().strip()
+    if not needle:
+        return VehicleSize.SMALL
+    for keywords, size in _MODEL_KEYWORD_TO_SIZE:
+        if any(kw in needle for kw in keywords):
+            return size
+    return VehicleSize.SMALL
+
+
 async def lookup_vin_data(vin: str) -> dict:
     """
     Decode a 17-character VIN via the NHTSA vPIC API.

@@ -46,3 +46,35 @@ class VehicleRead(_BaseSchema):
             return None
         from infrastructure.nhtsa.client import map_body_to_size
         return map_body_to_size(self.body_class).value
+
+
+# ── Plan 24 §3 C-1 — public price-estimate ────────────────────────────
+
+
+class PriceEstimateTier(_BaseSchema):
+    """One service tier in the price-estimate response."""
+
+    name: str
+    category: str
+    price_cents: int
+    duration_minutes: int
+
+
+class VehiclePriceEstimateResponse(_BaseSchema):
+    """Returned by `GET /api/v1/vehicles/price-estimate`. Surfaces an
+    approximate VehicleSize derived from year/make/model + the prices
+    of the two anchor services (one basic_wash, one full_detail) at
+    that size so the signup UI can show the "Mid-size SUV · Full
+    detail $179 · Express wash $49" preview from `customer-signup.jsx`
+    Step 3.
+
+    `estimated_size` is best-effort — falls back to SMALL on unknown
+    models so we never under-quote.
+    """
+
+    year: int
+    make: str
+    model: str
+    estimated_size: str
+    size_label: str
+    tiers: list[PriceEstimateTier]
