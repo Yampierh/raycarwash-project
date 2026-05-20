@@ -323,3 +323,89 @@ async def test_hub_addresses_block_includes_created_address(
     assert addrs[0]["label"] == "Home"
     assert addrs[0]["is_default"] is True
     assert "addresses" in (body["meta"].get("includes") or [])
+
+
+# ── Plan 24 §3 C-3 — opt-in coverage gate ──────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_address_coverage_check_accepts_seeded_zip(
+    client: AsyncClient, stub_geocoder, db_session: AsyncSession,
+) -> None:
+    """ZIP 46802 is in the launch market (Fort Wayne). The signup flow
+    sends `enforce_coverage_check=True` and expects 201."""
+    from app.db.seed_public import seed_coverage_zips
+
+    await seed_coverage_zips(db_session)
+    token = await _login(client, "addr-cov-ok@test.com")
+
+    resp = await client.post(
+        "/api/v1/users/me/addresses",
+        json={
+            "label": "Home",
+            "line1": "123 Elm St",
+            "city": "Fort Wayne",
+            "state": "IN",
+            "zip_code": "46802",
+            "enforce_coverage_check": True,
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["data"]["zip_code"] == "46802"
+
+
+@pytest.mark.asyncio
+async def test_address_coverage_check_rejects_out_of_area_zip(
+    client: AsyncClient, stub_geocoder, db_session: AsyncSession,
+) -> None:
+    """ZIP 10001 (NYC) is outside the launch market. enforce_coverage_check
+    rejects with 422 zip_outside_coverage."""
+    from app.db.seed_public import seed_coverage_zips
+
+    await seed_coverage_zips(db_session)
+    token = await _login(client, "addr-cov-no@test.com")
+
+    resp = await client.post(
+        "/api/v1/users/me/addresses",
+        json={
+            "label": "NYC",
+            "line1": "350 5th Ave",
+            "city": "New York",
+            "state": "NY",
+            "zip_code": "10001",
+            "enforce_coverage_check": True,
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 422, resp.text
+    body = resp.json()
+    assert body["error"]["code"] == "zip_outside_coverage"
+
+
+@pytest.mark.asyncio
+async def test_address_without_enforce_flag_accepts_any_zip(
+    client: AsyncClient, stub_geocoder, db_session: AsyncSession,
+) -> None:
+    """Default (enforce_coverage_check omitted/False) preserves the
+    pre-Plan-24 behaviour: any ZIP is accepted. Important for backward
+    compat with admin edits + the legacy onboarding tests."""
+    from app.db.seed_public import seed_coverage_zips
+
+    await seed_coverage_zips(db_session)
+    token = await _login(client, "addr-cov-bypass@test.com")
+
+    # ZIP 99999 is intentionally not seeded — would 422 if the gate
+    # were unconditional.
+    resp = await client.post(
+        "/api/v1/users/me/addresses",
+        json={
+            "label": "Wherever",
+            "line1": "Some St",
+            "city": "Nowhere",
+            "state": "NV",
+            "zip_code": "99999",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 201, resp.text

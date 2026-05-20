@@ -36,6 +36,7 @@ from datetime import datetime, timezone
 
 import h3
 from fastapi import HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -43,6 +44,7 @@ from app.core.dependencies import get_geocoding_adapter
 from app.middleware.audit_context import AuditContext, get_audit_context
 from domains.audit.models import AuditAction
 from domains.audit.repository import AuditRepository
+from domains.public.models import CoverageZip
 from domains.users.address_repository import AddressRepository
 from domains.users.address_schemas import AddressCreateRequest, AddressUpdateRequest
 from domains.users.models import User
@@ -84,6 +86,14 @@ class AddressService:
         self, user: User, body: AddressCreateRequest
     ) -> UserAddress:
         """Create + geocode + maybe-default + audit, in one transaction."""
+        # Plan 24 §3 C-3 — opt-in coverage gate. Customer signup Step 4
+        # sets `enforce_coverage_check=True` so we reject ZIPs outside
+        # the launched markets. Other callers (admin edits, programmatic
+        # imports, existing PHP migrations) leave it False and any
+        # ZIP is accepted.
+        if body.enforce_coverage_check:
+            await self._assert_zip_in_coverage(body.zip_code)
+
         lat, lng, h3_index = await self._geocode_or_warn(
             GeocodeQuery(
                 line1=body.line1,
@@ -298,6 +308,35 @@ class AddressService:
             get_settings().H3_RESOLUTION_STORE,
         )
         return result.latitude, result.longitude, h3_index
+
+    async def _assert_zip_in_coverage(self, zip_code: str) -> None:
+        """Plan 24 §3 C-3 — reject ZIPs not in the seeded `coverage_zips`
+        table. Used only when the caller opts in via
+        `enforce_coverage_check=True` in the request body.
+
+        Soft-deleted ZIPs (`is_deleted=True`) and inactive ones
+        (`is_active=False`) are treated as uncovered.
+        """
+        row = (await self.db.execute(
+            select(CoverageZip).where(
+                CoverageZip.zip == zip_code,
+                CoverageZip.is_deleted.is_(False),
+                CoverageZip.is_active.is_(True),
+            )
+        )).scalar_one_or_none()
+        if row is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "code": "zip_outside_coverage",
+                    "message": (
+                        f"ZIP {zip_code!r} is outside the current "
+                        f"RayCarWash service area. See "
+                        f"GET /api/v1/public/coverage-zones for the "
+                        f"list of operating markets."
+                    ),
+                },
+            )
 
 
 def get_address_service(db: AsyncSession, request) -> AddressService:

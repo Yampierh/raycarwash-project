@@ -53,6 +53,12 @@ class AddressCreateRequest(_BaseRequestSchema):
     country: str = Field(default="US", min_length=2, max_length=60)
     notes: str | None = None
     is_default: bool = False
+    # Plan 24 §3 C-3 — opt-in coverage gate. When True (used by the
+    # customer-signup Step 4 form), the service rejects ZIPs that
+    # aren't in the `coverage_zips` table. False (default) preserves
+    # the pre-Plan-24 contract so admin-side address edits + existing
+    # callers continue to accept any US ZIP.
+    enforce_coverage_check: bool = False
 
     @field_validator("country")
     @classmethod
