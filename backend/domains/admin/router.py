@@ -1,6 +1,6 @@
 import uuid
-from datetime import datetime
-from typing import Optional
+from datetime import datetime, timedelta, timezone
+from typing import Optional, get_args
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +21,12 @@ from domains.admin.schemas import (
     AdminUsersListResponse,
     AdminVerificationRead,
     AdminVerificationReject,
+    OpsCityRow,
+    OpsDashboardResponse,
+    OpsHeatmap,
+    OpsKpis,
+    OpsKpiValue,
+    OpsWindow,
     PermissionCreate,
     PermissionRead,
     RoleCreate,
@@ -48,6 +54,148 @@ async def get_stats(
 ) -> AdminStats:
     data = await AdminRepository(db).get_stats()
     return AdminStats(**data)
+
+
+# ── Ops Dashboard (Plan 24 W2-A) ───────────────────────────────────── #
+
+
+_HEATMAP_ROWS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+_HEATMAP_HOURS = list(range(7, 23))  # 7am..10pm inclusive — 16 cells
+
+
+def _resolve_window(window: OpsWindow, now: datetime) -> tuple[datetime, datetime]:
+    if window == "1h":
+        return now - timedelta(hours=1), now
+    if window == "today":
+        start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        return start_of_day, now
+    if window == "7d":
+        return now - timedelta(days=7), now
+    if window == "30d":
+        return now - timedelta(days=30), now
+    if window == "90d":
+        return now - timedelta(days=90), now
+    raise ValueError(f"Unsupported window: {window}")
+
+
+def _build_heatmap(heat_rows: list[dict]) -> OpsHeatmap:
+    """Bucket Postgres dow/hour rows into a 7×16 0..5 quantile grid.
+
+    Postgres `extract(dow, ...)` returns 0=Sun..6=Sat; we shift so that
+    Mon=0..Sun=6 to match the design's row labels."""
+    grid = [[0] * len(_HEATMAP_HOURS) for _ in _HEATMAP_ROWS]
+    counts: list[int] = []
+    peak_n = -1
+    peak_label = ""
+    for row in heat_rows:
+        pg_dow = row["dow"]  # 0=Sun..6=Sat
+        hour = row["hour"]
+        n = row["n"]
+        # shift Sun(0) → 6; Mon(1) → 0; Tue(2) → 1; ...
+        shifted_dow = (pg_dow + 6) % 7
+        if hour not in _HEATMAP_HOURS:
+            continue
+        col = _HEATMAP_HOURS.index(hour)
+        # store the raw count first; convert to level below
+        grid[shifted_dow][col] = n
+        counts.append(n)
+        if n > peak_n:
+            peak_n = n
+            peak_label = f"{_HEATMAP_ROWS[shifted_dow]} {hour:02d}:00"
+
+    # Bucket counts into 0..5 levels using a simple linear scaling on
+    # the observed max. With low data volume this skews toward level 5
+    # but it's the right shape for the design's heat scale and avoids a
+    # heavy quantile sort.
+    levels = [[0] * len(_HEATMAP_HOURS) for _ in _HEATMAP_ROWS]
+    if peak_n > 0:
+        for r in range(len(_HEATMAP_ROWS)):
+            for c in range(len(_HEATMAP_HOURS)):
+                v = grid[r][c]
+                if v == 0:
+                    levels[r][c] = 0
+                else:
+                    # Map (0, peak_n] to (0, 5] with ceil-style buckets.
+                    levels[r][c] = max(1, min(5, round(v / peak_n * 5)))
+
+    return OpsHeatmap(
+        rows=_HEATMAP_ROWS,
+        hours=_HEATMAP_HOURS,
+        levels=levels,
+        peak_label=peak_label,
+    )
+
+
+def _short_code(name: str, code: str) -> str:
+    """3-letter abbrev for narrow columns. Prefers the canonical code
+    when it's 3+ chars (e.g. `fwa`), else first 3 letters of the name."""
+    if len(code) >= 3:
+        return code[:3].upper()
+    return name[:3].upper()
+
+
+@router.get(
+    "/ops/dashboard",
+    response_model=OpsDashboardResponse,
+    summary="Operations dashboard — KPIs, demand heatmap, city rollup",
+)
+async def get_ops_dashboard(
+    window: OpsWindow = Query(default="7d", description="1h | today | 7d | 30d | 90d"),
+    city: str = Query(default="all", description="City code or 'all'"),
+    _: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> OpsDashboardResponse:
+    if window not in get_args(OpsWindow):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported window: {window}",
+        )
+
+    now = datetime.now(timezone.utc)
+    period_start, period_end = _resolve_window(window, now)
+    data = await AdminRepository(db).get_ops_dashboard(
+        period_start=period_start,
+        period_end=period_end,
+        city=city,
+    )
+
+    kpis = OpsKpis(
+        gmv_cents=OpsKpiValue(value=float(data["gmv_cents"])),
+        bookings=OpsKpiValue(value=float(data["bookings"])),
+        active_jobs=OpsKpiValue(value=float(data["active_jobs"])),
+        take_rate=OpsKpiValue(value=float(data["take_rate"])),
+        csat=OpsKpiValue(value=float(data["csat"])),
+        cancel_rate=OpsKpiValue(value=float(data["cancel_rate"])),
+    )
+
+    heatmap = _build_heatmap(data["heat_rows"])
+
+    cities_rows: list[OpsCityRow] = []
+    for c in data["cities"]:
+        code = c["code"]
+        cities_rows.append(
+            OpsCityRow(
+                code=code,
+                name=c["name"],
+                short=_short_code(c["name"], code),
+                state=c["state"],
+                status=c["status"],
+                active=c["status"] == "active",
+                detailers=data["per_city_detailers"].get(code, 0),
+                online=data["per_city_online"].get(code, 0),
+                jobs=data["per_city_jobs"].get(code, 0),
+            )
+        )
+
+    return OpsDashboardResponse(
+        window=window,
+        period_start=period_start,
+        period_end=period_end,
+        city=city,
+        kpis=kpis,
+        heatmap=heatmap,
+        cities=cities_rows,
+    )
 
 
 # ── Users ──────────────────────────────────────────────────────────── #

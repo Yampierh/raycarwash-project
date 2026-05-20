@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, select, update, delete
+from sqlalchemy import case, func, select, update, delete
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,9 +14,11 @@ from domains.auth.models import (
     UserRoleAssociation,
 )
 from domains.users.models import User
-from domains.appointments.models import Appointment
+from domains.appointments.models import Appointment, AppointmentStatus
 from domains.providers.models import ProviderProfile
 from domains.payments.models import PaymentLedger
+from domains.locations.models import City
+from domains.reviews.models import Review
 from domains.audit.models import AuditLog, AuditAction
 
 
@@ -577,4 +579,260 @@ class AdminRepository:
             "total_appointments": total_appointments,
             "total_roles": total_roles,
             "total_permissions": total_permissions,
+        }
+
+    # ── Ops Dashboard (Plan 24 W2-A) ───────────────────────────────── #
+
+    _ACTIVE_STATUSES: tuple[AppointmentStatus, ...] = (
+        AppointmentStatus.CONFIRMED,
+        AppointmentStatus.ARRIVED,
+        AppointmentStatus.IN_PROGRESS,
+    )
+    _CANCELLED_STATUSES: tuple[AppointmentStatus, ...] = (
+        AppointmentStatus.CANCELLED_BY_CLIENT,
+        AppointmentStatus.CANCELLED_BY_DETAILER,
+    )
+
+    async def get_ops_dashboard(
+        self,
+        period_start: datetime,
+        period_end: datetime,
+        city: str = "all",
+    ) -> dict:
+        """Aggregate KPIs + heatmap + cities rollup for the ops dashboard.
+
+        Bookings are bucketed by the detailer's `home_city_code` as a
+        proxy until appointments carry an explicit city tag (see Plan 24
+        §5.3 — A-2). When `city != 'all'`, KPIs scope to that city.
+        """
+        appt_filter = [
+            Appointment.is_deleted.is_(False),
+            Appointment.scheduled_time >= period_start,
+            Appointment.scheduled_time <= period_end,
+        ]
+        if city != "all":
+            appt_filter.append(ProviderProfile.home_city_code == city)
+
+        appt_query_base = (
+            select(Appointment)
+            .outerjoin(
+                ProviderProfile,
+                ProviderProfile.user_id == Appointment.detailer_id,
+            )
+            .where(*appt_filter)
+        )
+
+        # KPI 1 — GMV (sum of actual_price on COMPLETED appointments).
+        gmv_stmt = (
+            select(func.coalesce(func.sum(Appointment.actual_price), 0))
+            .select_from(Appointment)
+            .outerjoin(
+                ProviderProfile,
+                ProviderProfile.user_id == Appointment.detailer_id,
+            )
+            .where(
+                *appt_filter,
+                Appointment.status == AppointmentStatus.COMPLETED,
+            )
+        )
+        gmv_cents = (await self._db.execute(gmv_stmt)).scalar_one() or 0
+
+        # KPI 2 — bookings count (any non-cancelled appointment).
+        bookings_stmt = (
+            select(func.count(Appointment.id))
+            .select_from(Appointment)
+            .outerjoin(
+                ProviderProfile,
+                ProviderProfile.user_id == Appointment.detailer_id,
+            )
+            .where(*appt_filter)
+        )
+        bookings = (await self._db.execute(bookings_stmt)).scalar_one() or 0
+
+        # KPI 3 — active jobs right now (CONFIRMED/ARRIVED/IN_PROGRESS,
+        # scoped by city when filtered). NOT bounded by the window —
+        # "active right now" is a point-in-time count.
+        active_filter = [
+            Appointment.is_deleted.is_(False),
+            Appointment.status.in_(self._ACTIVE_STATUSES),
+        ]
+        if city != "all":
+            active_filter.append(ProviderProfile.home_city_code == city)
+        active_jobs_stmt = (
+            select(func.count(Appointment.id))
+            .select_from(Appointment)
+            .outerjoin(
+                ProviderProfile,
+                ProviderProfile.user_id == Appointment.detailer_id,
+            )
+            .where(*active_filter)
+        )
+        active_jobs = (await self._db.execute(active_jobs_stmt)).scalar_one() or 0
+
+        # KPI 4 — take rate: platform commissions / GMV. Falls back to 0
+        # if there's no GMV in the window.
+        commissions_stmt = (
+            select(func.coalesce(func.sum(PaymentLedger.amount_cents), 0))
+            .where(
+                PaymentLedger.entry_type == "CHARGE_COMMISSION",
+                PaymentLedger.created_at >= period_start,
+                PaymentLedger.created_at <= period_end,
+            )
+        )
+        commissions_cents = (await self._db.execute(commissions_stmt)).scalar_one() or 0
+        take_rate = (commissions_cents / gmv_cents * 100.0) if gmv_cents > 0 else 0.0
+
+        # KPI 5 — CSAT (avg review rating, last 30d regardless of window
+        # because review volume is too low otherwise).
+        csat_window_start = period_end - timedelta(days=30)
+        csat_stmt = (
+            select(func.coalesce(func.avg(Review.rating), 0))
+            .where(
+                Review.is_deleted.is_(False),
+                Review.created_at >= csat_window_start,
+                Review.created_at <= period_end,
+            )
+        )
+        csat = float((await self._db.execute(csat_stmt)).scalar_one() or 0)
+
+        # KPI 6 — cancel rate (cancellations / total in window).
+        cancelled_filter = list(appt_filter) + [
+            Appointment.status.in_(self._CANCELLED_STATUSES),
+        ]
+        cancelled_stmt = (
+            select(func.count(Appointment.id))
+            .select_from(Appointment)
+            .outerjoin(
+                ProviderProfile,
+                ProviderProfile.user_id == Appointment.detailer_id,
+            )
+            .where(*cancelled_filter)
+        )
+        cancelled = (await self._db.execute(cancelled_stmt)).scalar_one() or 0
+        cancel_rate = (cancelled / bookings * 100.0) if bookings > 0 else 0.0
+
+        # Heatmap — 7-day × 16-hour grid (hours 7..22) of booking counts,
+        # normalised to a 0..5 quantile level. Uses scheduled_time in
+        # UTC for V1; per-city timezone bucketing is a Wave 4 refinement.
+        #
+        # Why the explicit `AT TIME ZONE 'UTC'` cast: `extract(hour, ...)`
+        # on a `timestamp with time zone` column uses the Postgres
+        # SESSION timezone, which can differ between environments (EDT
+        # in dev, UTC in CI). Casting locks the bucketing to UTC so the
+        # API is deterministic regardless of where it runs.
+        utc_scheduled = func.timezone("UTC", Appointment.scheduled_time)
+        dow_expr = func.extract("dow", utc_scheduled)
+        hour_expr = func.extract("hour", utc_scheduled)
+        heat_stmt = (
+            select(
+                dow_expr.label("dow"),
+                hour_expr.label("hour"),
+                func.count(Appointment.id).label("n"),
+            )
+            .select_from(Appointment)
+            .outerjoin(
+                ProviderProfile,
+                ProviderProfile.user_id == Appointment.detailer_id,
+            )
+            .where(*appt_filter)
+            .group_by("dow", "hour")
+        )
+        heat_rows = (await self._db.execute(heat_stmt)).all()
+
+        # Cities rollup — one row per non-deleted city.
+        cities_stmt = (
+            select(City)
+            .where(City.is_deleted.is_(False))
+            .order_by(City.sort_order, City.name)
+        )
+        cities_orm = (await self._db.execute(cities_stmt)).scalars().all()
+
+        # Per-city detailer + active-job counts (single query, grouped).
+        per_city_detailers_stmt = (
+            select(
+                ProviderProfile.home_city_code,
+                func.count(ProviderProfile.id),
+            )
+            .where(
+                ProviderProfile.home_city_code.is_not(None),
+                ProviderProfile.application_status == "approved",
+            )
+            .group_by(ProviderProfile.home_city_code)
+        )
+        per_city_detailers: dict[str, int] = {
+            code: n
+            for code, n in (await self._db.execute(per_city_detailers_stmt)).all()
+        }
+
+        per_city_jobs_stmt = (
+            select(
+                ProviderProfile.home_city_code,
+                func.count(Appointment.id),
+            )
+            .select_from(Appointment)
+            .join(
+                ProviderProfile,
+                ProviderProfile.user_id == Appointment.detailer_id,
+            )
+            .where(
+                Appointment.is_deleted.is_(False),
+                Appointment.status.in_(self._ACTIVE_STATUSES),
+                ProviderProfile.home_city_code.is_not(None),
+            )
+            .group_by(ProviderProfile.home_city_code)
+        )
+        per_city_jobs: dict[str, int] = {
+            code: n
+            for code, n in (await self._db.execute(per_city_jobs_stmt)).all()
+        }
+
+        # `online` approximation: distinct detailers with an in-flight
+        # appointment right now, per city. We don't track presence yet;
+        # this is the cheapest proxy.
+        per_city_online_stmt = (
+            select(
+                ProviderProfile.home_city_code,
+                func.count(func.distinct(Appointment.detailer_id)),
+            )
+            .select_from(Appointment)
+            .join(
+                ProviderProfile,
+                ProviderProfile.user_id == Appointment.detailer_id,
+            )
+            .where(
+                Appointment.is_deleted.is_(False),
+                Appointment.status.in_(self._ACTIVE_STATUSES),
+                ProviderProfile.home_city_code.is_not(None),
+            )
+            .group_by(ProviderProfile.home_city_code)
+        )
+        per_city_online: dict[str, int] = {
+            code: n
+            for code, n in (await self._db.execute(per_city_online_stmt)).all()
+        }
+
+        return {
+            "gmv_cents": int(gmv_cents),
+            "bookings": int(bookings),
+            "active_jobs": int(active_jobs),
+            "take_rate": round(float(take_rate), 2),
+            "csat": round(float(csat), 2),
+            "cancel_rate": round(float(cancel_rate), 2),
+            "heat_rows": [
+                {"dow": int(r.dow), "hour": int(r.hour), "n": int(r.n)}
+                for r in heat_rows
+            ],
+            "cities": [
+                {
+                    "code": c.code,
+                    "name": c.name,
+                    "state": c.state,
+                    "status": c.status,
+                    "sort_order": c.sort_order,
+                }
+                for c in cities_orm
+            ],
+            "per_city_detailers": per_city_detailers,
+            "per_city_jobs": per_city_jobs,
+            "per_city_online": per_city_online,
         }

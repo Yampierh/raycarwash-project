@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -184,3 +184,62 @@ class AdminPaymentSummary(BaseModel):
     net_revenue: int
     period_start: Optional[datetime] = None
     period_end: Optional[datetime] = None
+
+
+# ── Ops Dashboard (Plan 24 W2-A) ────────────────────────────────────── #
+
+OpsWindow = Literal["1h", "today", "7d", "30d", "90d"]
+
+
+class OpsKpiValue(BaseModel):
+    """A single KPI tile. `delta` and `spark` are reserved for future
+    iterations — set to 0 / [] in V1 so the frontend can render the
+    tile shell without breaking."""
+
+    value: float
+    delta: float = 0.0
+    spark: list[float] = Field(default_factory=list)
+
+
+class OpsKpis(BaseModel):
+    gmv_cents: OpsKpiValue
+    bookings: OpsKpiValue
+    active_jobs: OpsKpiValue
+    take_rate: OpsKpiValue
+    csat: OpsKpiValue
+    cancel_rate: OpsKpiValue
+
+
+class OpsHeatmap(BaseModel):
+    """7-day × 16-hour demand grid keyed by `scheduled_time`. Hours run
+    from `hour_start` to `hour_start + len(hours) - 1` (local-equivalent
+    UTC for V1). Level is a 0–5 quantile bucket per cell across the
+    grid."""
+
+    rows: list[str]            # ["Mon", "Tue", ..., "Sun"]
+    hours: list[int]           # [7, 8, ..., 22]
+    levels: list[list[int]]    # 7 × 16, integers 0..5
+    peak_label: str = ""       # e.g. "Sat 11:00" — empty if no data
+
+
+class OpsCityRow(BaseModel):
+    code: str
+    name: str
+    short: str                  # 3-letter abbrev for narrow columns
+    state: str
+    status: str                 # active | pilot | planned | paused
+    active: bool                # status == "active"
+    detailers: int              # approved provider profiles in this city
+    online: int                 # approximation: detailers with an in-flight appointment right now
+    jobs: int                   # in-flight appointment count (CONFIRMED/ARRIVED/IN_PROGRESS) in window
+    surge: float = 1.0          # placeholder until surge_rules engine ships (Wave 4)
+
+
+class OpsDashboardResponse(BaseModel):
+    window: OpsWindow
+    period_start: datetime
+    period_end: datetime
+    city: str                   # "all" or a city code
+    kpis: OpsKpis
+    heatmap: OpsHeatmap
+    cities: list[OpsCityRow]
