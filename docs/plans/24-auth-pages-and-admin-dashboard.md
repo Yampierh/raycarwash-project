@@ -280,7 +280,7 @@ Subsequent steps proceed per §6 wave order.
 | **P-1** | `provider_profiles.ssn_last_4_encrypted` column + PATCH accepts `ssn_last_4` | ✅ Done | `909a23e` schema · `da92957` API |
 | **P-2** | `home_city_code` column + `cities` lookup + active-city validation on PATCH | ✅ Done | `909a23e` schema · `da92957` API |
 | **P-3** | `water_tank_gallons` + `services_offered` columns + PATCH wired (Literal enum on skills) | ✅ Done | `909a23e` schema · `da92957` API |
-| **P-7** | `application_status` column (state machine) | 🟡 Column added; submit + admin-approval endpoints pending | `909a23e` (column only) |
+| **P-7** | `application_status` column + `POST /provider-profile/submit` (draft → submitted) | ✅ Column + submit shipped (admin-approval transitions still pending) | `909a23e` schema · `6fa9fef` submit endpoint |
 | **A-1** | `cities` table + `City` ORM + 5-city seed (fwa active; ind/col/cin/lou pilot) | ✅ Done | `909a23e` |
 | **P-6** | Work vehicle vs personal vehicle distinction | ⏳ Pending | — |
 | **P-4** | Checkr background-check adapter | ⏳ Pending (Wave 3) | — |
