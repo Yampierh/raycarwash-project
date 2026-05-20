@@ -112,6 +112,7 @@ graph TD
 | `21-api-contracts-track3-customer-dashboard.md` | :white_check_mark: Contract — approved | Medium | `13-customer-dashboard.md`, `04-vehicles.md` | — |
 | **`22-security-architecture-audit.md`** | :construction: **In progress — findings documented** | **Critical** | `19`, `20`, `21` (remediation applied) | All Plans |
 | **`23-auth-hardening.md`** | :hourglass: Planning | **Critical** | None | — (absorbe `10-authorization-layer.md`) |
+| **`24-auth-pages-and-admin-dashboard.md`** | :hourglass: Planning | High | `22`, `23`, `m_019` | `19`, `20`, `21` |
 
 ---
 
