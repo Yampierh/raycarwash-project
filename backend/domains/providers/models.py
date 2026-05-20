@@ -238,9 +238,15 @@ class ProviderProfile(TimestampMixin, Base):
     # `verification_status` which only tracks Stripe Identity). The
     # state transitions:
     #
-    #   draft → submitted → bg_check_pending → docs_review → approved
+    #   draft → submitted → bg_check_pending → docs_review → approved ⇄ suspended
     #                                                      ╲→ rejected
     #
+    # `draft → submitted` is owned by the provider (POST /provider-profile/submit).
+    # `submitted → bg_check_pending → docs_review` is automation (Checkr
+    # webhook + compliance job). `… → approved | rejected | suspended` is
+    # operated by staff/admin via the W2-C admin endpoints
+    # (POST /api/v1/admin/detailers/{id}/approve | /suspend).
+    # `suspended` is reversible — admin can call /approve again to reinstate.
     # Defaults to "draft" so partial signups can be saved + resumed.
     application_status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="draft", server_default="draft",

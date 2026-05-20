@@ -12,6 +12,9 @@ from domains.admin.schemas import (
     AdminAppointmentRead,
     AdminAppointmentStatusUpdate,
     AdminAppointmentsListResponse,
+    AdminDetailerActionResponse,
+    AdminDetailerApprove,
+    AdminDetailerSuspend,
     AdminLedgerEntryRead,
     AdminLedgerListResponse,
     AdminPaymentSummary,
@@ -607,6 +610,76 @@ async def reject_verification(
     if match is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Provider not found.")
     return AdminVerificationRead(**match)
+
+
+# ── Detailers (Plan 24 W2-C) ───────────────────────────────────────── #
+
+@router.post(
+    "/detailers/{provider_id}/approve",
+    response_model=AdminDetailerActionResponse,
+    summary="Approve a detailer application (or reinstate from suspended)",
+)
+async def approve_detailer(
+    provider_id: uuid.UUID,
+    body: AdminDetailerApprove | None = None,
+    admin: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> AdminDetailerActionResponse:
+    repo = AdminRepository(db)
+    try:
+        result = await repo.approve_detailer(
+            provider_id=provider_id,
+            actor_id=admin.id,
+            notes=body.notes if body else None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Provider not found.")
+    await db.commit()
+    prev, new_status, user_email = result
+    return AdminDetailerActionResponse(
+        provider_id=provider_id,
+        user_email=user_email,
+        application_status=new_status,  # type: ignore[arg-type]
+        previous_status=prev,  # type: ignore[arg-type]
+        reviewed_at=datetime.now(timezone.utc),
+        rejection_reason=None,
+    )
+
+
+@router.post(
+    "/detailers/{provider_id}/suspend",
+    response_model=AdminDetailerActionResponse,
+    summary="Suspend an approved detailer (reversible via /approve)",
+)
+async def suspend_detailer(
+    provider_id: uuid.UUID,
+    body: AdminDetailerSuspend,
+    admin: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> AdminDetailerActionResponse:
+    repo = AdminRepository(db)
+    try:
+        result = await repo.suspend_detailer(
+            provider_id=provider_id,
+            actor_id=admin.id,
+            reason=body.reason,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Provider not found.")
+    await db.commit()
+    prev, new_status, user_email = result
+    return AdminDetailerActionResponse(
+        provider_id=provider_id,
+        user_email=user_email,
+        application_status=new_status,  # type: ignore[arg-type]
+        previous_status=prev,  # type: ignore[arg-type]
+        reviewed_at=datetime.now(timezone.utc),
+        rejection_reason=body.reason,
+    )
 
 
 # ── Payments ───────────────────────────────────────────────────────── #

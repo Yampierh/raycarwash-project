@@ -455,6 +455,105 @@ class AdminRepository:
         await self._db.flush()
         return True
 
+    # ── Detailers (Plan 24 W2-C) ──────────────────────────────────── #
+
+    # application_status FSM gates. Keep these in sync with the docstring
+    # on ProviderProfile.application_status (domains/providers/models.py).
+    _APPROVABLE_FROM = frozenset({
+        "submitted", "bg_check_pending", "docs_review", "suspended",
+    })
+    _SUSPENDABLE_FROM = frozenset({"approved"})
+
+    async def _get_provider_with_email(
+        self, provider_id: uuid.UUID,
+    ) -> tuple[ProviderProfile, str | None] | None:
+        stmt = select(ProviderProfile).where(ProviderProfile.id == provider_id)
+        profile = (await self._db.execute(stmt)).scalar_one_or_none()
+        if profile is None:
+            return None
+        email_row = await self._db.execute(
+            select(User.email).where(User.id == profile.user_id)
+        )
+        return profile, email_row.scalar_one_or_none()
+
+    async def approve_detailer(
+        self,
+        provider_id: uuid.UUID,
+        actor_id: uuid.UUID,
+        notes: str | None = None,
+    ) -> tuple[str, str, str | None] | None:
+        """Transition application_status → approved. Returns
+        (previous_status, new_status, user_email) or None if the profile
+        doesn't exist. Raises ValueError on FSM violation."""
+        found = await self._get_provider_with_email(provider_id)
+        if found is None:
+            return None
+        profile, user_email = found
+
+        prev = profile.application_status
+        if prev not in self._APPROVABLE_FROM:
+            raise ValueError(
+                f"Cannot approve from application_status='{prev}'. "
+                f"Allowed source states: {sorted(self._APPROVABLE_FROM)}"
+            )
+
+        now = datetime.now(timezone.utc)
+        profile.application_status = "approved"
+        profile.verification_reviewed_at = now
+        profile.rejection_reason = None
+        profile.updated_at = now
+
+        self._db.add(AuditLog(
+            actor_id=actor_id,
+            action=AuditAction.PROVIDER_STATUS_CHANGED,
+            entity_type="provider_profile",
+            entity_id=str(provider_id),
+            old_value={"application_status": prev},
+            new_value={"application_status": "approved"},
+            metadata_={"action": "detailer_approved", "notes": notes} if notes else {"action": "detailer_approved"},
+        ))
+        await self._db.flush()
+        return prev, "approved", user_email
+
+    async def suspend_detailer(
+        self,
+        provider_id: uuid.UUID,
+        actor_id: uuid.UUID,
+        reason: str,
+    ) -> tuple[str, str, str | None] | None:
+        """Transition application_status approved → suspended. Returns
+        (previous_status, new_status, user_email) or None if the profile
+        doesn't exist. Raises ValueError on FSM violation."""
+        found = await self._get_provider_with_email(provider_id)
+        if found is None:
+            return None
+        profile, user_email = found
+
+        prev = profile.application_status
+        if prev not in self._SUSPENDABLE_FROM:
+            raise ValueError(
+                f"Cannot suspend from application_status='{prev}'. "
+                f"Allowed source states: {sorted(self._SUSPENDABLE_FROM)}"
+            )
+
+        now = datetime.now(timezone.utc)
+        profile.application_status = "suspended"
+        profile.verification_reviewed_at = now
+        profile.rejection_reason = reason
+        profile.updated_at = now
+
+        self._db.add(AuditLog(
+            actor_id=actor_id,
+            action=AuditAction.PROVIDER_STATUS_CHANGED,
+            entity_type="provider_profile",
+            entity_id=str(provider_id),
+            old_value={"application_status": prev},
+            new_value={"application_status": "suspended"},
+            metadata_={"action": "detailer_suspended", "reason": reason},
+        ))
+        await self._db.flush()
+        return prev, "suspended", user_email
+
     # ── Payments ──────────────────────────────────────────────────── #
 
     async def list_ledger_entries(
