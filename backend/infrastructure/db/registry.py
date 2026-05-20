@@ -55,4 +55,5 @@ from domains.public.models import (  # noqa: F401
     ContactSubmission,
     WaitlistEntry, WaitlistRole,
 )
+from domains.locations.models import City, CityStatus  # noqa: F401
 from infrastructure.db.base import Base  # noqa: F401

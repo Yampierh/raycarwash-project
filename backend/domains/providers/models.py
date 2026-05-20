@@ -193,6 +193,51 @@ class ProviderProfile(TimestampMixin, Base):
         Boolean, nullable=False, default=False, server_default="false",
     )
 
+    # ── Plan 24 Wave 1 — provider signup multi-step fields ──
+    # See alembic m_024 + Plan 24 §3 (P-1 to P-3, P-7).
+
+    # P-1: encrypted SSN last 4 — captured at signup step 2 for the
+    # Checkr background check. Stored encrypted, NEVER returned via
+    # any API; the value is consumed once by the bg-check adapter
+    # and not needed thereafter (consider purging post-approval).
+    ssn_last_4_encrypted: Mapped[str | None] = mapped_column(
+        EncryptedType(String(8), _provider_encryption_key), nullable=True,
+    )
+
+    # P-2: market code — points at `cities.code`. Plain VARCHAR (no FK)
+    # because we want soft-references that don't cascade on city
+    # deletion, and the validation lives at the app layer (a city must
+    # exist + be active when set).
+    home_city_code: Mapped[str | None] = mapped_column(
+        String(8), nullable=True, index=True,
+    )
+
+    # P-3: equipment metadata from signup step 4. Used by matching
+    # (e.g. don't route a job to a detailer without ceramic experience)
+    # and surfaced in the provider profile UI.
+    water_tank_gallons: Mapped[int | None] = mapped_column(
+        Integer, nullable=True,
+    )
+    # JSONB list of service-slug strings the provider can perform
+    # (e.g. ["soap", "vacuum", "polish", "ceramic"]). NOT the same as
+    # `service_categories_rel` below — that's the high-level category
+    # bucket; this is the granular skill list.
+    services_offered: Mapped[list | None] = mapped_column(
+        JSONB, nullable=True,
+    )
+
+    # P-7: signup lifecycle state machine (complementary to the existing
+    # `verification_status` which only tracks Stripe Identity). The
+    # state transitions:
+    #
+    #   draft → submitted → bg_check_pending → docs_review → approved
+    #                                                      ╲→ rejected
+    #
+    # Defaults to "draft" so partial signups can be saved + resumed.
+    application_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="draft", server_default="draft",
+    )
+
     # Denormalized counters maintained by the m_020 trigger (Phase 9).
     total_services_completed: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0",

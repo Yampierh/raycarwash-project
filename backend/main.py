@@ -38,6 +38,7 @@ from app.db.seed_public import (
     seed_faq,
     seed_testimonials,
 )
+from app.db.seed_cities import seed_cities
 
 from infrastructure.db.base import Base
 
@@ -131,6 +132,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await seed_coverage_zones(seed_session)
         await seed_coverage_zips(seed_session)
         logger.info("✅  Public marketing content seeded (Plan 19).")
+
+    # Plan 24 Wave 1 — multi-city support (5 launch markets).
+    # Referenced by provider signup step 3 + admin city switcher.
+    async with AsyncSessionLocal() as seed_session:
+        await seed_cities(seed_session)
+        logger.info("✅  Cities seeded (Plan 24).")
 
     # Redis pool — real Redis if available, else fakeredis in dev
     app.state.redis = await init_redis_pool(settings.REDIS_URL)

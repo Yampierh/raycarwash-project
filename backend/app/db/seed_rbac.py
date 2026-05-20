@@ -33,6 +33,19 @@ ROLE_DATA: list[dict] = [
         "name": "client",
         "description": "End customer. Can book appointments, manage their vehicles, and leave reviews.",
     },
+    {
+        # Plan 24 §4 (S-1) — internal team without full admin power.
+        # Distinct from `admin` so admin-only operations (RBAC mutations,
+        # destructive cleanups, billing config) can be gated separately
+        # via `require_role("admin")` while day-to-day ops can use
+        # `require_role("staff", "admin")`.
+        "name": "staff",
+        "description": (
+            "Internal team — ops, support, finance. Read access across the "
+            "platform, write access to appointments and reviews moderation. "
+            "Cannot manage roles, delete users, or change billing config."
+        ),
+    },
 ]
 
 # Format: (name, resource, action, description)
@@ -89,6 +102,20 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
         "read:appointments", "write:appointments",
         "read:services",
         "read:reviews", "write:permissions",
+    ],
+    # Staff: read across most resources + write where day-to-day ops
+    # need it (appointments handling, reviews moderation). Explicitly
+    # NOT granted: write:users, write:roles, write:permissions,
+    # delete:* anything. Those stay admin-only.
+    "staff": [
+        "read:users",
+        "read:roles",
+        "read:permissions",
+        "read:appointments", "write:appointments",
+        "read:providers", "write:providers",
+        "read:payments",
+        "read:reviews",
+        "read:services",
     ],
 }
 
