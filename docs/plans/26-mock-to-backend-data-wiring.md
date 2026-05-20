@@ -242,7 +242,7 @@ Reads `web/admin/lib/mock.ts`. Owns plan 24's admin §6.
 
 - `getAdminOps()` composite — **W2-A shipped** (`GET /api/v1/admin/ops/dashboard?window=&city=` — KPIs + heatmap + cities rollup). FE swap: replace `MOCK_OPS` in `web/admin/lib/mock.ts` with `getAdminOps(window, city)`; promote the `delta`/`spark` fields when the V2 prior-period query lands.
 - `getAdminBookings(filters)` — exists; extend filters.
-- `getAdminDetailers(filters)` + verification actions — exists partially; extend.
+- `getAdminDetailers(filters)` + verification actions — list/verification endpoints exist; **W2-C shipped** for the FSM actions (`POST /api/v1/admin/detailers/{id}/approve` and `/suspend` — operates on `application_status`; `suspended` is reversible via `/approve`). FE swap: drop the optimistic mock in `web/admin/lib/mock.ts` and call the real endpoints from the detailer detail drawer; render the new `previous_status` and `rejection_reason` fields in the timeline.
 - `getAdminCustomers(filters)` — backend gap; admin-scoped users list.
 - `getAdminFinance(range)` — backend gap; finance domain or finance-aggregator inside `domains/payments/`.
 - `getAdminMarketing()` — Plan 15 (marketing CMS) — implement minimally here and let Plan 15 deepen.

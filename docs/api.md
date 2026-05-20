@@ -523,6 +523,13 @@ All endpoints require a Bearer token whose user has the `admin` role. Responses 
 |---|---|---|
 | GET | `/api/v1/admin/ops/dashboard?window=1h\|today\|7d\|30d\|90d&city=all\|<code>` | KPIs (GMV cents, bookings, active jobs, take rate, CSAT, cancel rate) + 7×16 demand heatmap (UTC-bucketed) + per-city rollup (detailers / online proxy / in-flight jobs). Bucketing keyed on `provider_profiles.home_city_code` until appointments carry an explicit city tag. KPI tiles return scalar `value`; `delta` and `spark` reserved (always `0` / `[]` in V1). |
 
+### Detailer review (Plan 24 W2-C)
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/v1/admin/detailers/{provider_id}/approve` | Transition `application_status` → `approved`. Allowed source states: `submitted \| bg_check_pending \| docs_review \| suspended` (reinstate). Body optional: `{"notes"?: str}`. Returns `{provider_id, user_email, application_status, previous_status, reviewed_at, rejection_reason: null}`. **409** on FSM violation, **404** on unknown id. Clears any prior `rejection_reason`. Audit-logged as `PROVIDER_STATUS_CHANGED`. |
+| POST | `/api/v1/admin/detailers/{provider_id}/suspend` | Transition `application_status` `approved → suspended` (only valid source). Body required: `{"reason": str (5..500)}` — stored on `provider_profiles.rejection_reason` and emitted in the audit log. Returns the same shape as `/approve` with `previous_status="approved"`. **409** if not currently `approved`. |
+
 ---
 
 ## Stripe Webhook

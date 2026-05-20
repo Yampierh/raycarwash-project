@@ -318,7 +318,7 @@ before W2 starts.
 |----|------|--------|--------|
 | **W2-A** | `GET /api/v1/admin/ops/dashboard` — KPIs (GMV, bookings, active jobs, take rate, CSAT, cancel rate) + 7×16 demand heatmap + per-city rollup. Bucketing by detailer `home_city_code`; UTC hour extraction. | ✅ Done | — |
 | **W2-B** | Bookings management (refund + reassign actions) | ⏳ Pending | — |
-| **W2-C** | Detailers approve/suspend/performance | ⏳ Pending | — |
+| **W2-C** | `POST /api/v1/admin/detailers/{id}/approve` + `/suspend`. Finalizes the `application_status` FSM — adds `suspended` (reversible) state; admin-only transitions from `submitted\|bg_check_pending\|docs_review\|suspended → approved` and `approved → suspended` (reason required). Audit-logged via `PROVIDER_STATUS_CHANGED`. | ✅ Done | — |
 | **W2-D** | Reviews moderation queue + approve/hide | ⏳ Pending | — |
 | **W2-E** | Customers segments + comp credits | ⏳ Pending | — |
 
@@ -335,3 +335,4 @@ before W2 starts.
 | `tests/test_users_provider_profile.py` | 4 new (14 total) | P-1/P-2/P-3 PATCH happy path + city validation + SSN regex + skill enum |
 | Seed smoke test | inline | `seed_cities` inserts 5 rows + idempotent re-run |
 | `tests/test_admin_ops_dashboard.py` | 18 new | W2-A auth gate + empty state + window param + KPIs reflect data + city rollup + heatmap shape/peak label |
+| `tests/test_admin_detailers_approve_suspend.py` | 22 new | W2-C auth gate + 404 + FSM transitions (submitted/docs_review/suspended → approved; approved → suspended) + FSM violations 409 + audit log row written |
