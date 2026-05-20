@@ -285,7 +285,7 @@ Subsequent steps proceed per §6 wave order.
 | **P-6** | Work vehicle vs personal vehicle distinction | ⏳ Pending | — |
 | **P-4** | Checkr background-check adapter | ⏳ Pending (Wave 3) | — |
 | **P-5** | Plaid bank-link adapter | ⏳ Pending (Wave 3) | — |
-| **C-1** | `GET /api/v1/vehicles/price-estimate` | ⏳ Pending | — |
+| **C-1** | `GET /api/v1/vehicles/price-estimate` (anonymous, model-keyword size heuristic, 2 anchor tiers) | ✅ Done | `3aa4b25` |
 | **C-2** | `NEW10` welcome promo persistence | ⏳ Pending (Wave 4) | — |
 | **C-3** | ZIP gate on `POST /api/v1/users/me/addresses` | ⏳ Pending | — |
 | **S-2** | Mandatory TOTP enrollment for staff role | ⏳ Pending | — |
