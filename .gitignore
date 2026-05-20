@@ -64,8 +64,15 @@ web/next-env.d.ts
 # LocalStorageAdapter runtime artifacts (Phase 0 chunk C / Phase 2 avatars)
 backend/storage/
 
-# Claude / per-machine planning notes
-.claude/
+# Claude / per-machine planning notes — ignore everything under .claude/
+# (notably settings.local.json), but track the execution protocol + shared
+# skills so they travel with the repo. Use `.claude/*` (not `.claude/`) so
+# the negations below can re-include specific entries; a bare `.claude/`
+# would short-circuit the negate pattern matching.
+.claude/*
+!.claude/execution_protocol.md
+!.claude/skills/
+!.claude/skills/**
 
 # opendcode 
 .opencode/
