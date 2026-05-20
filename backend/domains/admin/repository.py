@@ -20,6 +20,7 @@ from domains.payments.models import PaymentLedger
 from domains.locations.models import City
 from domains.reviews.models import Review
 from domains.audit.models import AuditLog, AuditAction
+from domains.credits.models import CustomerCredit
 
 
 class AdminRepository:
@@ -683,6 +684,192 @@ class AdminRepository:
         ))
         await self._db.flush()
         return prev, "hidden"
+
+    # ── Customers + credits (Plan 24 W2-E) ────────────────────────── #
+
+    # VIP/segment thresholds — tuned for the early dataset. Promote to
+    # platform_settings (Wave 4) once we have real volume.
+    _VIP_LIFETIME_APPTS = 10
+    _VIP_LIFETIME_SPEND_CENTS = 100_000  # $1,000
+    _ACTIVE_WINDOW_DAYS = 30
+    _DORMANT_WINDOW_DAYS = 90
+
+    @classmethod
+    def _classify_segment(
+        cls,
+        *,
+        appointments_count: int,
+        last_appt_at: datetime | None,
+        lifetime_spend_cents: int,
+        now: datetime,
+    ) -> str:
+        if appointments_count == 0:
+            return "new"
+        if (
+            appointments_count >= cls._VIP_LIFETIME_APPTS
+            or lifetime_spend_cents >= cls._VIP_LIFETIME_SPEND_CENTS
+        ):
+            return "vip"
+        if last_appt_at and (now - last_appt_at).days <= cls._ACTIVE_WINDOW_DAYS:
+            return "active"
+        return "dormant"
+
+    async def list_customers(
+        self,
+        *,
+        segment: str = "all",
+        page: int = 1,
+        per_page: int = 20,
+        search: str | None = None,
+    ) -> tuple[list[dict], int]:
+        """Customers (role=client) with per-row aggregates. Segment
+        filtering is applied AFTER fetching the page; for the dashboard
+        view this is fine — total counts apply to the underlying client
+        population, not the post-filter set."""
+        # Base query — users with the client role, oldest first
+        base = (
+            select(User)
+            .join(UserRoleAssociation, UserRoleAssociation.user_id == User.id)
+            .join(Role, Role.id == UserRoleAssociation.role_id)
+            .where(
+                Role.name == "client",
+                User.is_deleted.is_(False),
+            )
+        )
+        if search:
+            base = base.where(User.email.ilike(f"%{search}%"))
+
+        total = (await self._db.execute(
+            select(func.count()).select_from(base.subquery())
+        )).scalar_one()
+
+        stmt = (
+            base
+            .order_by(User.created_at.desc())
+            .offset((page - 1) * per_page)
+            .limit(per_page)
+        )
+        users = list((await self._db.execute(stmt)).scalars().all())
+        if not users:
+            return [], total
+
+        user_ids = [u.id for u in users]
+        now = datetime.now(timezone.utc)
+
+        # Per-user appointments aggregate (completed only)
+        appt_stmt = (
+            select(
+                Appointment.client_id,
+                func.count(Appointment.id).label("n"),
+                func.max(Appointment.scheduled_time).label("last_appt_at"),
+                func.coalesce(
+                    func.sum(
+                        func.coalesce(Appointment.actual_price, Appointment.estimated_price)
+                    ),
+                    0,
+                ).label("lifetime_cents"),
+            )
+            .where(
+                Appointment.client_id.in_(user_ids),
+                Appointment.status == AppointmentStatus.COMPLETED,
+            )
+            .group_by(Appointment.client_id)
+        )
+        appt_rows = (await self._db.execute(appt_stmt)).all()
+        appt_by_user = {
+            r.client_id: (r.n, r.last_appt_at, r.lifetime_cents) for r in appt_rows
+        }
+
+        # Per-user active credit balance
+        credit_stmt = (
+            select(
+                CustomerCredit.user_id,
+                func.coalesce(func.sum(CustomerCredit.amount_cents), 0).label("bal"),
+            )
+            .where(
+                CustomerCredit.user_id.in_(user_ids),
+                CustomerCredit.status == "active",
+            )
+            .group_by(CustomerCredit.user_id)
+        )
+        credit_rows = (await self._db.execute(credit_stmt)).all()
+        credit_by_user = {r.user_id: r.bal for r in credit_rows}
+
+        rows: list[dict] = []
+        for u in users:
+            n_appts, last_appt, lifetime = appt_by_user.get(u.id, (0, None, 0))
+            seg = self._classify_segment(
+                appointments_count=n_appts,
+                last_appt_at=last_appt,
+                lifetime_spend_cents=lifetime,
+                now=now,
+            )
+            if segment != "all" and seg != segment:
+                continue
+            rows.append({
+                "user_id": u.id,
+                "email": u.email,
+                "full_name": u.full_name,
+                "is_active": u.is_active,
+                "segment": seg,
+                "appointments_count": n_appts,
+                "last_appointment_at": last_appt,
+                "lifetime_spend_cents": int(lifetime),
+                "credit_balance_cents": int(credit_by_user.get(u.id, 0)),
+                "created_at": u.created_at,
+            })
+        return rows, total
+
+    async def issue_customer_credit(
+        self,
+        *,
+        user_id: uuid.UUID,
+        actor_id: uuid.UUID,
+        amount_cents: int,
+        reason: str,
+        source: str = "admin_comp",
+        expires_at: datetime | None = None,
+        related_appointment_id: uuid.UUID | None = None,
+    ) -> CustomerCredit | None:
+        """Issue a new credit row. Returns the persisted credit, or None
+        if the target user doesn't exist."""
+        user = (await self._db.execute(
+            select(User).where(User.id == user_id, User.is_deleted.is_(False))
+        )).scalar_one_or_none()
+        if user is None:
+            return None
+
+        credit = CustomerCredit(
+            user_id=user_id,
+            amount_cents=amount_cents,
+            reason=reason,
+            source=source,
+            status="active",
+            issued_by=actor_id,
+            expires_at=expires_at,
+            related_appointment_id=related_appointment_id,
+        )
+        self._db.add(credit)
+        await self._db.flush()
+
+        self._db.add(AuditLog(
+            actor_id=actor_id,
+            action=AuditAction.CUSTOMER_CREDIT_ISSUED,
+            entity_type="customer_credit",
+            entity_id=str(credit.id),
+            new_value={
+                "user_id": str(user_id),
+                "amount_cents": amount_cents,
+                "source": source,
+            },
+            metadata_={
+                "action": "credit_issued",
+                "reason": reason,
+                "related_appointment_id": str(related_appointment_id) if related_appointment_id else None,
+            },
+        ))
+        await self._db.flush()
+        return credit
 
     # ── Payments ──────────────────────────────────────────────────── #
 

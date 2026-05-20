@@ -12,6 +12,10 @@ from domains.admin.schemas import (
     AdminAppointmentRead,
     AdminAppointmentStatusUpdate,
     AdminAppointmentsListResponse,
+    AdminCreditIssue,
+    AdminCreditRead,
+    AdminCustomerRow,
+    AdminCustomersListResponse,
     AdminDetailerActionResponse,
     AdminDetailerApprove,
     AdminDetailerSuspend,
@@ -768,6 +772,70 @@ async def hide_review(
         moderation_acted_at=datetime.now(timezone.utc),
         moderation_note=body.note,
     )
+
+
+# ── Customers + comp credits (Plan 24 W2-E) ────────────────────────── #
+
+
+_VALID_SEGMENTS = ("all", "new", "active", "dormant", "vip")
+
+
+@router.get(
+    "/customers",
+    response_model=AdminCustomersListResponse,
+    summary="List customers (clients) with segment + aggregate stats",
+)
+async def list_customers(
+    segment: str = Query(default="all", description=" | ".join(_VALID_SEGMENTS)),
+    page: int = Query(default=1, ge=1),
+    per_page: int = Query(default=20, ge=1, le=100),
+    search: str | None = Query(default=None, description="Filter by email substring"),
+    _: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> AdminCustomersListResponse:
+    if segment not in _VALID_SEGMENTS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported segment: {segment}",
+        )
+    rows, total = await AdminRepository(db).list_customers(
+        segment=segment, page=page, per_page=per_page, search=search,
+    )
+    return AdminCustomersListResponse(
+        customers=[AdminCustomerRow(**r) for r in rows],
+        total=total,
+        page=page,
+        per_page=per_page,
+    )
+
+
+@router.post(
+    "/customers/{user_id}/credits",
+    response_model=AdminCreditRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Issue a comp credit to a customer",
+)
+async def issue_customer_credit(
+    user_id: uuid.UUID,
+    body: AdminCreditIssue,
+    admin: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> AdminCreditRead:
+    repo = AdminRepository(db)
+    credit = await repo.issue_customer_credit(
+        user_id=user_id,
+        actor_id=admin.id,
+        amount_cents=body.amount_cents,
+        reason=body.reason,
+        source=body.source,
+        expires_at=body.expires_at,
+        related_appointment_id=body.related_appointment_id,
+    )
+    if credit is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    await db.commit()
+    await db.refresh(credit)
+    return AdminCreditRead.model_validate(credit)
 
 
 # ── Payments ───────────────────────────────────────────────────────── #

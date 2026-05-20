@@ -238,6 +238,56 @@ class AdminReviewActionResponse(BaseModel):
     moderation_note: Optional[str] = None
 
 
+# ── Customers + comp credits (Plan 24 W2-E) ─────────────────────────── #
+
+CustomerSegment = Literal["all", "new", "active", "dormant", "vip"]
+CreditSource = Literal["admin_comp", "promo", "referral", "refund", "adjustment"]
+
+
+class AdminCustomerRow(BaseModel):
+    user_id: uuid.UUID
+    email: str
+    full_name: Optional[str] = None
+    is_active: bool
+    segment: Literal["new", "active", "dormant", "vip"]
+    appointments_count: int
+    last_appointment_at: Optional[datetime] = None
+    lifetime_spend_cents: int
+    credit_balance_cents: int
+    created_at: datetime
+
+
+class AdminCustomersListResponse(BaseModel):
+    customers: list[AdminCustomerRow]
+    total: int
+    page: int
+    per_page: int
+
+
+class AdminCreditIssue(BaseModel):
+    amount_cents: int = Field(..., gt=0, le=10_000_00, description="Positive cents; max $10,000")
+    reason: str = Field(..., min_length=5, max_length=500)
+    source: CreditSource = Field(default="admin_comp")
+    expires_at: Optional[datetime] = None
+    related_appointment_id: Optional[uuid.UUID] = None
+
+
+class AdminCreditRead(BaseModel):
+    id: uuid.UUID
+    user_id: uuid.UUID
+    amount_cents: int
+    currency: str
+    reason: str
+    source: str
+    status: str
+    issued_by: Optional[uuid.UUID] = None
+    related_appointment_id: Optional[uuid.UUID] = None
+    expires_at: Optional[datetime] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 # ── Payments ────────────────────────────────────────────────────────── #
 
 class AdminLedgerEntryRead(BaseModel):
