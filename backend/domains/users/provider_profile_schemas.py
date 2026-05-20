@@ -7,6 +7,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import Field
 
@@ -40,6 +41,14 @@ class ProviderProfileResponse(_BaseSchema):
     working_hours: dict | None = None
     timezone: str | None = None
 
+    # Plan 24 Wave 1 — provider signup metadata exposed on read.
+    # `ssn_last_4_encrypted` is INTENTIONALLY NOT exposed (write-only;
+    # consumed once by Checkr and then dormant).
+    home_city_code: str | None = None
+    water_tank_gallons: int | None = None
+    services_offered: list[str] | None = None
+    application_status: str = "draft"
+
     created_at: datetime
     updated_at: datetime
 
@@ -69,6 +78,37 @@ class ProviderProfileUpdateRequest(_BaseRequestSchema):
     service_radius_miles: int | None = Field(default=None, ge=1, le=200)
     social_links: dict | None = None
     working_hours: dict | None = None
+
+    # Plan 24 Wave 1 — provider signup multi-step fields. All optional
+    # on PATCH so signup can save partial drafts step-by-step.
+    # `application_status` transitions are NOT exposed here — they go
+    # through dedicated endpoints (submit, admin approve/reject) to
+    # avoid accidental state changes via routine profile edits.
+    ssn_last_4: str | None = Field(
+        default=None, min_length=4, max_length=4, pattern=r"^\d{4}$",
+        description=(
+            "Last 4 of SSN. Encrypted at rest. Surfaced never — "
+            "consumed once by the background-check adapter."
+        ),
+    )
+    home_city_code: str | None = Field(
+        default=None, min_length=2, max_length=8,
+        description=(
+            "City code (e.g. fwa, ind). Must reference an active row in "
+            "the `cities` table; validated server-side."
+        ),
+    )
+    water_tank_gallons: int | None = Field(
+        default=None, ge=0, le=200,
+        description="0 = use customer water; 20/40/60+ = own tank.",
+    )
+    services_offered: list[Literal["soap", "vacuum", "polish", "ceramic"]] | None = Field(
+        default=None,
+        description=(
+            "Granular skill list. `soap` + `vacuum` are baseline; "
+            "`polish` and `ceramic` are paid upsell tiers."
+        ),
+    )
 
 
 class ProviderStatusUpdateRequest(_BaseRequestSchema):

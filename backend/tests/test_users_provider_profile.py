@@ -305,3 +305,122 @@ async def test_deactivate_flips_accepting_bookings_to_false(
     assert resp.json()["data"]["is_accepting_bookings"] is False
     # KYC state preserved.
     assert resp.json()["data"]["verification_status"] == "approved"
+
+
+# ─── Plan 24 Wave 1 — provider signup multi-step fields ──────────────────────
+
+
+@pytest.mark.asyncio
+async def test_patch_persists_signup_fields(
+    client: AsyncClient, db_session: AsyncSession,
+) -> None:
+    """PATCH accepts the 4 new signup fields and persists them.
+    ssn_last_4 is encrypted at rest (verify by reading the column —
+    it should NOT equal the plaintext value)."""
+    from app.db.seed_cities import seed_cities
+
+    await seed_cities(db_session)
+
+    token = await _login(client, "prov-signup-fields@test.com")
+    await client.post(
+        "/api/v1/users/me/provider-profile",
+        json={"business_name": "Signup Detail"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    resp = await client.patch(
+        "/api/v1/users/me/provider-profile",
+        json={
+            "ssn_last_4": "1234",
+            "home_city_code": "fwa",
+            "water_tank_gallons": 40,
+            "services_offered": ["soap", "vacuum", "polish"],
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()["data"]
+    # SSN intentionally not in response (write-only).
+    assert "ssn_last_4" not in data
+    assert "ssn_last_4_encrypted" not in data
+    # Other fields surface back.
+    assert data["home_city_code"] == "fwa"
+    assert data["water_tank_gallons"] == 40
+    assert data["services_offered"] == ["soap", "vacuum", "polish"]
+    # default state
+    assert data["application_status"] == "draft"
+
+    # SSN is persisted (via EncryptedType the in-DB column != plaintext
+    # but the ORM read decrypts transparently). Verify via the model.
+    user = await _get_user(db_session, "prov-signup-fields@test.com")
+    profile = (await db_session.execute(
+        select(ProviderProfile).where(ProviderProfile.user_id == user.id)
+    )).scalar_one()
+    assert profile.ssn_last_4_encrypted == "1234"
+
+
+@pytest.mark.asyncio
+async def test_patch_rejects_unknown_city(
+    client: AsyncClient, db_session: AsyncSession,
+) -> None:
+    from app.db.seed_cities import seed_cities
+
+    await seed_cities(db_session)
+
+    token = await _login(client, "prov-bad-city@test.com")
+    await client.post(
+        "/api/v1/users/me/provider-profile",
+        json={"business_name": "Bad City Co"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    resp = await client.patch(
+        "/api/v1/users/me/provider-profile",
+        json={"home_city_code": "xxx"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 422
+    body = resp.json()
+    # ErrorEnvelope shape
+    assert body["error"]["code"] == "city_not_found"
+
+
+@pytest.mark.asyncio
+async def test_patch_rejects_invalid_services_offered_enum(
+    client: AsyncClient,
+) -> None:
+    """Literal enum validation rejects unknown skill slugs."""
+    token = await _login(client, "prov-bad-skill@test.com")
+    await client.post(
+        "/api/v1/users/me/provider-profile",
+        json={"business_name": "Bad Skill Co"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    resp = await client.patch(
+        "/api/v1/users/me/provider-profile",
+        json={"services_offered": ["soap", "underbody-wax"]},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_patch_ssn_last_4_rejects_non_digits(
+    client: AsyncClient,
+) -> None:
+    """Pydantic regex enforces 4 digits."""
+    token = await _login(client, "prov-bad-ssn@test.com")
+    await client.post(
+        "/api/v1/users/me/provider-profile",
+        json={"business_name": "Bad SSN Co"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    for bad in ["12a4", "123", "12345", "abcd"]:
+        resp = await client.patch(
+            "/api/v1/users/me/provider-profile",
+            json={"ssn_last_4": bad},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 422, f"SSN {bad!r} should 422"

@@ -27,6 +27,7 @@ from app.middleware.audit_context import AuditContext, get_audit_context
 from domains.audit.models import AuditAction
 from domains.audit.repository import AuditRepository
 from domains.auth.models import Role, UserRoleAssociation
+from domains.locations.models import City, CityStatus
 from domains.providers.models import ProviderProfile, ProviderType
 from domains.providers.repository import ProviderRepository
 from domains.users.models import User
@@ -98,6 +99,12 @@ class ProviderProfileService:
             cover_url=None,
             working_hours=profile.working_hours,
             timezone=getattr(profile, "timezone", None),
+            # Plan 24 Wave 1 — signup metadata. `ssn_last_4_encrypted` is
+            # intentionally never read back; it's write-only.
+            home_city_code=profile.home_city_code,
+            water_tank_gallons=profile.water_tank_gallons,
+            services_offered=profile.services_offered,
+            application_status=getattr(profile, "application_status", "draft"),
             created_at=profile.created_at,
             updated_at=profile.updated_at,
         )
@@ -190,21 +197,37 @@ class ProviderProfileService:
     ) -> ProviderProfile:
         profile = await self.get_or_404(user)
 
+        # Plan 24 Wave 1 — server-side validation for fields with
+        # constraints Pydantic alone can't enforce.
+        if body.home_city_code is not None:
+            await self._assert_city_active(body.home_city_code)
+
         old = {
             "business_name": profile.business_name,
             "display_name": profile.display_name,
             "tagline": profile.tagline,
             "service_radius_miles": profile.service_radius_miles,
+            "home_city_code": profile.home_city_code,
+            "water_tank_gallons": profile.water_tank_gallons,
+            "services_offered": profile.services_offered,
         }
 
         for field in (
             "business_name", "display_name", "tagline", "bio",
             "years_of_experience", "service_radius_miles",
             "social_links", "working_hours",
+            # Plan 24 Wave 1 — signup multi-step fields
+            "home_city_code", "water_tank_gallons", "services_offered",
         ):
             value = getattr(body, field)
             if value is not None:
                 setattr(profile, field, value)
+
+        # `ssn_last_4` (raw) → `ssn_last_4_encrypted` (storage column).
+        # EncryptedType handles the at-rest encryption transparently;
+        # we just need to remap the API field name to the column name.
+        if body.ssn_last_4 is not None:
+            profile.ssn_last_4_encrypted = body.ssn_last_4
 
         await self.db.flush()
         await self.audit_repo.log(
@@ -218,10 +241,48 @@ class ProviderProfileService:
                 "display_name": profile.display_name,
                 "tagline": profile.tagline,
                 "service_radius_miles": profile.service_radius_miles,
+                "home_city_code": profile.home_city_code,
+                "water_tank_gallons": profile.water_tank_gallons,
+                "services_offered": profile.services_offered,
+                # SSN intentionally NOT in audit metadata — even encrypted,
+                # the only legitimate consumer is the bg-check adapter.
+                "ssn_last_4_updated": body.ssn_last_4 is not None,
             },
             audit_ctx=self.audit_ctx,
         )
         return profile
+
+    async def _assert_city_active(self, code: str) -> None:
+        """Reject PATCH if `home_city_code` doesn't reference an
+        active or pilot city. Soft-deleted cities are also rejected."""
+        city = (await self.db.execute(
+            select(City).where(
+                City.code == code,
+                City.is_deleted.is_(False),
+            )
+        )).scalar_one_or_none()
+        if city is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "code": "city_not_found",
+                    "message": (
+                        f"Unknown city code '{code}'. "
+                        "See GET /api/v1/cities for valid options."
+                    ),
+                },
+            )
+        if city.status not in (CityStatus.ACTIVE.value, CityStatus.PILOT.value):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "code": "city_not_accepting_providers",
+                    "message": (
+                        f"City '{code}' is not currently accepting new "
+                        f"provider applications (status: {city.status})."
+                    ),
+                },
+            )
 
     # ─── Deactivate ─────────────────────────────────────────────────────────
 
