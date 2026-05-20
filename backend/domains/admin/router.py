@@ -16,6 +16,11 @@ from domains.admin.schemas import (
     AdminDetailerApprove,
     AdminDetailerSuspend,
     AdminLedgerEntryRead,
+    AdminReviewActionResponse,
+    AdminReviewApprove,
+    AdminReviewHide,
+    AdminReviewQueueResponse,
+    AdminReviewQueueRow,
     AdminLedgerListResponse,
     AdminPaymentSummary,
     AdminStats,
@@ -679,6 +684,89 @@ async def suspend_detailer(
         previous_status=prev,  # type: ignore[arg-type]
         reviewed_at=datetime.now(timezone.utc),
         rejection_reason=body.reason,
+    )
+
+
+# ── Reviews moderation (Plan 24 W2-D) ──────────────────────────────── #
+
+
+@router.get(
+    "/reviews/queue",
+    response_model=AdminReviewQueueResponse,
+    summary="Pending reviews flagged for moderation",
+)
+async def list_review_queue(
+    _: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> AdminReviewQueueResponse:
+    rows = await AdminRepository(db).list_review_queue()
+    return AdminReviewQueueResponse(
+        reviews=[AdminReviewQueueRow(**r) for r in rows],
+        total=len(rows),
+    )
+
+
+@router.post(
+    "/reviews/{review_id}/approve",
+    response_model=AdminReviewActionResponse,
+    summary="Keep a flagged review visible",
+)
+async def approve_review(
+    review_id: uuid.UUID,
+    body: AdminReviewApprove | None = None,
+    admin: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> AdminReviewActionResponse:
+    repo = AdminRepository(db)
+    try:
+        result = await repo.approve_review(
+            review_id=review_id,
+            actor_id=admin.id,
+            note=body.note if body else None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Review not found.")
+    await db.commit()
+    prev, new_state = result
+    return AdminReviewActionResponse(
+        review_id=review_id,
+        moderation_state=new_state,  # type: ignore[arg-type]
+        previous_state=prev,  # type: ignore[arg-type]
+        moderation_acted_at=datetime.now(timezone.utc),
+        moderation_note=body.note if body else None,
+    )
+
+
+@router.post(
+    "/reviews/{review_id}/hide",
+    response_model=AdminReviewActionResponse,
+    summary="Hide a review (rating still counts; comment is suppressed)",
+)
+async def hide_review(
+    review_id: uuid.UUID,
+    body: AdminReviewHide,
+    admin: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> AdminReviewActionResponse:
+    repo = AdminRepository(db)
+    try:
+        result = await repo.hide_review(
+            review_id=review_id, actor_id=admin.id, note=body.note,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Review not found.")
+    await db.commit()
+    prev, new_state = result
+    return AdminReviewActionResponse(
+        review_id=review_id,
+        moderation_state=new_state,  # type: ignore[arg-type]
+        previous_state=prev,  # type: ignore[arg-type]
+        moderation_acted_at=datetime.now(timezone.utc),
+        moderation_note=body.note,
     )
 
 

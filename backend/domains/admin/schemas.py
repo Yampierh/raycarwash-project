@@ -197,6 +197,47 @@ class AdminDetailerActionResponse(BaseModel):
     rejection_reason: Optional[str] = None
 
 
+# ── Reviews moderation (Plan 24 W2-D) ───────────────────────────────── #
+
+ReviewModerationState = Literal["auto_pending", "approved", "hidden"]
+
+
+class AdminReviewQueueRow(BaseModel):
+    """One pending review surfaced to the moderation queue. `flag_reasons`
+    is computed at query time — `low_rating` for rating ≤ 2 and
+    `keyword:<word>` for each profanity hit."""
+
+    review_id: uuid.UUID
+    appointment_id: uuid.UUID
+    reviewer_email: Optional[str] = None
+    detailer_email: Optional[str] = None
+    rating: int
+    comment: Optional[str] = None
+    flag_reasons: list[str] = Field(default_factory=list)
+    created_at: datetime
+
+
+class AdminReviewQueueResponse(BaseModel):
+    reviews: list[AdminReviewQueueRow]
+    total: int
+
+
+class AdminReviewApprove(BaseModel):
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+class AdminReviewHide(BaseModel):
+    note: str = Field(..., min_length=5, max_length=500)
+
+
+class AdminReviewActionResponse(BaseModel):
+    review_id: uuid.UUID
+    moderation_state: ReviewModerationState
+    previous_state: ReviewModerationState
+    moderation_acted_at: datetime
+    moderation_note: Optional[str] = None
+
+
 # ── Payments ────────────────────────────────────────────────────────── #
 
 class AdminLedgerEntryRead(BaseModel):

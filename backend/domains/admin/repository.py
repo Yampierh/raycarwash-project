@@ -554,6 +554,136 @@ class AdminRepository:
         await self._db.flush()
         return prev, "suspended", user_email
 
+    # ── Reviews moderation (Plan 24 W2-D) ─────────────────────────── #
+
+    # Static profanity / red-flag keywords. Case-insensitive substring
+    # match against Review.comment. Keep this list short and obvious —
+    # false positives are worse than false negatives at this stage; admins
+    # see the rating signal regardless.
+    _FLAG_KEYWORDS: tuple[str, ...] = (
+        "scam", "fraud", "stole", "thief", "stolen", "racist",
+    )
+    _LOW_RATING_THRESHOLD: int = 2
+
+    _APPROVE_REVIEW_FROM = frozenset({"auto_pending"})
+    _HIDE_REVIEW_FROM = frozenset({"auto_pending", "approved"})
+
+    @classmethod
+    def _compute_review_flags(cls, rating: int, comment: str | None) -> list[str]:
+        reasons: list[str] = []
+        if rating <= cls._LOW_RATING_THRESHOLD:
+            reasons.append("low_rating")
+        if comment:
+            lowered = comment.lower()
+            for kw in cls._FLAG_KEYWORDS:
+                if kw in lowered:
+                    reasons.append(f"keyword:{kw}")
+        return reasons
+
+    async def list_review_queue(self) -> list[dict]:
+        """Returns auto_pending reviews that match at least one flag rule.
+        Order by created_at ASC (oldest first — first-in-first-out)."""
+        stmt = (
+            select(Review)
+            .where(Review.moderation_state == "auto_pending")
+            .order_by(Review.created_at.asc())
+        )
+        rows = list((await self._db.execute(stmt)).scalars().all())
+
+        results: list[dict] = []
+        for r in rows:
+            reasons = self._compute_review_flags(r.rating, r.comment)
+            if not reasons:
+                continue  # auto_pending but no rule fires → don't surface
+
+            reviewer_email = (
+                await self._db.execute(select(User.email).where(User.id == r.reviewer_id))
+            ).scalar_one_or_none()
+            detailer_email = (
+                await self._db.execute(select(User.email).where(User.id == r.detailer_id))
+            ).scalar_one_or_none()
+            results.append({
+                "review_id": r.id,
+                "appointment_id": r.appointment_id,
+                "reviewer_email": reviewer_email,
+                "detailer_email": detailer_email,
+                "rating": r.rating,
+                "comment": r.comment,
+                "flag_reasons": reasons,
+                "created_at": r.created_at,
+            })
+        return results
+
+    async def approve_review(
+        self, review_id: uuid.UUID, actor_id: uuid.UUID, note: str | None = None,
+    ) -> tuple[str, str] | None:
+        """Mark review as approved (keep visible). Returns
+        (previous_state, new_state) or None if the review doesn't exist.
+        Raises ValueError on FSM violation."""
+        review = (await self._db.execute(
+            select(Review).where(Review.id == review_id)
+        )).scalar_one_or_none()
+        if review is None:
+            return None
+        prev = review.moderation_state
+        if prev not in self._APPROVE_REVIEW_FROM:
+            raise ValueError(
+                f"Cannot approve from moderation_state='{prev}'. "
+                f"Allowed source states: {sorted(self._APPROVE_REVIEW_FROM)}"
+            )
+        now = datetime.now(timezone.utc)
+        review.moderation_state = "approved"
+        review.moderation_actor_id = actor_id
+        review.moderation_acted_at = now
+        review.moderation_note = note
+
+        self._db.add(AuditLog(
+            actor_id=actor_id,
+            action=AuditAction.REVIEW_MODERATED,
+            entity_type="review",
+            entity_id=str(review_id),
+            old_value={"moderation_state": prev},
+            new_value={"moderation_state": "approved"},
+            metadata_={"action": "review_approved", "note": note} if note else {"action": "review_approved"},
+        ))
+        await self._db.flush()
+        return prev, "approved"
+
+    async def hide_review(
+        self, review_id: uuid.UUID, actor_id: uuid.UUID, note: str,
+    ) -> tuple[str, str] | None:
+        """Mark review as hidden. Returns (previous_state, new_state) or
+        None if the review doesn't exist. Raises ValueError on FSM
+        violation."""
+        review = (await self._db.execute(
+            select(Review).where(Review.id == review_id)
+        )).scalar_one_or_none()
+        if review is None:
+            return None
+        prev = review.moderation_state
+        if prev not in self._HIDE_REVIEW_FROM:
+            raise ValueError(
+                f"Cannot hide from moderation_state='{prev}'. "
+                f"Allowed source states: {sorted(self._HIDE_REVIEW_FROM)}"
+            )
+        now = datetime.now(timezone.utc)
+        review.moderation_state = "hidden"
+        review.moderation_actor_id = actor_id
+        review.moderation_acted_at = now
+        review.moderation_note = note
+
+        self._db.add(AuditLog(
+            actor_id=actor_id,
+            action=AuditAction.REVIEW_MODERATED,
+            entity_type="review",
+            entity_id=str(review_id),
+            old_value={"moderation_state": prev},
+            new_value={"moderation_state": "hidden"},
+            metadata_={"action": "review_hidden", "note": note},
+        ))
+        await self._db.flush()
+        return prev, "hidden"
+
     # ── Payments ──────────────────────────────────────────────────── #
 
     async def list_ledger_entries(

@@ -27,6 +27,7 @@ class AuditAction(str, enum.Enum):
     PASSWORD_RESET_REQUESTED = "password_reset_requested"
     # Review events
     REVIEW_CREATED = "review_created"
+    REVIEW_MODERATED = "review_moderated"  # Plan 24 W2-D: admin approve/hide
     # Detailer profile events
     DETAILER_PROFILE_CREATED = "provider_profile_created"
     DETAILER_PROFILE_UPDATED = "provider_profile_updated"
