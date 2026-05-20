@@ -22,10 +22,14 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from infrastructure.db.session import get_db
+from domains.appointments.models import AppointmentStatus, TERMINAL_STATUSES
 from domains.users.models import User
 from domains.appointments.repository import AppointmentRepository
 from domains.appointments.schemas import (
+    AppointmentCancelRequest,
+    AppointmentCancelResponse,
     AppointmentCreate,
     AppointmentRead,
     AppointmentStatusUpdate,
@@ -34,7 +38,7 @@ from domains.appointments.schemas import (
     _DetailerSnap,
     _VehicleSnap,
 )
-from shared.schemas import PaginatedResponse
+from shared.schemas import Envelope, PaginatedResponse
 from domains.appointments.service import AppointmentService
 from domains.auth.service import get_current_user
 from domains.realtime.connection_manager import ConnectionManager
@@ -319,3 +323,165 @@ async def get_appointment(
         )
 
     return _build_appointment_read(appointment)
+
+
+# ── POST /{id}/cancel  (CUSTOMER WRAPPER, Plan 21 §2 + §7.6) ──────── #
+
+
+def _refund_preview(
+    appointment, *, full_hours: int, partial_hours: int, partial_pct: int,
+) -> tuple[int, int, str]:
+    """Predicts the refund the FSM transition will execute, so the
+    response shape matches what actually happened. Mirrors the same
+    branches `AppointmentService.transition_status` uses for refund
+    policy (Plan 21 §2 refund table + service.py:578).
+
+    Returns `(refund_cents, refund_pct, refund_note)`.
+
+    Pre-CONFIRMED appointments: the PaymentIntent is still in auth-hold
+    state, so the FSM voids it (full release of held funds). To the
+    customer, this is functionally a 100% refund and we label it that
+    way.
+
+    No `stripe_payment_intent_id` (test data, hand-created bookings
+    before payments were wired in): no Stripe call, no refund cents,
+    but we still report the policy that *would* have applied.
+    """
+    if appointment.status in TERMINAL_STATUSES:
+        return 0, 0, "Already in terminal state — no refund applies."
+
+    if appointment.status == AppointmentStatus.COMPLETED:
+        return 0, 0, "Service already completed — no refund applies."
+
+    hours_until = (
+        appointment.scheduled_time - datetime.now(timezone.utc)
+    ).total_seconds() / 3600
+
+    if appointment.status == AppointmentStatus.PENDING:
+        # Auth-hold path — voided in full regardless of timing.
+        return (
+            appointment.estimated_price, 100,
+            "Payment hold released in full — you weren't charged.",
+        )
+
+    # CONFIRMED → refund window applies
+    if hours_until >= full_hours:
+        return (
+            appointment.estimated_price, 100,
+            f"Full refund — cancelled more than {full_hours}h before appointment.",
+        )
+    if hours_until >= partial_hours:
+        cents = int(appointment.estimated_price * partial_pct / 100)
+        return (
+            cents, partial_pct,
+            f"Partial ({partial_pct}%) refund — cancelled between "
+            f"{partial_hours}h and {full_hours}h before appointment.",
+        )
+    return (
+        0, 0,
+        f"No refund — cancelled within {partial_hours}h of appointment.",
+    )
+
+
+@router.post(
+    "/{appointment_id}/cancel",
+    response_model=Envelope[AppointmentCancelResponse],
+    summary="Customer cancels their own appointment (with refund).",
+    responses={
+        403: {"description": "Not the customer's appointment, or not a client role."},
+        404: {"description": "Appointment not found."},
+        409: {"description": "Already in a terminal state."},
+        422: {"description": "Invalid transition for the current status."},
+    },
+)
+async def cancel_appointment(
+    request: Request,
+    appointment_id: uuid.UUID,
+    body: AppointmentCancelRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Envelope[AppointmentCancelResponse]:
+    """Customer-only entry point for cancelling.
+
+    Detailers and admins continue to use `PATCH /{id}/status` — they get
+    no refund semantics (they pay a cancellation penalty per provider
+    policy, handled separately).
+
+    Flow (Plan 21 §2 + §7.6):
+      1. Ownership check (client_id == current_user.id).
+      2. Pre-compute refund preview for the response.
+      3. Delegate to `AppointmentService.transition_status` which:
+         - Enforces VALID_TRANSITIONS.
+         - Voids the PaymentIntent (PENDING) or refunds Stripe (CONFIRMED).
+         - Writes the audit-log row with refund metadata.
+      4. Broadcasts the status change on the appointment WebSocket room
+         (matches the PATCH /status behaviour).
+      5. Returns the normalised customer-facing shape with
+         `status: "canceled"` (UI alias for the DB's
+         `cancelled_by_client`).
+    """
+    repo = AppointmentRepository(db)
+    appointment = await repo.get_by_id(appointment_id)
+    if appointment is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Appointment '{appointment_id}' not found.",
+        )
+
+    if appointment.client_id != current_user.id:
+        # Detailers use PATCH /status (cancelled_by_detailer); admins
+        # likewise. Returning 403 keeps the customer-only contract clean.
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the booking customer may cancel here.",
+        )
+
+    if appointment.status in TERMINAL_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Appointment is already {appointment.status.value}.",
+        )
+
+    settings = get_settings()
+    refund_cents, refund_pct, refund_note = _refund_preview(
+        appointment,
+        full_hours=settings.CANCELLATION_FULL_REFUND_HOURS,
+        partial_hours=settings.CANCELLATION_PARTIAL_REFUND_HOURS,
+        partial_pct=settings.CANCELLATION_PARTIAL_REFUND_PERCENT,
+    )
+
+    # Delegate FSM transition + refund execution + audit log to the
+    # existing service. The `reason` lands in `detailer_notes` for
+    # now — the appointments schema has no dedicated `cancellation_reason`
+    # column. (A column rename pass is tracked separately; not in scope
+    # here.)
+    svc = AppointmentService(db)
+    updated = await svc.transition_status(
+        appointment_id=appointment_id,
+        payload=AppointmentStatusUpdate(
+            status=AppointmentStatus.CANCELLED_BY_CLIENT,
+            detailer_notes=body.reason,
+        ),
+        actor=current_user,
+    )
+
+    # Broadcast — matches PATCH /status behaviour.
+    manager: ConnectionManager = _get_ws_manager(request)
+    if manager.room_size(appointment_id) > 0:
+        await manager.broadcast(
+            appointment_id,
+            {
+                "type": "status_change",
+                "status": updated.status.value,
+                "appointment_id": str(appointment_id),
+                "ts": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
+    return Envelope(data=AppointmentCancelResponse(
+        id=updated.id,
+        status="canceled",  # UI alias — see schema docstring.
+        refund_cents=refund_cents,
+        refund_pct=refund_pct,
+        refund_note=refund_note,
+    ))

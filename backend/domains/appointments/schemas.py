@@ -147,3 +147,30 @@ class RefundResponse(_BaseSchema):
     refund_amount_cents: int
     refund_policy_applied: str
     stripe_refund_id: str | None = Field(default=None)
+
+
+# ── Customer-facing cancel (Plan 21 §2 + §7.6) ──────────────────── #
+
+
+class AppointmentCancelRequest(_BaseSchema):
+    """Body for `POST /api/v1/appointments/{id}/cancel`. Customer-only.
+
+    Detailers continue to cancel via `PATCH /{id}/status` with target
+    `cancelled_by_detailer` — they don't get refund semantics, they
+    pay a cancellation penalty (Plan 20 §15 + provider-fee policy).
+    """
+
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class AppointmentCancelResponse(_BaseSchema):
+    """Plan 21 §2 response shape. `status` is a normalised UI alias —
+    the DB stores `cancelled_by_client` (British, doubled L, per the
+    AppointmentStatus enum) but the response uses the friendlier
+    singular form so the frontend never has to know that detail."""
+
+    id: uuid.UUID
+    status: str = "canceled"
+    refund_cents: int
+    refund_pct: int
+    refund_note: str
