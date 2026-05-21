@@ -16,14 +16,23 @@ import {
   DollarSign,
   LogOut,
   Menu,
+  MapPin,
+  CreditCard,
+  Heart,
+  Shield,
 } from "lucide-react";
 import { useState } from "react";
 import clsx from "clsx";
 
 type NavLink = {
-  href: "/client/home" | "/client/vehicles" | "/client/appointments" | "/client/profile" | "/detailer/home" | "/detailer/services" | "/detailer/profile" | "/detailer/earnings";
+  href: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
+};
+
+type NavSection = {
+  label?: string;
+  links: NavLink[];
 };
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
@@ -51,26 +60,35 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   const isDetailer = activeRole === "detailer";
 
-  const links: NavLink[] = isDetailer
+  const sections: NavSection[] = isDetailer
     ? [
-        { href: "/detailer/home", label: t("nav.jobs"), icon: ListTodo },
-        { href: "/detailer/services", label: t("nav.services"), icon: Wrench },
         {
-          href: "/detailer/earnings",
-          label: t("nav.earnings"),
-          icon: DollarSign,
+          links: [
+            { href: "/detailer/home", label: t("nav.jobs"), icon: ListTodo },
+            { href: "/detailer/services", label: t("nav.services"), icon: Wrench },
+            { href: "/detailer/earnings", label: t("nav.earnings"), icon: DollarSign },
+            { href: "/detailer/profile", label: t("nav.profile"), icon: User },
+          ],
         },
-        { href: "/detailer/profile", label: t("nav.profile"), icon: User },
       ]
     : [
-        { href: "/client/home", label: t("nav.home"), icon: Home },
-        { href: "/client/vehicles", label: t("nav.vehicles"), icon: Car },
         {
-          href: "/client/appointments",
-          label: t("nav.appointments"),
-          icon: Calendar,
+          links: [
+            { href: "/client/home", label: t("nav.home"), icon: Home },
+            { href: "/client/vehicles", label: t("nav.vehicles"), icon: Car },
+            { href: "/client/appointments", label: t("nav.appointments"), icon: Calendar },
+          ],
         },
-        { href: "/client/profile", label: t("nav.profile"), icon: User },
+        {
+          label: t("nav.account"),
+          links: [
+            { href: "/client/profile", label: t("nav.profile"), icon: User },
+            { href: "/client/addresses", label: t("nav.addresses"), icon: MapPin },
+            { href: "/client/payment-methods", label: t("nav.paymentMethods"), icon: CreditCard },
+            { href: "/client/favorites", label: t("nav.favorites"), icon: Heart },
+            { href: "/client/security", label: t("nav.security"), icon: Shield },
+          ],
+        },
       ];
 
   function handleSignOut() {
@@ -97,27 +115,36 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </Link>
         </div>
 
-        <nav className="flex flex-col gap-1 p-4">
-          {links.map((l) => {
-            const active = pathname === l.href;
-            const Icon = l.icon;
-            return (
-              <Link
-                key={l.href}
-                href={l.href}
-                onClick={() => setMobileOpen(false)}
-                className={clsx(
-                  "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition",
-                  active
-                    ? "bg-zinc-900 text-white"
-                    : "text-zinc-700 hover:bg-zinc-100"
-                )}
-              >
-                <Icon className="size-4" />
-                {l.label}
-              </Link>
-            );
-          })}
+        <nav className="flex flex-col gap-1 overflow-y-auto p-4">
+          {sections.map((section, si) => (
+            <div key={si} className={si > 0 ? "mt-4" : ""}>
+              {section.label && (
+                <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-zinc-400">
+                  {section.label}
+                </p>
+              )}
+              {section.links.map((l) => {
+                const active = pathname === l.href;
+                const Icon = l.icon;
+                return (
+                  <Link
+                    key={l.href}
+                    href={l.href}
+                    onClick={() => setMobileOpen(false)}
+                    className={clsx(
+                      "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition",
+                      active
+                        ? "bg-zinc-900 text-white"
+                        : "text-zinc-700 hover:bg-zinc-100"
+                    )}
+                  >
+                    <Icon className="size-4" />
+                    {l.label}
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
         </nav>
 
         <div className="absolute inset-x-0 bottom-0 border-t border-zinc-200 p-4">
