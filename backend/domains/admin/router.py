@@ -16,6 +16,8 @@ from domains.admin.schemas import (
     AdminAppointmentRefundResponse,
     AdminAppointmentStatusUpdate,
     AdminAppointmentsListResponse,
+    AdminAuditLogRead,
+    AdminAuditLogsListResponse,
     AdminCreditIssue,
     AdminCreditRead,
     AdminCustomerRow,
@@ -949,6 +951,39 @@ async def list_ledger_entries(
     )
     return AdminLedgerListResponse(
         entries=[AdminLedgerEntryRead.model_validate(e) for e in entries],
+        total=total,
+        page=page,
+        per_page=per_page,
+    )
+
+
+# ── Audit Log ──────────────────────────────────────────────────────── #
+
+@router.get(
+    "/audit-logs",
+    response_model=AdminAuditLogsListResponse,
+    summary="Paginated audit log",
+)
+async def list_audit_logs(
+    page: int = Query(default=1, ge=1),
+    per_page: int = Query(default=50, ge=1, le=200),
+    action: Optional[str] = Query(default=None),
+    entity_type: Optional[str] = Query(default=None),
+    start_date: Optional[datetime] = Query(default=None),
+    end_date: Optional[datetime] = Query(default=None),
+    _: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> AdminAuditLogsListResponse:
+    entries, total = await AdminRepository(db).list_audit_logs(
+        page=page,
+        per_page=per_page,
+        action=action,
+        entity_type=entity_type,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    return AdminAuditLogsListResponse(
+        entries=[AdminAuditLogRead(**e) for e in entries],
         total=total,
         page=page,
         per_page=per_page,

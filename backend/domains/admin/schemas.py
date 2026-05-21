@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 # ── Users ──────────────────────────────────────────────────────────── #
@@ -409,3 +409,25 @@ class OpsDashboardResponse(BaseModel):
     kpis: OpsKpis
     heatmap: OpsHeatmap
     cities: list[OpsCityRow]
+
+
+# ── Audit Log ───────────────────────────────────────────────────────── #
+
+class AdminAuditLogRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    actor_id: uuid.UUID | None
+    actor_email: str | None  # joined from actor user
+    action: str
+    entity_type: str
+    entity_id: str
+    ip_address: str | None
+    created_at: datetime
+
+
+class AdminAuditLogsListResponse(BaseModel):
+    entries: list[AdminAuditLogRead]
+    total: int
+    page: int
+    per_page: int

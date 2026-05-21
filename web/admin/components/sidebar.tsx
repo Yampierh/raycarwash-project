@@ -7,11 +7,15 @@ import { clearTokens } from "@/lib/auth";
 const NAV = [
   { href: "/dashboard", label: "Overview", icon: "⬡" },
   { href: "/dashboard/users", label: "Users", icon: "👥" },
+  { href: "/dashboard/providers", label: "Providers", icon: "🔧" },
   { href: "/dashboard/roles", label: "Roles", icon: "🔑" },
   { href: "/dashboard/permissions", label: "Permissions", icon: "🛡" },
   { href: "/dashboard/appointments", label: "Appointments", icon: "📅" },
   { href: "/dashboard/verifications", label: "Verifications", icon: "✓" },
   { href: "/dashboard/payments", label: "Payments", icon: "💳" },
+  { href: "/dashboard/services", label: "Services", icon: "🧼" },
+  { href: "/dashboard/reports", label: "Reports", icon: "📊" },
+  { href: "/dashboard/audit", label: "Audit Log", icon: "🔍" },
 ];
 
 export default function Sidebar() {
