@@ -517,6 +517,12 @@ All endpoints require a Bearer token whose user has the `admin` role. Responses 
 | GET | `/api/v1/admin/payments/summary?start_date&end_date` | 4-card summary (gross, refunds, payouts, commission) |
 | GET | `/api/v1/admin/payments/ledger?page&per_page&entry_type&start_date&end_date` | Append-only ledger entries (`entry_type`: `CAPTURE \| REFUND \| PAYOUT \| CHARGE_COMMISSION \| AUTHORIZATION`) |
 
+### Audit log
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/admin/audit-logs?page&per_page&action&entity_type&start_date&end_date` | Paginated `AuditLog` rows for admin review. Filters: `action` (enum string, e.g. `provider_status_changed`, `review_moderated`, `customer_credit_issued`), `entity_type` (e.g. `appointment`, `review`, `provider_profile`, `customer_credit`), and ISO date range on `created_at`. Returns each row's `action`, `entity_type`, `entity_id`, `old_value`, `new_value`, `metadata_`, `actor_id`, `created_at`. Source: PR #6. |
+
 ### Ops Dashboard (Plan 24 W2-A)
 
 | Method | Path | Description |

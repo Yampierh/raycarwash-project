@@ -8,6 +8,7 @@ Mobile vehicle services marketplace (Fort Wayne, IN). Monorepo with no monorepo 
 | `frontend/` | React Native + Expo 54 | `:8081` |
 | `web/admin/` | Next.js 16 admin dashboard | `:3000` |
 | `web/portal/` | Next.js 16 + next-intl public site + provider portal | `:3001` |
+| `web/portal_v2/` | Next.js 16 portal v2 (PR #8, full rebuild) | `:3002` (dev) |
 
 ---
 

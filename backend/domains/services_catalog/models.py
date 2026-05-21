@@ -72,7 +72,7 @@ class Addon(TimestampMixin, Base):
     __tablename__ = "addons"
     __table_args__ = (
         CheckConstraint("price_cents >= 0", name="ck_addons_price_nonnegative"),
-        CheckConstraint("duration_minutes > 0", name="ck_addons_duration_positive"),
+        CheckConstraint("duration_minutes >= 0", name="ck_addons_duration_nonnegative"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
