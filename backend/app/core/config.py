@@ -110,6 +110,14 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int        = Field(default=7,  ge=1)
     ONBOARDING_TOKEN_EXPIRE_MINUTES: int  = Field(default=30, ge=5)
 
+    # Plan 23 Fase 1 día 3 — gates session enforcement on access tokens.
+    # Default False so tokens minted before the rollout (no `sid` claim)
+    # keep working. Flip to True once login flow attaches sid + frontend
+    # has rotated to fresh tokens.
+    AUTH_ENFORCE_SESSION: bool = Field(default=False)
+    AUTH_SESSION_CACHE_TTL_SECONDS: int = Field(default=300, ge=10, le=3600)
+    AUTH_SESSION_LAST_ACTIVE_THROTTLE_SECONDS: int = Field(default=60, ge=1, le=600)
+
     # ---------------------------------------------------------------- #
     #  Stripe (Sprint 3)                                               #
     # ---------------------------------------------------------------- #
