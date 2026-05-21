@@ -252,13 +252,36 @@ class WebAuthnCredentialDeleteResponse(_BaseSchema):
 
 
 # ── Session management ────────────────────────────────────────────── #
+#
+# Plan 23 Fase 1 día 1 introduced the `sessions` table; Fase 2 + 6 (this
+# session shape) replace the legacy refresh-token-family view with rich
+# per-device metadata. Old fields (`family_id`, `last_used_at`) kept for
+# backwards compatibility — they map to Session.family_id and
+# Session.last_active_at respectively.
+
 
 class SessionRead(_BaseSchema):
+    """Stateful session as returned by GET /auth/sessions.
+
+    The caller's current session is flagged with `is_current=True` so the
+    frontend can disable the "Revoke" button on it (otherwise the user
+    locks themselves out)."""
+
+    id: uuid.UUID
     family_id: uuid.UUID
+    device_name: str | None = None
+    device_type: str | None = None
+    ip_address: str | None = None
+    ip_country: str | None = None
+    ip_city: str | None = None
+    user_agent: str | None = None
     created_at: datetime
-    last_used_at: datetime | None
+    last_active_at: datetime
     revoked: bool
-    expires_at: datetime
+    is_current: bool = False
+    # Back-compat aliases for clients still on the pre-Fase-2 shape.
+    last_used_at: datetime | None = None
+    expires_at: datetime | None = None
 
 
 class SessionsListResponse(_BaseSchema):
@@ -267,5 +290,6 @@ class SessionsListResponse(_BaseSchema):
 
 
 class SessionRevokeResponse(_BaseSchema):
-    revoked_family_id: uuid.UUID
+    revoked_session_id: uuid.UUID
+    revoked_family_id: uuid.UUID | None = None
     message: str

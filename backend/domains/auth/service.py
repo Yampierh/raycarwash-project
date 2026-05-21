@@ -862,6 +862,15 @@ async def create_session_and_tokens(
     """
     from domains.auth.session_repository import SessionRepository
     from domains.auth.models import Session  # noqa: F401  — re-export for type hints
+    from infrastructure.auth.device_parser import parse_device_name, parse_device_type
+
+    # Plan 23 Fase 2 día 1 — derive device label/type from UA when caller
+    # didn't provide them. Frontend may also send `x-device-name` for a
+    # nicer label (parser is the fallback).
+    if device_name is None:
+        device_name = parse_device_name(user_agent)
+    if device_type is None:
+        device_type = parse_device_type(user_agent)
 
     # 1. Refresh token → family_id.
     raw = secrets.token_urlsafe(32)

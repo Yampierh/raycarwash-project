@@ -108,6 +108,20 @@ Returns `access_token` + `refresh_token`. After this, route by role:
 
 ---
 
+### Sessions management (Plan 23 Fase 2 + 6)
+
+Backed by the `sessions` table (Plan 23 Fase 1). Each row corresponds to
+one (user × refresh-token family). Access tokens minted post-rollout
+carry a `sid` claim; with `AUTH_ENFORCE_SESSION=True` the server validates
+this against the cached `revoked` flag on every request.
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET    | `/auth/sessions` | Bearer | List my active sessions. Each row exposes `id`, `family_id`, `device_name` ("iPhone · Safari", parsed from UA), `device_type` (`mobile\|tablet\|desktop\|api`), `ip_address`, `ip_country`, `ip_city`, `user_agent`, `created_at`, `last_active_at`, `revoked`, and `is_current` (true for the caller's row). Back-compat aliases `last_used_at` / `family_id` preserved. |
+| POST   | `/auth/sessions/{session_id}/revoke` | Bearer | Revoke a specific session by id. Tears down the matching refresh-token family + evicts the Redis cache so the next request 401s immediately. **404** on unknown id OR a session that doesn't belong to the caller (we 404 instead of 403 to avoid leaking existence). Idempotent — second revoke returns "already revoked". |
+| DELETE | `/auth/sessions/{family_id}` | Bearer | Legacy back-compat: revoke by refresh-token family id. Resolves to the matching Session row when available; falls back to the pre-Fase-1 refresh-token-family revoke otherwise. |
+| DELETE | `/auth/sessions` | Bearer | Revoke every active session for the current user ("log out everywhere"). 204. Cache TTL (`AUTH_SESSION_CACHE_TTL_SECONDS`, default 300s) bounds the propagation delay. |
+
 ## Users (`/api/v1/users`)
 
 | Method | Path | Auth | Description |
