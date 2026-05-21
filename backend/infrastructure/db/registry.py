@@ -58,4 +58,5 @@ from domains.public.models import (  # noqa: F401
 )
 from domains.locations.models import City, CityStatus  # noqa: F401
 from domains.credits.models import CustomerCredit  # noqa: F401
+from domains.promos.models import PromoCode, AppliedPromoCode  # noqa: F401
 from infrastructure.db.base import Base  # noqa: F401
