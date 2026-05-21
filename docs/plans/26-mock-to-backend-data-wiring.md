@@ -203,7 +203,7 @@ The auth endpoints are ~90% already shipped (Plan 24 Waves 1 reused existing `/a
 |---|---|---|
 | `(auth)/signup` step 3 vehicle price preview | `GET /api/v1/vehicles/price-estimate?year=&make=&model=` | [24](./24-auth-pages-and-admin-dashboard.md) §2 C-1 — **shipped** (commit `aa3aa1e`); just wire the fetcher |
 | `(auth)/signup` step 4 ZIP coverage check | `POST /api/v1/public/coverage/check` | [24](./24-auth-pages-and-admin-dashboard.md) §2 C-3 — **shipped** (commit `f4e0103`); wire fetcher |
-| `(auth)/signup` step 5 promo code `NEW10` | `POST /api/v1/promo/redeem` + `promo_codes` table | [24](./24-auth-pages-and-admin-dashboard.md) §2 C-2 — **NOT shipped**; this wave implements C-2 |
+| `(auth)/signup` step 5 promo code `NEW10` | `GET /api/v1/promo/{code}` (lookup) + `POST /api/v1/promo/preview` (calc discount). Redemption (writing `applied_promo_codes`) is the booking-pipeline's job, not the signup flow's. | [24](./24-auth-pages-and-admin-dashboard.md) §2 C-2 — **shipped**; wire the welcome banner with `getPromo("NEW10")` and reuse `previewPromo({code, subtotal})` from checkout. |
 | `(auth)/onboarding/detailer/*` 7 steps | KYC, Checkr, document upload, Plaid bank link, equipment | [24](./24-auth-pages-and-admin-dashboard.md) §3 P-1…P-5 — **shipped P-1/P-2/P-3** (Wave 1); P-4 (Plaid) + P-5 (equipment) outstanding |
 
 **Exit criteria:** every auth route's inline `useState` for steps 3-7 is replaced with real fetchers; provider signup can submit through to Plaid + equipment with mock-but-typed responses if the external integrations aren't ready (gate behind `NEXT_PUBLIC_FEATURE_PROVIDER_KYC_FULL`).
