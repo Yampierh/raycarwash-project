@@ -158,8 +158,17 @@ async def login(
         )
 
     role_name = user.primary_role or "client"
-    access_token = AuthService.create_access_token(user.id, role_name, token_version=getattr(user, "token_version", 1))
-    refresh_token = await AuthService.create_refresh_token(user.id, role_name, db)
+
+    # Plan 23 Fase 1 día 3 — session+tokens via the transactional helper.
+    # Single point of entry; access token carries `sid` claim.
+    from domains.auth.service import create_session_and_tokens
+    access_token, refresh_token, _session = await create_session_and_tokens(
+        user=user,
+        db=db,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        device_name=request.headers.get("x-device-name"),
+    )
 
     # Hotfix H3 — mark step-up window so the user can immediately hit
     # /users/me?include=security|sessions, /auth/two-fa/enroll, etc.
@@ -373,9 +382,15 @@ async def verify_credentials(
             assigned_role=user.primary_role,
         )
 
-    _role         = user.primary_role or "client"
-    refresh_token = await AuthService.create_refresh_token(user.id, _role, db)
-    access_token  = AuthService.create_access_token(user.id, _role, token_version=getattr(user, "token_version", 1))
+    # Plan 23 Fase 1 día 3 — issue session-bound tokens (sid claim).
+    from domains.auth.service import create_session_and_tokens
+    access_token, refresh_token, _session = await create_session_and_tokens(
+        user=user,
+        db=db,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        device_name=request.headers.get("x-device-name"),
+    )
 
     next_step = "detailer_onboarding" if user.primary_role == "detailer" else "app"
 
@@ -410,6 +425,7 @@ async def verify_credentials(
 )
 async def complete_user_profile(
     body: CompleteProfileRequest,
+    request: Request,
     current_user: User = Depends(get_current_user_for_onboarding),
     db: AsyncSession = Depends(get_db),
 ) -> VerifyResponse:
@@ -462,8 +478,15 @@ async def complete_user_profile(
 
     await db.flush()
 
-    access_token  = AuthService.create_access_token(user.id, effective_role, token_version=getattr(user, "token_version", 1))
-    refresh_token = await AuthService.create_refresh_token(user.id, effective_role, db)
+    # Plan 23 Fase 1 día 3 — session-bound tokens for the post-complete-profile login.
+    from domains.auth.service import create_session_and_tokens
+    access_token, refresh_token, _session = await create_session_and_tokens(
+        user=user,
+        db=db,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        device_name=request.headers.get("x-device-name"),
+    )
 
     next_step = _next_step_map.get(effective_role, "app")
 
@@ -513,9 +536,17 @@ async def login_for_access_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    role_name     = user.primary_role or "client"
-    access_token  = AuthService.create_access_token(user.id, role_name, token_version=getattr(user, "token_version", 1))
-    refresh_token = await AuthService.create_refresh_token(user.id, role_name, db)
+    role_name = user.primary_role or "client"
+
+    # Plan 23 Fase 1 día 3 — session-bound tokens for OAuth2 password flow.
+    from domains.auth.service import create_session_and_tokens
+    access_token, refresh_token, _session = await create_session_and_tokens(
+        user=user,
+        db=db,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        device_name=request.headers.get("x-device-name"),
+    )
 
     await AuditRepository(db).log(
         action=AuditAction.USER_LOGIN,

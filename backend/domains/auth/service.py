@@ -82,6 +82,7 @@ class AuthService:
         token_type: str,
         expires_delta: timedelta,
         token_version: int = 1,
+        session_id: uuid.UUID | None = None,
     ) -> str:
         now    = datetime.now(timezone.utc)
         expire = now + expires_delta
@@ -96,6 +97,11 @@ class AuthService:
             "type": token_type,
             "v":    token_version,
         }
+        # Plan 23 Fase 1 día 3: stateful session pointer. Only emit when
+        # provided — we never serialize "sid": null so old verifiers can
+        # ignore the claim without parsing surprises.
+        if session_id is not None:
+            payload["sid"] = str(session_id)
         return jwt.encode(payload, _get_private_key(), algorithm="RS256")
 
     @staticmethod
@@ -104,6 +110,7 @@ class AuthService:
         role_name: str,
         token_version: int = 1,
         expires_delta: timedelta | None = None,
+        session_id: uuid.UUID | None = None,
     ) -> str:
         """Short-lived token (30 min default). Attached to every API request."""
         return AuthService._build_token(
@@ -111,6 +118,7 @@ class AuthService:
             role_name=role_name,
             token_type=_TOKEN_TYPE_ACCESS,
             token_version=token_version,
+            session_id=session_id,
             expires_delta=expires_delta
             or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
         )
@@ -717,7 +725,22 @@ class AuthService:
         # primary_role for single-role users that never touched the
         # switcher.
         effective_role = user.active_role or user.primary_role or "client"
-        new_access  = AuthService.create_access_token(user.id, effective_role, token_version=getattr(user, "token_version", 1))
+
+        # Plan 23 Fase 1 día 3 — same family = same session. Look up the
+        # existing Session row, refresh its last_active_at, and mint the
+        # new access token with the existing `sid`. No new Session row.
+        from domains.auth.session_repository import SessionRepository
+        session = await SessionRepository(db).get_by_family(token_row.family_id)
+        sid_for_token = session.id if session else None
+        if session is not None:
+            await SessionRepository(db).update_last_active(session.id)
+
+        new_access  = AuthService.create_access_token(
+            user.id,
+            effective_role,
+            token_version=getattr(user, "token_version", 1),
+            session_id=sid_for_token,
+        )
         new_refresh = await AuthService.create_refresh_token(
             user.id,
             effective_role,
@@ -728,12 +751,167 @@ class AuthService:
 
 
 # ------------------------------------------------------------------ #
+#  Session cache + transactional create_session_and_tokens            #
+#  (Plan 23 Fase 1 día 2-3)                                           #
+# ------------------------------------------------------------------ #
+
+
+from pydantic import BaseModel  # noqa: E402  — keep import local to this block
+
+
+class SessionCacheSchema(BaseModel):
+    """Minimal session data for auth validation.
+
+    Cached in Redis with TTL=AUTH_SESSION_CACHE_TTL_SECONDS so the hot
+    path of every authenticated request never pays a DB round-trip.
+    Invalidated on revoke / IP change / logout via
+    `invalidate_session_cache`.
+    """
+    id: uuid.UUID
+    user_id: uuid.UUID
+    revoked: bool
+    last_active_at: datetime
+
+
+def _session_cache_key(sid: str) -> str:
+    return f"session:{sid}"
+
+
+def _session_throttle_key(sid: str) -> str:
+    return f"session:last_seen:{sid}"
+
+
+async def get_session_cached(
+    sid: str,
+    db: AsyncSession,
+    redis=None,
+) -> SessionCacheSchema | None:
+    """Read-through cache for stateful session validation.
+
+    Returns None if the session doesn't exist. The caller is responsible
+    for treating `revoked=True` as a 401 — we still return the row so it
+    can be logged."""
+    from domains.auth.session_repository import SessionRepository  # local — avoid cycles
+
+    try:
+        session_uuid = uuid.UUID(sid)
+    except (ValueError, TypeError):
+        return None
+
+    if redis is not None:
+        try:
+            cached = await redis.get(_session_cache_key(sid))
+            if cached:
+                return SessionCacheSchema.model_validate_json(cached)
+        except Exception as exc:  # cache failure → graceful fall-through to DB
+            logger.warning("Session cache lookup failed (%s) — falling back to DB", exc)
+
+    session = await SessionRepository(db).get_by_id(session_uuid)
+    if session is None:
+        return None
+
+    payload = SessionCacheSchema(
+        id=session.id,
+        user_id=session.user_id,
+        revoked=session.revoked,
+        last_active_at=session.last_active_at,
+    )
+    if redis is not None:
+        try:
+            await redis.setex(
+                _session_cache_key(sid),
+                settings.AUTH_SESSION_CACHE_TTL_SECONDS,
+                payload.model_dump_json(),
+            )
+        except Exception as exc:
+            logger.warning("Session cache write failed (%s) — continuing", exc)
+    return payload
+
+
+async def invalidate_session_cache(sid: str, redis=None) -> None:
+    """Drop the cached session row + the last-seen throttle marker. Safe
+    to call when redis is None (e.g. test fixtures without Redis)."""
+    if redis is None:
+        return
+    try:
+        await redis.delete(_session_cache_key(sid))
+        await redis.delete(_session_throttle_key(sid))
+    except Exception as exc:
+        logger.warning("Session cache invalidate failed (%s)", exc)
+
+
+# ------------------------------------------------------------------ #
+#  AuthService.create_session_and_tokens (Plan 23 Fase 1 día 3)       #
+# ------------------------------------------------------------------ #
+
+
+async def create_session_and_tokens(
+    user: User,
+    db: AsyncSession,
+    *,
+    ip_address: str | None = None,
+    user_agent: str | None = None,
+    device_name: str | None = None,
+    device_type: str | None = None,
+) -> tuple[str, str, "Session"]:
+    """Mint a refresh-token family, a Session row pointing at it, and an
+    access token carrying the `sid` claim. Single point of entry for the
+    login flow so we never end up with a half-written session.
+
+    Returns (access_token, raw_refresh_token, session). Caller commits.
+    """
+    from domains.auth.session_repository import SessionRepository
+    from domains.auth.models import Session  # noqa: F401  — re-export for type hints
+
+    # 1. Refresh token → family_id.
+    raw = secrets.token_urlsafe(32)
+    family_id = uuid.uuid4()
+    expires_at = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    await RefreshTokenRepository(db).create(
+        user_id=user.id,
+        raw_token=raw,
+        family_id=family_id,
+        expires_at=expires_at,
+    )
+
+    # 2. Session row pinned to that family.
+    session = await SessionRepository(db).create(
+        user_id=user.id,
+        family_id=family_id,
+        device_name=device_name,
+        device_type=device_type,
+        ip_address=ip_address,
+        user_agent=user_agent,
+    )
+
+    # 3. Access token with sid pointing at the session row.
+    role_name = (
+        user.primary_role
+        if hasattr(user, "primary_role") and user.primary_role
+        else "client"
+    )
+    access = AuthService.create_access_token(
+        subject=user.id,
+        role_name=role_name,
+        token_version=getattr(user, "token_version", 1),
+        session_id=session.id,
+    )
+
+    return access, raw, session
+
+
+# ------------------------------------------------------------------ #
 #  FastAPI dependency: get_current_user                               #
 # ------------------------------------------------------------------ #
+
+
+from infrastructure.redis.client import get_redis  # noqa: E402
+
 
 async def get_current_user(
     token: Annotated[str, Depends(_oauth2_scheme)],
     db:    Annotated[AsyncSession, Depends(get_db)],
+    redis = Depends(get_redis),
     allow_onboarding_scope: bool = False,
 ) -> User:
     """
@@ -803,6 +981,52 @@ async def get_current_user(
                 token_v, db_v, user_id,
             )
             raise credentials_exception
+
+        # Plan 23 Fase 1 día 3 — stateful session enforcement.
+        # Backwards compatible: tokens minted before this rollout have no
+        # `sid` claim, and the enforce flag stays False until the FE has
+        # rotated. When enabled, we validate against the cached session
+        # row and 401 on revoke.
+        sid = payload.get("sid")
+        if settings.AUTH_ENFORCE_SESSION and sid:
+            if redis is None:
+                logger.warning(
+                    "AUTH_ENFORCE_SESSION enabled but Redis unavailable — "
+                    "falling back to direct DB lookup for sid=%s", sid,
+                )
+            session = await get_session_cached(sid, db, redis)
+            if session is None:
+                logger.warning("Auth rejected — session not found sid=%s user=%s", sid, user_id)
+                raise credentials_exception
+            if session.revoked:
+                logger.warning("Auth rejected — session revoked sid=%s user=%s", sid, user_id)
+                raise credentials_exception
+            if session.user_id != user.id:
+                logger.warning(
+                    "Auth rejected — session/user mismatch sid=%s session.user=%s token.user=%s",
+                    sid, session.user_id, user.id,
+                )
+                raise credentials_exception
+
+            # Throttled last_active update: at most one DB write per
+            # configured window per session, regardless of request volume.
+            from domains.auth.session_repository import SessionRepository
+            if redis is not None:
+                try:
+                    throttle = _session_throttle_key(sid)
+                    if not await redis.get(throttle):
+                        await SessionRepository(db).update_last_active(session.id)
+                        await db.commit()
+                        await redis.setex(
+                            throttle,
+                            settings.AUTH_SESSION_LAST_ACTIVE_THROTTLE_SECONDS,
+                            "1",
+                        )
+                except Exception as exc:
+                    logger.warning("Session last_active throttle write failed (%s)", exc)
+            else:
+                await SessionRepository(db).update_last_active(session.id)
+                await db.commit()
 
     await db.refresh(user, attribute_names=["user_roles"])
 

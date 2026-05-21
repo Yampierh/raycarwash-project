@@ -32,6 +32,7 @@ python -m pytest \
   tests/test_admin_ops_dashboard.py tests/test_admin_detailers_approve_suspend.py \
   tests/test_admin_reviews_moderation.py tests/test_admin_customers_credits.py \
   tests/test_admin_appointments_refund_reassign.py \
+  tests/test_session_enforcement.py \
   tests/test_promo_lookup_and_preview.py -q
 
 cd backend && alembic upgrade head
@@ -156,11 +157,12 @@ JWT in query param (headers unavailable post-handshake). Frontend hook: `useAppo
 | `test_admin_customers_credits.py` | 19/19 | Plan 24 W2-E: customer segments + comp credits (auth + segments + validation + audit) |
 | `test_admin_appointments_refund_reassign.py` | 18/18 | Plan 24 W2-B: appointment refund (cap + partial chain) + reassign (FSM + auto-promote) |
 | `test_promo_lookup_and_preview.py` | 15/15 | Plan 24 C-2: promo lookup + preview (anon/authed, case-insensitive, lifecycle, per-user counter, math, seed idempotency) |
+| `test_session_enforcement.py` | 6/6 | Plan 23 Fase 1 D2-D3: `sid` claim on access tokens + Session row persistence + enforce flag (cold cache → 401 after revoke) + backwards-compat for tokens without `sid` + refresh keeps same sid |
 | `test_detailers.py` | ⚠️ | Edge cases (profile fixture) |
 | `test_matching.py` | ⚠️ | Requires real Redis (H3 spatial) |
 | `test_vehicles.py` | ⚠️ | body_class / onboarding edge cases |
 
-Standard green suite (above, excluding the ⚠️ files): **336/336** in ~19 min.
+Standard green suite (above, excluding the ⚠️ files): **342/342** in ~20 min.
 
 Sprint 9 admin extensions (appointments/verifications/payments) ship without dedicated tests.
 
