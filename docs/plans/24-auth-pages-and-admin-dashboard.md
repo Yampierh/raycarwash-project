@@ -308,7 +308,7 @@ before W2 starts.
 | **P-4** | Checkr background-check adapter | ⏳ Pending (Wave 3) | — |
 | **P-5** | Plaid bank-link adapter | ⏳ Pending (Wave 3) | — |
 | **C-1** | `GET /api/v1/vehicles/price-estimate` (anonymous, model-keyword size heuristic, 2 anchor tiers) | ✅ Done | `3aa4b25` |
-| **C-2** | `NEW10` welcome promo persistence | ⏳ Pending (Wave 4) | — |
+| **C-2** | `promo_codes` + `applied_promo_codes` schema + `GET /api/v1/promo/{code}` + `POST /api/v1/promo/preview` + NEW10 seed (idempotent at startup) | ✅ Done | — |
 | **C-3** | ZIP gate on `POST /api/v1/users/me/addresses` (opt-in `enforce_coverage_check` body flag) | ✅ Done | `f4e0103` |
 | **S-2** | Mandatory TOTP enrollment for staff role | ⏳ Pending | — |
 
@@ -329,6 +329,7 @@ before W2 starts.
 | `m_024_cities_table_and_provider_signup_fields` | `cities` table + 5 columns on `provider_profiles` | ✅ Applied |
 | `m_026_reviews_moderation_columns` | 4 moderation columns on `reviews` + partial index on auto_pending rows + check constraint | ✅ Applied |
 | `m_027_customer_credits` | `customer_credits` ledger table (W2-E) with check constraints + partial index on active rows | ✅ Applied |
+| `m_028_promo_codes` | `promo_codes` catalogue + `applied_promo_codes` ledger (C-2) with check constraints + partial indexes on active-lookup and per-appointment uniqueness | ✅ Applied |
 
 ### Test coverage added
 
@@ -341,3 +342,4 @@ before W2 starts.
 | `tests/test_admin_reviews_moderation.py` | 20 new | W2-D auth gate + queue rules (low rating / keyword / FIFO) + FSM transitions + 404/409 + audit log |
 | `tests/test_admin_customers_credits.py` | 19 new | W2-E auth gate + segment classification (4 buckets + both VIP paths) + search + credit validation (positive, ≤$10k, reason length) + 404 + audit log + DB row persistence |
 | `tests/test_admin_appointments_refund_reassign.py` | 18 new | W2-B refund cap (single + cumulative partial chain) / reassign FSM (PENDING/SEARCHING/NO_DETAILER_FOUND/CONFIRMED → swap; NO_DETAILER_FOUND auto-promotes to PENDING) + audit log |
+| `tests/test_promo_lookup_and_preview.py` | 15 new | C-2 anon/authed lookup + case-insensitive code + inactive/expired/future gating + per-user redemption counter + preview math (fixed + percent + cap-to-subtotal) + seed idempotency |
