@@ -554,6 +554,25 @@ All endpoints require a Bearer token whose user has the `admin` role. Responses 
 
 ---
 
+## Promo codes (`/api/v1/promo`) (Plan 24 C-2)
+
+Public-facing promo lookup + checkout-preview. Bearer auth is **optional**:
+when present, the response includes per-user eligibility
+(`eligible`, `remaining_per_user`); when anonymous, only global eligibility
+(`inactive` / `not_yet_valid` / `expired`) is computed. Use this so the
+customer-signup step-5 screen can show "NEW10 — $10 off" without forcing
+the user to be logged in yet.
+
+| Method | Path | Description |
+|---|---|---|
+| GET  | `/api/v1/promo/{code}` | Look up a promo. Codes are case-insensitive + trimmed (`new10` ≡ ` NEW10 `). Returns `Envelope<PromoCodeRead>` with `{id, code, discount_type, discount_amount, min_order_cents, valid_from, valid_until, is_active, eligible?, ineligible_reason?, remaining_per_user?}`. **404** on unknown code. `ineligible_reason` enum: `not_found \| inactive \| not_yet_valid \| expired \| max_redemptions_per_user_reached`. |
+| POST | `/api/v1/promo/preview` | Body `{code, subtotal_cents}`. Returns `Envelope<PromoPreviewResponse>` with `{code, eligible, discount_cents, final_cents, reason?}`. Adds `below_min_order` to the reason enum. Fixed-cents discounts cap at `subtotal_cents` (never negative). Percent discounts use integer division. **Unknown codes return 200 with `eligible=false, reason="not_found"`** so the checkout UI can render "Invalid code" inline. |
+
+**Seeded promos:** `NEW10` — $10 off, min order $20, 1 per user. Idempotent
+seed runs at app startup.
+
+---
+
 ## Stripe Webhook
 
 ```
