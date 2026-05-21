@@ -157,15 +157,24 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.assignment_responses = {}   # {"{appt_id}:{detailer_id}": "accepted"|"declined"}
 
     # Background workers
-    app.state.location_worker_task      = asyncio.create_task(location_worker(app.state))
-    app.state.assignment_worker_task    = asyncio.create_task(assignment_worker(app.state))
-    app.state.ledger_seal_worker_task   = asyncio.create_task(ledger_seal_worker(app.state))
-    app.state.token_cleanup_worker_task = asyncio.create_task(token_cleanup_worker(app.state))
-    logger.info("✅  Location + Assignment + LedgerSeal + TokenCleanup workers started.")
+    app.state.location_worker_task        = asyncio.create_task(location_worker(app.state))
+    app.state.assignment_worker_task      = asyncio.create_task(assignment_worker(app.state))
+    app.state.ledger_seal_worker_task     = asyncio.create_task(ledger_seal_worker(app.state))
+    app.state.token_cleanup_worker_task   = asyncio.create_task(token_cleanup_worker(app.state))
+    # Plan 23 Fase 8 — daily session GC + cache evict.
+    from workers.session_cleanup_worker import session_cleanup_worker
+    app.state.session_cleanup_worker_task = asyncio.create_task(session_cleanup_worker(app.state))
+    logger.info("✅  Location + Assignment + LedgerSeal + TokenCleanup + SessionCleanup workers started.")
 
     yield
 
-    for task_attr in ("location_worker_task", "assignment_worker_task", "ledger_seal_worker_task", "token_cleanup_worker_task"):
+    for task_attr in (
+        "location_worker_task",
+        "assignment_worker_task",
+        "ledger_seal_worker_task",
+        "token_cleanup_worker_task",
+        "session_cleanup_worker_task",
+    ):
         task = getattr(app.state, task_attr, None)
         if task:
             task.cancel()
