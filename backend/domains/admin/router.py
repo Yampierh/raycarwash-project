@@ -53,8 +53,9 @@ from domains.admin.schemas import (
     RoleUpdate,
     UserRoleAssign,
 )
-from domains.auth.service import require_role
+from domains.auth.service import invalidate_permission_cache, require_role
 from domains.users.models import User
+from infrastructure.redis.client import get_redis as get_redis_dep
 
 router = APIRouter(prefix="/api/v1/admin", tags=["Admin"])
 
@@ -308,6 +309,7 @@ async def assign_role_to_user(
     body: UserRoleAssign,
     admin: User = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_db),
+    redis = Depends(get_redis_dep),
 ) -> RoleRead:
     repo = AdminRepository(db)
     role = await repo.get_role_by_id(body.role_id)
@@ -315,6 +317,9 @@ async def assign_role_to_user(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Role not found.")
     await repo.assign_role_to_user(user_id, body.role_id, assigned_by=admin.id)
     await db.commit()
+    # Plan 23 Fase 3 — bust the target user's permission cache so the
+    # new role takes effect within seconds instead of the TTL window.
+    await invalidate_permission_cache(user_id, redis)
     return RoleRead.model_validate(role)
 
 
@@ -328,11 +333,13 @@ async def revoke_role_from_user(
     role_id: uuid.UUID,
     _: User = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_db),
+    redis = Depends(get_redis_dep),
 ) -> None:
     ok = await AdminRepository(db).revoke_role_from_user(user_id, role_id)
     if not ok:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Role assignment not found.")
     await db.commit()
+    await invalidate_permission_cache(user_id, redis)
 
 
 # ── Roles ──────────────────────────────────────────────────────────── #

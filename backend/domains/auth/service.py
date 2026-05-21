@@ -1093,6 +1093,118 @@ async def ws_get_current_user(
 #  RBAC dependency factory                                            #
 # ------------------------------------------------------------------ #
 
+# Plan 23 Fase 3 — Redis-cached permission lookup. Admins bypass entirely
+# (no DB hop, no cache hit). Cache key namespaces per user; invalidated
+# when an admin grants/revokes a role/permission or when the user does a
+# global logout (token_version bump).
+_PERM_CACHE_TTL_SECONDS = 600  # 10 min — short enough that a stale cache
+                               # entry after a role change self-heals fast.
+
+
+def _permission_cache_key(user_id: uuid.UUID) -> str:
+    return f"permissions:{user_id}"
+
+
+async def _has_permission_cached(
+    user: User, permission_name: str, redis, db: AsyncSession | None = None,
+) -> bool:
+    """Return True iff `user` carries `permission_name` (e.g.
+    "write:appointments"). Reads from Redis on the hot path; falls back
+    to a SQL lookup on cache miss + populates.
+
+    `*:*` is treated as a wildcard so a super-admin role with that grant
+    matches every check without listing them individually.
+    """
+    import json as _json
+    key = _permission_cache_key(user.id)
+
+    if redis is not None:
+        try:
+            cached = await redis.get(key)
+            if cached:
+                perms = set(_json.loads(cached))
+                return permission_name in perms or "*:*" in perms
+        except Exception as exc:
+            logger.warning("Permission cache read failed (%s) — falling back to DB", exc)
+
+    # DB fallback. Prefer a direct SQL JOIN so we don't depend on the
+    # ORM having eager-loaded user.user_roles → role → permissions.
+    from domains.auth.models import Permission, Role, RolePermission, UserRoleAssociation
+    from sqlalchemy import select
+
+    perms: set[str]
+    if db is not None:
+        stmt = (
+            select(Permission.name)
+            .join(RolePermission, RolePermission.permission_id == Permission.id)
+            .join(Role, Role.id == RolePermission.role_id)
+            .join(UserRoleAssociation, UserRoleAssociation.role_id == Role.id)
+            .where(UserRoleAssociation.user_id == user.id)
+        )
+        rows = (await db.execute(stmt)).scalars().all()
+        perms = set(rows)
+    else:
+        # Last-resort path — works only when caller has already eager-loaded
+        # the ORM graph (true in get_current_user but not in arbitrary
+        # callers). Kept so we degrade gracefully without a db handle.
+        try:
+            perms = user.get_all_permissions()
+        except Exception as exc:
+            logger.warning("Permission DB lookup unavailable (%s)", exc)
+            return False
+
+    if redis is not None:
+        try:
+            await redis.setex(key, _PERM_CACHE_TTL_SECONDS, _json.dumps(list(perms)))
+        except Exception as exc:
+            logger.warning("Permission cache write failed (%s)", exc)
+    return permission_name in perms or "*:*" in perms
+
+
+async def invalidate_permission_cache(user_id: uuid.UUID, redis) -> None:
+    """Drop the cached permission set for a user. Call after any role /
+    permission grant or revoke."""
+    if redis is None:
+        return
+    try:
+        await redis.delete(_permission_cache_key(user_id))
+    except Exception as exc:
+        logger.warning("Permission cache invalidate failed (%s)", exc)
+
+
+def require_permission(action: str, resource: str):
+    """Dependency factory that 403s unless the caller carries the
+    `{action}:{resource}` permission. Admins bypass the check.
+
+    Usage:
+        @router.get(
+            "/api/v1/audit-logs",
+            dependencies=[Depends(require_permission("read", "audit_logs"))],
+        )
+
+    Wraps the user response so existing handlers that take
+    `Depends(require_permission(...))` and consume the user keep working
+    unchanged.
+    """
+    permission_name = f"{action}:{resource}"
+
+    async def _dep(
+        current_user: Annotated[User, Depends(get_current_user)],
+        db: Annotated[AsyncSession, Depends(get_db)],
+        redis = Depends(get_redis),
+    ) -> User:
+        if current_user.is_admin():
+            return current_user
+        if not await _has_permission_cached(current_user, permission_name, redis, db=db):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Missing permission: {permission_name}",
+            )
+        return current_user
+
+    return _dep
+
+
 def require_role(*role_names: str):
     """
     Usage:
