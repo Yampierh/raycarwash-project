@@ -1,7 +1,7 @@
 # Documentación Técnica — RayCarWash Portal
 
-> **Última actualización**: 19 de mayo de 2026
-> **Versión**: 1.2 (restructura web)
+> **Última actualización**: 21 de mayo de 2026
+> **Versión**: 1.3 (client/detailer pages expansion)
 
 ---
 
@@ -74,7 +74,11 @@ web/portal/
 │   │   │   │   ├── appointments/
 │   │   │   │   │   ├── page.tsx
 │   │   │   │   │   └── [id]/page.tsx
-│   │   │   │   └── profile/page.tsx
+│   │   │   │   ├── profile/page.tsx
+│   │   │   │   ├── addresses/page.tsx
+│   │   │   │   ├── payment-methods/page.tsx
+│   │   │   │   ├── favorites/page.tsx
+│   │   │   │   └── security/page.tsx
 │   │   │   └── detailer/            # Dashboard detailer
 │   │   │       ├── layout.tsx       # Guard: rol == detailer
 │   │   │       ├── home/page.tsx
@@ -82,7 +86,12 @@ web/portal/
 │   │   │       │   └── [id]/page.tsx
 │   │   │       ├── services/page.tsx
 │   │   │       ├── profile/page.tsx
-│   │   │       └── earnings/page.tsx
+│   │   │       ├── earnings/page.tsx
+│   │   │       ├── schedule/page.tsx
+│   │   │       ├── portfolio/page.tsx
+│   │   │       ├── documents/page.tsx
+│   │   │       ├── verification/page.tsx
+│   │   │       └── reviews/page.tsx
 │   │   └── welcome/page.tsx          # Landing post-login
 │   ├── robots.ts                     # SEO
 │   └── sitemap.ts                    # SEO

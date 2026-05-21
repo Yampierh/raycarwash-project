@@ -17,7 +17,7 @@ frontend/src/
 │   ├── types.ts            # RootStackParamList, UserRole enum, UserProfile interface
 │   └── navigationRef.ts    # Imperative navigation ref (use outside components)
 │
-├── screens/                # 21 screens total
+├── screens/                # 35 screens total
 │   ├── Boot / Auth
 │   │   ├── LoadingScreen.tsx           # Splash + token rehydrate, biometric / passkey quick-unlock
 │   │   ├── LoginScreen.tsx
@@ -28,22 +28,37 @@ frontend/src/
 │   ├── Client
 │   │   ├── HomeScreen.tsx              # Real-time WS: status banner + detailer location
 │   │   ├── ProfileScreen.tsx
-│   │   └── EditProfileScreen.tsx
+│   │   ├── EditProfileScreen.tsx
+│   │   ├── SecurityScreen.tsx          # 2FA, passkeys, login history
+│   │   ├── ChangeEmailScreen.tsx
+│   │   ├── ChangePhoneScreen.tsx
+│   │   ├── ClientPreferencesScreen.tsx
+│   │   ├── FavoritesScreen.tsx         # Favorite detailers
+│   │   └── PaymentMethodsScreen.tsx
 │   ├── Vehicles
 │   │   ├── VehiclesScreen.tsx
 │   │   ├── AddVehicleScreen.tsx        # VIN lookup → pre-fill form
 │   │   ├── VehicleDetailScreen.tsx
-│   │   └── SelectVehiclesScreen.tsx    # Multi-vehicle selection for booking
+│   │   ├── VehiclePhotosScreen.tsx
+│   │   ├── SelectVehiclesScreen.tsx    # Multi-vehicle selection for booking
+│   │   └── Addresses screens
+│   │       ├── AddressesScreen.tsx
+│   │       └── AddressFormScreen.tsx
 │   ├── Booking
 │   │   ├── BookingScreen.tsx           # Step 1: service + addons per vehicle
 │   │   ├── ScheduleScreen.tsx          # Step 2: date/time or ASAP
 │   │   ├── DetailerSelectionScreen.tsx # Step 3: smart matching results
 │   │   └── BookingSummaryScreen.tsx    # Step 4: confirm + payment
-│   └── Detailer
-│       ├── DetailerOnboardingScreen.tsx
-│       ├── DetailerProfileScreen.tsx
-│       ├── DetailerServicesScreen.tsx  # Toggle services on/off + custom price
-│       └── DetailerHomeScreen.tsx      # WS + GPS push, job timer, status buttons
+│   ├── Detailer
+│   │   ├── DetailerOnboardingScreen.tsx
+│   │   ├── DetailerProfileScreen.tsx
+│   │   ├── DetailerServicesScreen.tsx  # Toggle services on/off + custom price
+│   │   ├── DetailerHomeScreen.tsx      # WS + GPS push, job timer, status buttons
+│   │   ├── ProviderHubScreen.tsx       # Provider hub dashboard
+│   │   ├── ProviderProfileEditScreen.tsx
+│   │   ├── ProviderPortfolioScreen.tsx
+│   │   ├── ProviderDocumentsScreen.tsx
+│   │   └── ProviderVerificationScreen.tsx
 │
 ├── components/             # Sprint 9 shared design system — never duplicate inline
 │   ├── Button.tsx          # 5 variants (primary/secondary/ghost/danger/outline)
@@ -54,7 +69,7 @@ frontend/src/
 │   ├── Typography.tsx      # Wraps TypographyScale (h1, h2, h3, h4, body, label, caption)
 │   └── AnimatedInput.tsx   # Focus-animated text input with floating label
 │
-├── services/               # 13 API service files
+├── services/               # 17 API service files
 │   ├── api.ts              # Axios instances + JWT interceptors + WS_BASE_URL
 │   ├── auth.service.ts
 │   ├── user.service.ts
@@ -67,7 +82,11 @@ frontend/src/
 │   ├── payment.service.ts
 │   ├── review.service.ts
 │   ├── notification.service.ts # Expo Push token register / unregister
-│   └── rides.service.ts        # /api/v1/rides/* (v2 fare flow)
+│   ├── rides.service.ts        # /api/v1/rides/* (v2 fare flow)
+│   ├── address.service.ts
+│   ├── promo.service.ts
+│   ├── location.service.ts
+│   └── public.service.ts       # /api/v1/public/* marketing endpoints
 │
 ├── hooks/
 │   ├── useAppointmentSocket.ts  # WS: auto-connect, backoff, heartbeat, callbacks
@@ -269,6 +288,10 @@ EXPO_PUBLIC_API_URL=http://192.168.1.XX:8000
 | `react-native-passkey` | WebAuthn passkey quick-unlock |
 | `react-native-calendars` | Availability calendar UI |
 | `react-native-paper` | UI components |
+| `react-native-web` | Expo Web target support |
+| `@react-native-picker/picker` | Native picker |
+| `@react-native-async-storage/async-storage` | Persistent key-value storage |
+| `react-native-gesture-handler` | Gesture handling |
 | `react-native-reanimated` + `react-native-worklets` | Animations |
 | `@stripe/stripe-react-native` | Stripe payment + Identity |
 | `lucide-react-native` | Icon set |

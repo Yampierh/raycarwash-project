@@ -14,6 +14,8 @@ WHY a separate file (not __init__.py)?
   A separate registry.py avoids that cycle entirely.
 """
 
+from domains.onboarding.models import OnboardingState  # noqa: F401
+from domains.identity.models import IdentityVerification  # noqa: F401
 from domains.auth.models import (  # noqa: F401
     Permission, Role, RolePermission, UserRoleAssociation,
     RefreshToken, PasswordResetToken,

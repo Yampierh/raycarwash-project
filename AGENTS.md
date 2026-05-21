@@ -21,6 +21,7 @@ npm run dev              # backend + frontend concurrently
 npm run dev:backend      # uvicorn main:app --reload --host 0.0.0.0 --port 8000
 npm run dev:admin        # Next.js admin on :3000
 npm run dev:portal       # Next.js portal on :3001
+npm run dev:portal-v2    # Next.js portal v2 on :3002
 
 cd backend
 python -m pytest \
@@ -135,6 +136,7 @@ JWT in query param (headers unavailable post-handshake). Frontend hook: `useAppo
 
 `web/admin/AGENTS.md` warns: this Next.js version may differ from training data. **Read `node_modules/next/dist/docs/` before writing code there.**  
 `web/portal/` is the public site + provider portal (no version warning — same Next.js 16).
+`web/portal_v2/` is a full Next.js 16 portal rebuild (PR #8) — same tech stack, port `:3002`.
 
 ---
 
@@ -142,35 +144,57 @@ JWT in query param (headers unavailable post-handshake). Frontend hook: `useAppo
 
 | Test | Count | Notes |
 |---|---|---|
-| `test_auth.py` | 70/70 | Includes role-escalation security test |
-| `test_appointments.py` | 19/19 | All pass |
-| `test_user_flows.py` | 17/17 | Client + detailer registration flows |
-| `test_admin.py` | 27/27 | Users/roles/permissions |
-| `test_appointments_cancel.py` | 8/8 | Plan 21 §2 — customer cancel wrapper of FSM, refund preview policy |
-| `test_idempotency_body_hash.py` | 7/7 | Body-hash isolation under the v2 dep (Plan 22 §6.1.3) |
-| `test_idempotency_v2_user_scope.py` | 4/4 | H1 cross-user collision regression (Plan 22 §6.1.3) |
-| `test_rate_limit_handler.py` | 3/3 | Envelope-shaped 429 + Retry-After (Plan 19 §10) |
-| `test_public_endpoints.py` | 28/28 | Plan 19 Track 1 — all 9 public endpoints |
-| `test_users_provider_profile.py` | 18/18 | Plan 24 Wave 1: signup fields (ssn/city/tank/skills) + submit endpoint |
-| `test_users_addresses.py` | 12/12 | Plan 24 Wave 1 C-3: opt-in ZIP coverage gate |
-| `test_vehicle_price_estimate.py` | 9/9 | Plan 24 Wave 1 C-1: anonymous price preview |
-| `test_admin_ops_dashboard.py` | 18/18 | Plan 24 W2-A: ops KPIs + heatmap + city rollup |
-| `test_admin_detailers_approve_suspend.py` | 22/22 | Plan 24 W2-C: detailer approve/suspend FSM (auth + transitions + audit) |
-| `test_admin_reviews_moderation.py` | 20/20 | Plan 24 W2-D: reviews moderation queue + approve/hide (auth + FSM + audit) |
-| `test_admin_customers_credits.py` | 19/19 | Plan 24 W2-E: customer segments + comp credits (auth + segments + validation + audit) |
-| `test_admin_appointments_refund_reassign.py` | 18/18 | Plan 24 W2-B: appointment refund (cap + partial chain) + reassign (FSM + auto-promote) |
-| `test_promo_lookup_and_preview.py` | 15/15 | Plan 24 C-2: promo lookup + preview (anon/authed, case-insensitive, lifecycle, per-user counter, math, seed idempotency) |
-| `test_session_enforcement.py` | 6/6 | Plan 23 Fase 1 D2-D3: `sid` claim on access tokens + Session row persistence + enforce flag (cold cache → 401 after revoke) + backwards-compat for tokens without `sid` + refresh keeps same sid |
-| `test_sessions_management.py` | 14/14 | Plan 23 Fase 2 + Fase 6: device parser unit (iPhone/Android/iPad/Windows/curl), `/auth/sessions` rich shape + `is_current` flag, POST `/auth/sessions/{id}/revoke` (happy + 404 unknown + 404 cross-user + idempotent), DELETE `/sessions` revoke-all |
-| `test_require_permission.py` | 10/10 | Plan 23 Fase 3: `_has_permission_cached` (cold miss populates, hot hit skips DB, wildcard `*:*`, redis failure → DB JOIN fallback, no-redis path), `invalidate_permission_cache` (drops key, noop with redis=None, swallows redis errors), admin role-assign/revoke endpoints invalidate target user's cache |
-| `test_session_cleanup_worker.py` | 7/7 | Plan 23 Fase 8: daily GC worker auto-revokes sessions whose refresh-token family expired beyond grace period; hard-deletes sessions revoked > 90 days ago; evicts Redis cache for every touched session id; idempotent (second run = zero work); active sessions untouched; recently-revoked rows kept |
-| `test_detailers.py` | ⚠️ | Edge cases (profile fixture) |
-| `test_matching.py` | ⚠️ | Requires real Redis (H3 spatial) |
-| `test_vehicles.py` | ⚠️ | body_class / onboarding edge cases |
+| `test_auth.py` | 72 | Includes role-escalation security test |
+| `test_appointments.py` | 22 | Covers FSM lifecycle + edge cases |
+| `test_user_flows.py` | 16 | Client + detailer registration flows |
+| `test_admin.py` | 28 | Users/roles/permissions |
+| `test_appointments_cancel.py` | 8 | Plan 21 §2 — customer cancel wrapper of FSM, refund preview policy |
+| `test_idempotency_body_hash.py` | 7 | Body-hash isolation under the v2 dep (Plan 22 §6.1.3) |
+| `test_idempotency_v2_user_scope.py` | 4 | H1 cross-user collision regression (Plan 22 §6.1.3) |
+| `test_rate_limit_handler.py` | 3 | Envelope-shaped 429 + Retry-After (Plan 19 §10) |
+| `test_public_endpoints.py` | 28 | Plan 19 Track 1 — all 9 public endpoints |
+| `test_users_provider_profile.py` | 18 | Plan 24 Wave 1: signup fields (ssn/city/tank/skills) + submit endpoint |
+| `test_users_addresses.py` | 12 | Plan 24 Wave 1 C-3: opt-in ZIP coverage gate |
+| `test_vehicle_price_estimate.py` | 9 | Plan 24 Wave 1 C-1: anonymous price preview |
+| `test_admin_ops_dashboard.py` | 14 | Plan 24 W2-A: ops KPIs + heatmap + city rollup |
+| `test_admin_detailers_approve_suspend.py` | 22 | Plan 24 W2-C: detailer approve/suspend FSM |
+| `test_admin_reviews_moderation.py` | 20 | Plan 24 W2-D: reviews moderation queue |
+| `test_admin_customers_credits.py` | 19 | Plan 24 W2-E: customer segments + comp credits |
+| `test_admin_appointments_refund_reassign.py` | 18 | Plan 24 W2-B: appointment refund + reassign |
+| `test_promo_lookup_and_preview.py` | 15 | Plan 24 C-2: promo lookup + preview |
+| `test_session_enforcement.py` | 6 | Plan 23 F1 D2-D3: `sid` claim + Session + enforce |
+| `test_sessions_management.py` | 14 | Plan 23 F2+F6: device parser + sessions UX endpoints |
+| `test_require_permission.py` | 10 | Plan 23 F3: RBAC cache + `require_permission()` |
+| `test_session_cleanup_worker.py` | 7 | Plan 23 F8: daily session GC worker |
+| `test_auth_security.py` | 9 | Security center: 2FA, passkeys, login history |
+| `test_users_active_role.py` | 12 | Active role switcher + provider-status |
+| `test_users_hub.py` | 15 | Provider hub dashboard |
+| `test_users_payment_methods.py` | 11 | Payment methods CRUD |
+| `test_users_avatar.py` | 8 | Avatar upload/delete |
+| `test_users_favorites.py` | 6 | Detailer favorites |
+| `test_users_contact_change.py` | 10 | Email/phone change flow |
+| `test_users_client_preferences.py` | 6 | Client preferences |
+| `test_users_vehicle_photos.py` | 7 | Vehicle photo CRUD |
+| `test_users_provider_portfolio.py` | 6 | Provider portfolio |
+| `test_users_provider_documents.py` | 9 | Provider document upload |
+| `test_users_provider_verification.py` | 9 | Provider verification |
+| `test_workers.py` | 3 | Worker health tests |
+| `test_workers_y6.py` | 10 | Worker E2E Y6 tests |
+| `test_refresh_concurrency.py` | 5 | Refresh-token race condition |
+| `test_step_up_wiring.py` | 5 | Step-up auth wiring |
+| `test_geocoding_adapter.py` | 9 | Geocoding adapter integration |
+| `test_db_hardening_static.py` | 6 | CHECK constraint validation |
+| `test_e1a_provider_profile_schema.py` | 5 | E1 schema validation |
+| `test_e1b_provider_profile_relationship.py` | 7 | E1 relationship tests |
+| `test_e1c_providers_profiles.py` | 17 | E1 multi-profile CRUD |
+| `test_e1d_provider_service_rename.py` | 8 | E1 service rename migration |
+| `test_e1e_is_accepting_bookings_property.py` | 5 | E1 bookings flag |
+| `test_detailers.py` | ⚠️ 28 | Edge cases (profile fixture) |
+| `test_matching.py` | ⚠️ 10 | Requires real Redis (H3 spatial) |
+| `test_vehicles.py` | ⚠️ 17 | body_class / onboarding edge cases |
 
-Standard green suite (above, excluding the ⚠️ files): **373/373** in ~23 min.
-
-Sprint 9 admin extensions (appointments/verifications/payments) ship without dedicated tests.
+**Total test suite**: **618** tests across 49 files.
+**Standard green suite** (excluding ⚠️ files): **563/563**.
 
 `backend/tests/conftest.py` drops/recreates all tables + explicit enum cleanup (`DROP TYPE IF EXISTS`). Async tests use `pytest-asyncio` with `asyncio_mode = auto`.
 
@@ -211,7 +235,13 @@ The single entry point for all project documentation, plans, and audits is [`doc
 | **Master Plan** | [`/plan.md`](./plan.md) | Profile system Phases 0–9 (read-only until implementation) |
 | **Integration Plans** | [`docs/integration_plans/`](./docs/integration_plans/) | 5 vertical plans (00-user through 04-vehicles) |
 | **Technical Audit** | [`docs/audit/`](./docs/audit/) | ~60 findings across architecture, tests, infra, web, DB |
-| **Operational Plans** | [`docs/plans/`](./docs/plans/) | CI/CD, infrastructure, observability, hardening |
+| **Operational Plans** | [`docs/plans/`](./docs/plans/) | CI/CD, infrastructure, observability, hardening, feature plans 09–26 |
+| **Design Prototypes** | [`raycarwash/project/`](./raycarwash/project/) | Claude Design handoff bundle — HTML/CSS/JSX mockups |
+| **API Reference** | [`docs/api.md`](./docs/api.md) | All API endpoints documented |
+| **Backend Guide** | [`docs/backend.md`](./docs/backend.md) | Architecture, domains, conventions |
+| **Frontend Guide** | [`docs/frontend.md`](./docs/frontend.md) | RN/Expo screens, components, hooks |
+| **Portal Guide** | [`docs/portal.md`](./docs/portal.md) | Next.js portal architecture (i18n, auth, marketing) |
+| **Team Protocol** | [`docs/AGENT_PROMPT.md`](./docs/AGENT_PROMPT.md) | Dev team roles and review protocols |
 
 **New plans**: Create in `docs/plans/{NN}-{name}.md`, then register in `docs/INDEX.md` section 3.
 

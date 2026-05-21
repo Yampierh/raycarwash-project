@@ -40,11 +40,17 @@ backend/
 │   │   ├── router.py           # 22 endpoints behind require_role("admin")
 │   │   └── schemas.py          # AdminStats, AdminUserRead, AdminAppointmentDetail, AdminLedgerEntryRead, …
 │   │
-│   ├── users/                  # Registration, profiles, onboarding
+│   ├── users/                  # Registration, profiles, onboarding, sub-resources
 │   │   ├── models.py           # User, ClientProfile, OnboardingStatus
 │   │   ├── schemas.py          # UserCreate, UserRead, UserUpdate
 │   │   ├── repository.py       # UserRepository
-│   │   └── router.py           # POST /api/v1/users
+│   │   ├── router.py           # POST /api/v1/users
+│   │   ├── avatar_router.py, address_router.py, payment_method_router.py
+│   │   ├── favorites_router.py, vehicle_photo_router.py
+│   │   ├── client_preferences_router.py, active_role_router.py
+│   │   ├── contact_change_router.py
+│   │   ├── provider_profile_router.py, provider_portfolio_router.py
+│   │   ├── provider_documents_router.py, provider_verification_router.py
 │   │
 │   ├── providers/              # Detailer profiles, Stripe Identity
 │   │   ├── models.py           # ProviderProfile
@@ -105,9 +111,34 @@ backend/
 │   │   ├── connection_manager.py  # ConnectionManager
 │   │   └── router.py           # WS /ws/appointments/{id}, /ws/user/{id}
 │   │
-│   └── audit/                  # Append-only audit log
-│       ├── models.py           # AuditLog, AuditAction
-│       └── repository.py       # AuditRepository
+│   ├── audit/                  # Append-only audit log
+│   │   ├── models.py           # AuditLog, AuditAction
+│   │   └── repository.py       # AuditRepository
+│   │
+│   ├── credits/                # Customer comp credit system
+│   │   └── models.py           # CreditGrant, CreditBalance
+│   │
+│   ├── identity/               # Identity verification state tracking
+│   │   └── models.py           # IdentityVerification
+│   │
+│   ├── locations/              # City management, coverage zones
+│   │   ├── models.py           # City, ServiceZipCode
+│   │   ├── repository.py       # CityRepository
+│   │   └── router.py           # /api/v1/locations/*
+│   │
+│   ├── onboarding/             # Multi-step onboarding flow
+│   │   ├── models.py           # OnboardingStep, OnboardingProgress
+│   │   └── router.py           # /api/v1/onboarding/advance
+│   │
+│   ├── promos/                 # Promo code system
+│   │   ├── models.py           # PromoCode, PromoRedemption
+│   │   ├── service.py          # PromoService — validate, apply, preview
+│   │   └── router.py           # /api/v1/promo/*
+│   │
+│   └── public/                 # Public marketing content (no auth)
+│       ├── models.py           # Testimonial, FAQEntry, CoverageArea
+│       ├── repository.py
+│       └── router.py           # /api/v1/public/*
 │
 ├── infrastructure/             # Adapters for external systems
 │   ├── db/
@@ -117,20 +148,31 @@ backend/
 │   ├── redis/client.py         # init_redis_pool (fakeredis fallback in dev)
 │   ├── email/service.py        # EmailService — SMTP transactional email
 │   ├── nhtsa/client.py         # lookup_vin_data, map_body_to_size
-│   └── h3/client.py            # H3 geospatial indexing, find_nearby_detailers
+│   ├── h3/client.py            # H3 geospatial indexing, find_nearby_detailers
+│   ├── stripe/                 # Stripe SDK wrappers + webhook verification
+│   ├── geocoding/              # NominatimAdapter (dev) → GoogleMapsGeocodingAdapter (prod)
+│   ├── sms/                    # ConsoleSmsAdapter (dev) → TwilioSmsAdapter (prod)
+│   ├── storage/                # LocalStorageAdapter (dev) → S3StorageAdapter (prod)
+│   └── auth/                   # OAuth provider configs, HMAC phone hashing
 │
 ├── shared/schemas.py           # _BaseSchema, _BaseRequestSchema, PaginatedResponse, ErrorDetail
 ├── events/bus.py               # In-process async event bus (no Kafka)
 │
-├── workers/                    # Async background workers (started in lifespan)
-│   ├── location_worker.py      # GPS stream → H3 index + WS broadcast (Fireball filter)
+├── workers/                    # Async background workers (lifespan + RQ)
+│   ├── location_worker.py      # GPS stream → H3 index + WS broadcast
 │   ├── assignment_worker.py    # Auto-assignment engine (Redis Stream)
 │   ├── ledger_seal_worker.py   # Daily SHA-256 seal of the payment ledger
-│   └── token_cleanup_worker.py # Expired token GC (24h interval)
+│   ├── token_cleanup_worker.py # Expired token GC (24h interval)
+│   ├── session_cleanup_worker.py  # Daily session GC (Plan 23 F8)
+│   ├── achievement_evaluator.py   # RQ worker: badge/level evaluation
+│   ├── document_expiry_checker.py # RQ worker: document expiration checks
+│   ├── login_history_purger.py    # RQ worker: old login history cleanup
+│   ├── pending_contact_cleanup.py # RQ worker: stale contact changes
+│   └── schedule.py             # RQ scheduler configuration
 │
 └── app/                        # Stable infrastructure (not domain code)
     ├── core/                   # config.py, security.py, limiter.py, logging_context.py
-    └── db/                     # seed.py, seed_rbac.py, detailer_seed.py
+    └── db/                     # seed.py, seed_rbac.py, seed_promos.py, seed_public.py, detailer_seed.py
 ```
 
 ---
@@ -150,26 +192,31 @@ backend/
 1. Register event bus handlers (push-notification dispatchers in `domains/notifications/handlers.py`)
 2. `create_all()` — create tables idempotently (production: use `alembic upgrade head`)
 3. Seed RBAC roles + permissions + **default admin user** (`admin@raycarwash.com` / `Admin1234!`, only if missing)
-4. Seed service categories
-5. Seed specialties
-6. Seed service catalogue (13 services with per-size prices)
-7. Seed addons (15 add-ons)
-8. Seed test detailers (6 Fort Wayne detailers)
+4. Seed service categories + specialties + service catalogue (13 services with per-size prices) + addons (15)
+5. Seed test detailers (6 Fort Wayne detailers)
+6. Seed public content (testimonials, FAQ, coverage zones)
+7. Seed promo codes (including NEW10 welcome credit)
+8. Seed cities + service ZIP codes
 9. Init Redis pool (real Redis or fakeredis fallback)
 10. Init `ConnectionManager` WebSocket manager
-11. Start 4 background workers (location, assignment, ledger seal, token cleanup)
+11. Start background workers (location, assignment, ledger seal, token cleanup, session cleanup)
 
 ---
 
 ## Middleware stack
 
+Execution order (defined in `main.py`):
+
 | Order | Middleware | Purpose |
 |---|---|---|
-| 1 | CORS | Allow frontend origin + credentials |
-| 2 | Correlation ID | Generate `X-Request-ID`, inject into logs via `ContextVar` |
-| 3 | Request size limit | 413 if > 5 MB (Stripe webhooks exempted) |
-| 4 | Process time header | `X-Process-Time-Ms` on every response |
-| 5 | Rate limiter (slowapi) | Per-endpoint per-IP limits |
+| 1 | RequestIDMiddleware | Generate unique `X-Request-ID` header |
+| 2 | StructuredLoggingMiddleware | Structured JSON logging with request-ID propagation |
+| 3 | AuditContextMiddleware | Extract IP / UA / request-id into context |
+| 4 | IdempotencyMiddleware | Redis-backed idempotency-key (v1 legacy + v2 user-scoped) |
+| 5 | CORS | Allow frontend origin + credentials |
+| 6 | Request size limit | 413 if > 5 MB (Stripe webhooks exempted via `webhook_router` prefix) |
+| 7 | Process time header | `X-Process-Time-Ms` on every response |
+| 8 | Rate limiter (slowapi) | Per-endpoint per-IP limits |
 
 ---
 
@@ -337,13 +384,13 @@ python -m pytest tests/test_auth.py tests/test_appointments.py -q  # core flow
 ```
 
 | Suite | Tests | Status |
-|---|---|---|
-| `test_auth.py` | 70 | ✅ all pass (incl. role-escalation security test) |
-| `test_appointments.py` | 19 | ✅ all pass |
-| `test_user_flows.py` | 17 | ✅ all pass (client + detailer registration guard rails) |
-| `test_admin.py` | 27 | ✅ all pass (users / roles / permissions endpoints) |
-| `test_detailers.py` | — | ⚠️ edge cases pending |
-| `test_matching.py` | — | ⚠️ requires real Redis for spatial |
-| `test_vehicles.py` | — | ⚠️ body_class edge cases pending |
+|---|---|---|---|
+| `test_auth.py` | 72 | ✅ all pass (incl. role-escalation security test) |
+| `test_appointments.py` | 22 | ✅ all pass |
+| `test_user_flows.py` | 16 | ✅ all pass (client + detailer registration guard rails) |
+| `test_admin.py` | 28 | ✅ all pass (users / roles / permissions endpoints) |
+| `test_detailers.py` | 28 | ⚠️ edge cases (profile fixture) |
+| `test_matching.py` | 10 | ⚠️ requires real Redis for spatial |
+| `test_vehicles.py` | 17 | ⚠️ body_class / onboarding edge cases |
 
-> Sprint 9 admin endpoints (`/appointments`, `/verifications`, `/payments`) are not yet covered by `test_admin.py`.
+**Total**: 618 tests across 49 files. Standard green suite (excluding ⚠️ files): **563/563**.

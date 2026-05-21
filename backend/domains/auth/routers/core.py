@@ -1,10 +1,7 @@
 import logging
-import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
-from jwt.exceptions import InvalidTokenError as JWTError
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -12,7 +9,6 @@ from app.core.limiter import limiter
 from infrastructure.db.session import get_db
 from domains.audit.models import AuditAction
 from domains.audit.repository import AuditRepository
-from domains.auth.models import Role, UserRoleAssociation
 from domains.auth.refresh_token_repository import RefreshTokenRepository
 from domains.auth.schemas import (
     AuthState,
@@ -32,10 +28,11 @@ from domains.auth.schemas import (
 )
 from domains.auth.service import AuthService, get_current_user, get_current_user_for_onboarding
 from domains.auth.auth_provider_repository import AuthProviderRepository
-from domains.providers.models import ProviderProfile, ProviderType
-from domains.users.models import ClientProfile, OnboardingStatus, User
+from domains.users.models import User
 from domains.users.repository import UserRepository
 from domains.users.schemas import UserRead, UserUpdate
+from domains.users.service import UserService
+from domains.onboarding.service import OnboardingService
 from infrastructure.email.service import EmailService
 
 logger   = logging.getLogger(__name__)
@@ -67,12 +64,12 @@ async def register(
             detail="An account with this email already exists.",
         )
 
-    new_user = User(
-        email=body.email,
-        password_hash=AuthService.hash_password(body.password),
-        onboarding_status=OnboardingStatus.PENDING_PROFILE,
-    )
-    user = await UserRepository(db).create(new_user)
+    password_hash = AuthService.hash_password(body.password)
+    user_service = UserService(db)
+    user = await user_service.create_user(body.email, password_hash)
+
+    onboarding_svc = OnboardingService(db)
+    await onboarding_svc.start(user, intent_role=body.intent_role)
 
     await AuditRepository(db).log(
         action=AuditAction.USER_REGISTERED,
@@ -442,43 +439,58 @@ async def complete_user_profile(
             detail="Profile already completed. Role changes require a separate verification flow.",
         )
 
+    # Bridge: old endpoint delegates to the new onboarding orchestrator.
+    from domains.onboarding.orchestrator import OnboardingOrchestrator
+    from domains.onboarding.state import OnboardingStep
+
+    orchestrator = OnboardingOrchestrator(db)
+
+    # Users created before onboarding module was introduced won't have
+    # an OnboardingState row. Start it for them transparently.
+    existing_state = await orchestrator._get_state(user.id)
+    if existing_state is None:
+        await OnboardingService(db).start(user)
+
+    profile_payload: dict = {}
     if body.full_name:
-        user.full_name = body.full_name
+        profile_payload["full_name"] = body.full_name
     if body.phone_number:
-        user.phone_number = body.phone_number
-        from app.core.security import update_user_phone_hash
-        update_user_phone_hash(user, body.phone_number, settings.PHONE_LOOKUP_KEY)
+        profile_payload["phone_number"] = body.phone_number
 
-    from domains.auth.schemas import SERVICE_TYPE_TO_ROLE
+    await orchestrator.advance(
+        user=user, action="create_profile", payload=profile_payload,
+    )
 
-    _next_step_map = {"client": "app", "detailer": "detailer_onboarding"}
-
+    role_payload: dict = {}
     if body.service_type:
-        effective_role = SERVICE_TYPE_TO_ROLE[body.service_type]
-    else:
-        effective_role = "client"
-
-    role_result = await db.execute(select(Role).where(Role.name == effective_role))
-    role = role_result.scalar_one_or_none()
-
-    if role:
-        already_has_role = any(ur.role_id == role.id for ur in user.user_roles)
-        if not already_has_role:
-            db.add(UserRoleAssociation(user_id=user.id, role_id=role.id))
-
-    if effective_role == "client" and not user.client_profile:
-        db.add(ClientProfile(user_id=user.id))
-    elif effective_role == "detailer" and not user.provider_profile_for(ProviderType.DETAILER):
-        # E1.B: explicitly tag the new profile so the composite unique
-        # (user_id, provider_type) plays nicely once the user later adds
-        # a MECHANIC profile.
-        db.add(ProviderProfile(user_id=user.id, provider_type=ProviderType.DETAILER.value))
-
-    user.onboarding_status = "completed"
+        role_payload["service_type"] = body.service_type
+    state = await orchestrator.advance(
+        user=user, action="assign_role", payload=role_payload,
+    )
 
     await db.flush()
 
-    # Plan 23 Fase 1 día 3 — session-bound tokens for the post-complete-profile login.
+    effective_role = state.state_data.get("assigned_role", "client")
+    next_step = state.state_data.get("_next_step", "app")
+
+    # KYC gate — detailers need document verification before getting tokens.
+    if state.status == OnboardingStep.KYC_PENDING.value:
+        onboarding_token = AuthService.create_onboarding_token(user.id)
+        return VerifyResponse(
+            access_token=None,
+            refresh_token=None,
+            is_new_user=False,
+            temp_token=onboarding_token,
+            needs_profile_completion=True,
+            next_step=next_step,
+            assigned_role=effective_role,
+            auth_state=AuthState(
+                type="onboarding",
+                step="kyc",
+                context=AuthStateContext(role=effective_role),
+            ),
+        )
+
     from domains.auth.service import create_session_and_tokens
     access_token, refresh_token, _session = await create_session_and_tokens(
         user=user,
@@ -487,8 +499,6 @@ async def complete_user_profile(
         user_agent=request.headers.get("user-agent"),
         device_name=request.headers.get("x-device-name"),
     )
-
-    next_step = _next_step_map.get(effective_role, "app")
 
     await db.commit()
 

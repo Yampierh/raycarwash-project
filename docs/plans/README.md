@@ -11,7 +11,7 @@ Planes de infraestructura, calidad y operaciones para RayCarWash.
 | 07 | [07-observability.md](./07-observability.md) | OpenTelemetry, Sentry, Grafana, logging | Medium | Draft |
 | 08 | [08-hardening.md](./08-hardening.md) | Fixes críticos P0/P1 del audit | Critical | Draft |
 | 09 | [09-provider-services-integration.md](./09-provider-services-integration.md) | Services catalog + per-provider link table | High | Planning |
-| 10 | [10-authorization-layer.md](./10-authorization-layer.md) | Active-role + scope guards across API | High | Planning |
+| 10 | [10-authorization-layer.md](./10-authorization-layer.md) | Absorbed by plan 23 | High | — |
 | 11 | [11-provider-dashboard.md](./11-provider-dashboard.md) | Provider dashboard — 12 views + 30+ endpoints | High | Planning |
 | 12 | [12-marketing-redesign.md](./12-marketing-redesign.md) | Marketing site redesign (frontend done; backend gaps tracked) | High | Phases 1-4 frontend complete |
 | 13 | [13-customer-dashboard.md](./13-customer-dashboard.md) | Customer "My Garage" dashboard (6 views + loyalty + subscriptions) | High | Planning |
@@ -19,8 +19,15 @@ Planes de infraestructura, calidad y operaciones para RayCarWash.
 | 15 | [15-marketing-content-cms.md](./15-marketing-content-cms.md) | Admin CMS for testimonials/FAQ/coverage/templates | Medium | Planning |
 | 16 | [16-coverage-zip-service.md](./16-coverage-zip-service.md) | Service zones + ZIP lookup + provider opt-in | Medium-High | Planning |
 | 17 | [17-waitlist-system.md](./17-waitlist-system.md) | Generalized waitlist (mechanic, coverage, future verticals) | Medium | Planning |
-| 25 | [25-designer-to-next-frontend.md](./25-designer-to-next-frontend.md) | Designer→Next frontend port (auth pages + dashboards, visual only — data session swaps mocks) | High | Planning |
-| 26 | [26-mock-to-backend-data-wiring.md](./26-mock-to-backend-data-wiring.md) | Mock→Backend data wiring (mirror of 25 — swaps `lib/mock/*` for real FastAPI endpoints) | High | Planning |
+| 18 | [18-provider-boost-monetization.md](./18-provider-boost-monetization.md) | Provider boost/monetization features | Low | Planning |
+| 19 | [19-api-contracts-track1-marketing.md](./19-api-contracts-track1-marketing.md) | Marketing API contracts (9/9 endpoints shipped) | High | Done |
+| 20 | [20-api-contracts-track2-provider-dashboard.md](./20-api-contracts-track2-provider-dashboard.md) | Provider dashboard API contracts | High | Contract approved |
+| 21 | [21-api-contracts-track3-customer-dashboard.md](./21-api-contracts-track3-customer-dashboard.md) | Customer dashboard API contracts | Medium | Done |
+| 22 | [22-security-architecture-audit.md](./22-security-architecture-audit.md) | Security architecture audit + remediation | Critical | Done |
+| 23 | [23-auth-hardening.md](./23-auth-hardening.md) | Auth hardening (sessions, RBAC cache, device parser, cleanup) | Critical | Fases 1-3+6+8 done |
+| 24 | [24-auth-pages-and-admin-dashboard.md](./24-auth-pages-and-admin-dashboard.md) | Auth pages + admin dashboard (Wave 1+2+C-2 complete) | High | Wave 1+2 done |
+| 25 | [25-designer-to-next-frontend.md](./25-designer-to-next-frontend.md) | Designer→Next frontend port (auth pages + dashboards, visual only) | High | Planning |
+| 26 | [26-mock-to-backend-data-wiring.md](./26-mock-to-backend-data-wiring.md) | Mock→Backend data wiring (swap mocks for FastAPI) | High | Planning |
 
 ## Dependency order
 
@@ -37,13 +44,17 @@ Planes de infraestructura, calidad y operaciones para RayCarWash.
               ↓
               09-provider-services-integration.md
                 ↓
-                10-authorization-layer.md
+                23-auth-hardening.md (absorbió 10-authorization-layer.md)
                   ├── 11-provider-dashboard.md (depende también de 09, 15)
                   ├── 13-customer-dashboard.md (depende de 04 vehicles)
                   ├── 14-mechanic-vertical.md (depende de 03, 09, 11, 15, 17)
                   ├── 15-marketing-content-cms.md (depende de 12)
                   ├── 16-coverage-zip-service.md (depende de h3 infra)
-                  └── 17-waitlist-system.md (depende de email infra)
+                  ├── 17-waitlist-system.md (depende de email infra)
+                  ├── 22-security-architecture-audit.md (remediation)
+                  ├── 24-auth-pages-and-admin-dashboard.md (UI)
+                  ├── 25-designer-to-next-frontend.md (frontend port)
+                  └── 26-mock-to-backend-data-wiring.md (data wiring)
 ```
 
 ### Plans by surface
@@ -51,10 +62,10 @@ Planes de infraestructura, calidad y operaciones para RayCarWash.
 | Surface | Plans |
 |---|---|
 | **Portal public site** (`web/portal/(marketing)/`) | 12 (redesign), 15 (CMS), 16 (coverage), 17 (waitlist) |
-| **Provider dashboard** (`web/portal/(app)/detailer/dashboard/`) | 11 (full dashboard), 09 (services), 10 (auth), 14 (mechanic ext.) |
-| **Customer dashboard** (`web/portal/(app)/client/dashboard/`) | 13 (full dashboard) |
+| **Provider dashboard** (`web/portal/(app)/detailer/`) | 11 (full dashboard), 09 (services), 23 (auth), 14 (mechanic ext.) |
+| **Customer dashboard** (`web/portal/(app)/client/`) | 13 (full dashboard) |
 | **Mobile app** (`frontend/`) | Largely covered by existing screens; updates in 11, 13, 14 |
-| **Backend cross-cutting** | 08 (hardening), 10 (auth), 15 (CMS), 16 (coverage), 17 (waitlist) |
+| **Backend cross-cutting** | 08 (hardening), 22 (security), 23 (auth), 15 (CMS), 16 (coverage), 17 (waitlist) |
 | **Ops/infra** | 05, 06, 07 |
 
 ## Cross-references
@@ -69,5 +80,5 @@ Planes de infraestructura, calidad y operaciones para RayCarWash.
 - One plan per cross-cutting operational or product concern
 - Numbered by approximate implementation order (continúa desde integration_plans 00-04)
 - Every plan references relevant audit findings
-- Plans 11-17 are **design-driven** — they map the Claude Design bundle (`raycarwash/project/`) to backend requirements
+- Plans 11-26 are **design-driven** — they map the Claude Design bundle (`raycarwash/project/`) to backend requirements
 - Mark `Status: Done` only when all Definition of Done items are verified

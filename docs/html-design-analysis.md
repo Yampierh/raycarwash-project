@@ -2,7 +2,7 @@
 
 > **Purpose:** Feature-by-feature mapping of each HTML page's design against backend/existing code status.
 > **Source:** `raycarwash/project/` — 6 HTML wrappers + ~25 JSX components + 6 CSS files
-> **Generated:** 2026-05-18
+> **Generated:** 2026-05-21
 
 ---
 
@@ -182,14 +182,41 @@ The customer dashboard is the only page where the JSX component files **were not
 
 ---
 
-## 6. Provider Dashboard (SUMMARY)
+## 6. Provider Dashboard
 
 **File:** `raycarwash/project/Provider Dashboard.html`
-**Analysis:** See full document at [`docs/plans/11-provider-dashboard.md`](./plans/11-provider-dashboard.md)
+**JSX sources:** `dash-app.jsx`, `dash-shell.jsx`, `dash-overview.jsx`, `dash-jobs.jsx`, `dash-schedule.jsx`, `dash-services.jsx`, `dash-earnings.jsx`, `dash-reviews.jsx`, `dash-customers.jsx`, `dash-data.jsx`, `dash-icons.jsx`
+**CSS:** `dashboard.css`
+**Existing route:** `web/portal/(app)/detailer/`
+**Backend plan:** `11-provider-dashboard.md`
+
+### Views
+
+| View | Component | Backend Status |
+|------|-----------|----------------|
+| **Overview** | `dash-overview.jsx` | KPIs (jobs, earnings, rating), quick calendar, recent activity feed | Planning |
+| **Jobs** | `dash-jobs.jsx` | Job list with status filter, job detail expand | ✅ Appointments exist |
+| **Schedule** | `dash-schedule.jsx` | Calendar + daily breakdown with time slots | Planning |
+| **Services** | `dash-services.jsx` | Toggle services on/off, custom pricing | ✅ Provider services exist |
+| **Earnings** | `dash-earnings.jsx` | Charts, payout history, cash-out button | Planning |
+| **Reviews** | `dash-reviews.jsx` | Review list with response capability | ✅ Reviews exist |
+| **Customers** | `dash-customers.jsx` | Client list, booking history, add note | Planning |
 
 ---
 
-## 7. Cross-Cutting Observations
+## 7. Auth Pages
+
+| Page | File | Status |
+|------|------|--------|
+| Customer Login | `Customer Login.html` | ✅ Auth flow exists |
+| Customer Signup | `Customer Signup.html` | ✅ Auth flow exists |
+| Provider Login | `Provider Login.html` | ✅ Auth flow exists |
+| Provider Signup | `Provider Signup.html` | ✅ Auth flow exists |
+| Staff Login | `Staff Login.html` | ✅ Admin auth exists |
+
+---
+
+## 8. Cross-Cutting Observations
 
 ### Shared Components Across Pages
 

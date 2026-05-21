@@ -122,6 +122,20 @@ this against the cached `revoked` flag on every request.
 | DELETE | `/auth/sessions/{family_id}` | Bearer | Legacy back-compat: revoke by refresh-token family id. Resolves to the matching Session row when available; falls back to the pre-Fase-1 refresh-token-family revoke otherwise. |
 | DELETE | `/auth/sessions` | Bearer | Revoke every active session for the current user ("log out everywhere"). 204. Cache TTL (`AUTH_SESSION_CACHE_TTL_SECONDS`, default 300s) bounds the propagation delay. |
 
+### Security Center (`/api/v1/auth`)
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/api/v1/auth/security` | Bearer | Security overview: 2FA enabled?, passkey count, last login timestamp. |
+| POST | `/api/v1/auth/two-fa/setup` | step-up | Generate TOTP secret + QR URI. Requires password re-entry (step-up). |
+| POST | `/api/v1/auth/two-fa/verify` | step-up | Confirm TOTP setup by providing a valid code. Enables 2FA for the account. |
+| POST | `/api/v1/auth/two-fa/disable` | step-up | Disable 2FA. Requires password re-entry. |
+| GET | `/api/v1/auth/two-fa/recovery-codes` | step-up | View remaining recovery codes (single-use, 10 total). |
+| POST | `/api/v1/auth/two-fa/recovery-codes/regenerate` | step-up | Replace all unused codes with fresh ones. |
+| GET | `/api/v1/auth/login-history?page=&per_page=` | Bearer | Paginated login events (IP, device, timestamp, success/failure). |
+| POST | `/api/v1/auth/passkeys/{id}/rename` | Bearer | Rename a registered passkey. |
+| DELETE | `/api/v1/auth/passkeys/{id}` | Bearer | Delete a registered passkey. |
+
 ## Users (`/api/v1/users`)
 
 | Method | Path | Auth | Description |

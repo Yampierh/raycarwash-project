@@ -1226,3 +1226,42 @@ def require_role(*role_names: str):
             )
         return current_user
     return _dep
+
+
+def require_kyc_approved():
+    """ABAC gate for provider operations.
+
+    Blocks providers (detailers, mechanics) whose KYC has not been approved.
+    Clients pass through unconditionally.  Apply as a dependency on any
+    business-operation endpoint that requires a verified provider.
+
+    Usage:
+        @router.get("/api/v1/appointments")
+        async def list_appointments(
+            _: User = Depends(require_kyc_approved()),
+            ...
+        ):
+    """
+    async def _dep(
+        current_user: Annotated[User, Depends(get_current_user)],
+        db: Annotated[AsyncSession, Depends(get_db)],
+    ) -> User:
+        if not current_user.is_provider():
+            return current_user
+
+        if not current_user.onboarding_completed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Account restricted: KYC approval pending.",
+            )
+
+        from domains.identity.service import IdentityService
+        identity = await IdentityService(db).get_verification(current_user.id)
+        if identity is None or identity.status != "APPROVED":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Account restricted: KYC approval pending.",
+            )
+
+        return current_user
+    return _dep

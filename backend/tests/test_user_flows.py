@@ -8,8 +8,12 @@ Covers:
   - Full detailer registration: register → complete-profile (role=detailer) → login → /auth/me
   - Guard rails: wrong role, re-completion blocked, onboarding token scope isolation
 """
+import uuid
+
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -45,6 +49,43 @@ async def _login(client: AsyncClient, email: str, password: str = "Secure1234!")
     resp = await client.post("/auth/login", json={"email": email, "password": password})
     assert resp.status_code == 200, f"Login failed: {resp.text}"
     return resp.json()
+
+
+async def _approve_kyc(db_session: AsyncSession, email: str) -> None:
+    """Simulate KYC approval for a detailer in tests.
+
+    Looks up user by email, creates IdentityVerification (APPROVED) and
+    marks OnboardingState as COMPLETED.  Called after complete-profile to
+    set up a fully-onboarded detailer without needing the admin endpoint.
+    """
+    from domains.identity.models import IdentityVerification, KycStatus
+    from domains.onboarding.models import OnboardingState
+    from domains.users.models import User
+    from domains.users.repository import UserRepository
+
+    user = await UserRepository(db_session).get_by_email(email)
+    if user is None:
+        return
+
+    identity = IdentityVerification(
+        user_id=user.id,
+        status=KycStatus.APPROVED.value,
+        document_data={"id_front_url": "test", "selfie_url": "test"},
+    )
+    db_session.add(identity)
+
+    stmt = select(OnboardingState).where(OnboardingState.user_id == user.id)
+    result = await db_session.execute(stmt)
+    state = result.scalar_one_or_none()
+    if state:
+        from domains.onboarding.state import OnboardingStep
+        state.status = OnboardingStep.COMPLETED.value
+        state.current_step = None
+        state.completed = True
+
+    user.onboarding_status = "completed"
+
+    await db_session.flush()
 
 
 async def _me(client: AsyncClient, access_token: str) -> dict:
@@ -180,7 +221,7 @@ class TestDetailerRegistrationFlow:
         assert data["next_step"] == "complete_profile"
 
     @pytest.mark.asyncio
-    async def test_complete_profile_detailer_returns_full_tokens(self, client: AsyncClient):
+    async def test_complete_profile_detailer_returns_temp_token_not_access(self, client: AsyncClient):
         reg = await _register(client, "detailer2@example.com")
         prof = await _complete_profile(
             client,
@@ -189,12 +230,15 @@ class TestDetailerRegistrationFlow:
             "+12605550201",
             service_type="Detailer",
         )
-        assert prof["access_token"] is not None
-        assert prof["refresh_token"] is not None
+        assert prof["access_token"] is None
+        assert prof["temp_token"] is not None
         assert prof["assigned_role"] == "detailer"
+        assert prof["needs_profile_completion"] is True
 
     @pytest.mark.asyncio
-    async def test_detailer_me_returns_detailer_role(self, client: AsyncClient):
+    async def test_detailer_me_returns_detailer_role(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
         reg = await _register(client, "detailer3@example.com")
         await _complete_profile(
             client,
@@ -203,6 +247,8 @@ class TestDetailerRegistrationFlow:
             "+12605550202",
             service_type="Detailer",
         )
+        await _approve_kyc(db_session, "detailer3@example.com")
+
         login = await _login(client, "detailer3@example.com")
         me = await _me(client, login["access_token"])
 
@@ -211,7 +257,9 @@ class TestDetailerRegistrationFlow:
         assert me["onboarding_completed"] is True
 
     @pytest.mark.asyncio
-    async def test_detailer_does_not_get_client_role(self, client: AsyncClient):
+    async def test_detailer_does_not_get_client_role(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
         reg = await _register(client, "detailer4@example.com")
         await _complete_profile(
             client,
@@ -220,13 +268,17 @@ class TestDetailerRegistrationFlow:
             "+12605550203",
             service_type="Detailer",
         )
+        await _approve_kyc(db_session, "detailer4@example.com")
+
         login = await _login(client, "detailer4@example.com")
         me = await _me(client, login["access_token"])
         assert "client" not in me["roles"]
         assert "detailer" in me["roles"]
 
     @pytest.mark.asyncio
-    async def test_detailer_login_after_onboarding(self, client: AsyncClient):
+    async def test_detailer_login_after_onboarding(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
         reg = await _register(client, "detailer5@example.com")
         await _complete_profile(
             client,
@@ -235,6 +287,8 @@ class TestDetailerRegistrationFlow:
             "+12605550204",
             service_type="Detailer",
         )
+        await _approve_kyc(db_session, "detailer5@example.com")
+
         login = await _login(client, "detailer5@example.com")
         assert login["access_token"] is not None
         assert login["onboarding_completed"] is True
@@ -258,7 +312,9 @@ class TestDetailerRegistrationFlow:
         assert resp.status_code == 422
 
     @pytest.mark.asyncio
-    async def test_detailer_and_client_are_different_accounts(self, client: AsyncClient):
+    async def test_detailer_and_client_are_different_accounts(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
         """Two separate users — one client, one detailer — have distinct roles."""
         reg_c = await _register(client, "sep_client@example.com")
         await _complete_profile(
@@ -273,6 +329,7 @@ class TestDetailerRegistrationFlow:
             "+12605550302",
             service_type="Detailer",
         )
+        await _approve_kyc(db_session, "sep_detailer@example.com")
 
         login_c = await _login(client, "sep_client@example.com")
         login_d = await _login(client, "sep_detailer@example.com")

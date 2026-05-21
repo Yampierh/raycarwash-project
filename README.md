@@ -15,11 +15,11 @@ raycarwash-project/
 ├── backend/                        # FastAPI · Python 3.13 · PostgreSQL
 │   ├── main.py                     # Composition root — lifespan, middleware, health check
 │   ├── api/router.py               # Single aggregation of all domain routers
-│   ├── domains/                    # Domain-Driven Design (DDD-lite)
-│   │   ├── auth/                   # JWT (RS256), OAuth2 social, WebAuthn passkeys, lockout
-│   │   │   └── routers/            # Split: core, social, webauthn, sessions, password, email
+│   ├── domains/                    # Domain-Driven Design (DDD-lite) — 19 domains
+│   │   ├── auth/                   # JWT (RS256), OAuth2 social, WebAuthn passkeys, lockout, 2FA
+│   │   │   └── routers/            # Split: core, social, webauthn, sessions, password, email, security
 │   │   ├── admin/                  # Admin dashboard API — users, roles, permissions CRUD
-│   │   ├── users/                  # Registration, profiles, onboarding
+│   │   ├── users/                  # Registration, profiles, onboarding (client+detailer)
 │   │   ├── providers/              # Detailer profiles, Stripe Identity verification
 │   │   ├── vehicles/               # Vehicle CRUD, NHTSA VIN lookup
 │   │   ├── appointments/           # FSM booking lifecycle, availability slots
@@ -29,19 +29,36 @@ raycarwash-project/
 │   │   ├── reviews/                # Rating aggregation
 │   │   ├── notifications/          # Push notifications — Expo Push API, device tokens
 │   │   ├── realtime/               # Redis Pub/Sub WebSocket rooms
-│   │   └── audit/                  # Append-only audit log
-│   ├── infrastructure/             # Adapters for external systems
+│   │   ├── audit/                  # Append-only audit log
+│   │   ├── credits/                # Comp credits system
+│   │   ├── identity/               # Identity verification flows
+│   │   ├── locations/              # Geocoding, city/ZIP coverage
+│   │   ├── onboarding/             # Multi-step onboarding wizard
+│   │   ├── promos/                 # Promo code system
+│   │   └── public/                 # Public marketing endpoints
+│   ├── infrastructure/             # Adapters for external systems — 11 adapters
 │   │   ├── db/                     # SQLAlchemy engine, session, Base, mapper registry
 │   │   ├── redis/                  # Connection pool + fakeredis dev fallback
 │   │   ├── email/                  # SMTP transactional email
 │   │   ├── nhtsa/                  # VIN decode API client
-│   │   └── h3/                     # H3 geospatial indexing (detailer discovery)
-│   ├── shared/schemas.py           # Cross-domain base classes + shared types
-│   ├── workers/                    # Async background workers
+│   │   ├── h3/                     # H3 geospatial indexing (detailer discovery)
+│   │   ├── stripe/                 # Stripe SDK clients
+│   │   ├── geocoding/              # Nominatim/Google geocoding
+│   │   ├── sms/                    # SMS adapter
+│   │   ├── storage/                # S3-compatible object storage
+│   │   └── auth/                   # Auth provider adapters
+│   ├── shared/schemas.py           # Envelope[T], PaginatedEnvelope[T], ErrorEnvelope
+│   ├── workers/                    # Async background workers — 11 workers
 │   │   ├── location_worker.py      # GPS stream → H3 index + WS broadcast
 │   │   ├── assignment_worker.py    # Auto-assignment engine
 │   │   ├── ledger_seal_worker.py   # Daily ledger SHA-256 seal
-│   │   └── token_cleanup_worker.py # Expired token GC
+│   │   ├── token_cleanup_worker.py # Expired token GC
+│   │   ├── session_cleanup_worker.py
+│   │   ├── achievement_evaluator.py
+│   │   ├── document_expiry_checker.py
+│   │   ├── login_history_purger.py
+│   │   ├── pending_contact_cleanup.py
+│   │   └── schedule/               # Scheduled task dispatcher
 │   ├── events/bus.py               # In-process async event bus
 │   └── app/                        # Stable infrastructure (config, seed, security)
 │       ├── core/                   # config.py, security.py, limiter.py
@@ -49,23 +66,23 @@ raycarwash-project/
 │
 ├── frontend/                       # React Native · Expo 54 · TypeScript
 │   └── src/
-│       ├── screens/                # 21 screen components
-│       ├── services/               # 13 API service files (auth, user, vehicle, appointment, detailer, payment, review, notification, rides, …)
-│       ├── components/             # Shared design system: Button, Card, EmptyState, SectionHeader, StatusBadge, Typography, AnimatedInput
-│       ├── hooks/                  # useAppointmentSocket, useLocation, useDeadReckoning, useWeather, usePushNotifications, useAppNavigation
+│       ├── screens/                # 35 screen components
+│       ├── services/               # 17 API service files
+│       ├── components/             # Shared design system: Button, Card, EmptyState, etc.
+│       ├── hooks/                  # useAppointmentSocket, useLocation, etc.
 │       ├── store/                  # authStore (Zustand)
 │       ├── navigation/             # RootStack, MainTabs, DetailerTabs
-│       ├── utils/                  # storage (SecureStore), auth-redirect, formatters, pricing, kalman
-│       └── theme/colors.ts         # Semantic tokens: bg, textColor, border, status + Spacing/Radius/TypographyScale
+│       ├── utils/                  # storage (SecureStore), auth-redirect, formatters
+│       └── theme/colors.ts         # Semantic tokens
 │
-├── web/                            # Next.js 15 · TypeScript · Tailwind — Admin dashboard
-│   └── app/
-│       ├── login/                  # Admin login page
-│       └── dashboard/              # Overview · Users · Roles · Permissions · Appointments · Verifications · Payments
+├── web/
+│   ├── admin/                      # Next.js 16 · Admin dashboard (:3000)
+│   ├── portal/                     # Next.js 16 · Public site + provider portal (:3001)
+│   └── portal_v2/                  # Next.js 16 · Portal v2 rebuild (:3002, PR #8)
 │
 ├── docker-compose.yml
 ├── AGENTS.md                       # Full technical context for AI agents
-└── docs/                           # backend.md · frontend.md · api.md · decisions.md
+└── docs/                           # INDEX.md · backend.md · frontend.md · api.md · plans/
 ```
 
 ---
@@ -75,6 +92,7 @@ raycarwash-project/
 - **Node.js** 18+
 - **Python** 3.11+
 - **PostgreSQL** 14+
+- **Redis** (optional — fakeredis fallback in dev)
 
 ---
 
@@ -87,20 +105,14 @@ npm run install
 # 2. Create Python venv + install backend deps
 npm run install-deps
 
-# 3. Configure environment variables (see below)
-
-# 4. Run database migrations
+# 3. Run database migrations
 cd backend && alembic upgrade head && cd ..
 
-# 5. Start both projects
+# 4. Start backend + frontend
 npm run dev
-
-# 6. (Optional) Start admin dashboard
-cd web && npm install && npm run dev
 ```
 
 > **First-time startup** seeds a default admin user: `admin@raycarwash.com` / `Admin1234!`
-> Idempotent — only created if no user with that email exists. Change the password before deploying.
 
 | Service | URL |
 |---|---|
@@ -109,46 +121,8 @@ cd web && npm install && npm run dev
 | ReDoc | http://localhost:8000/redoc |
 | Expo (frontend) | http://localhost:8081 |
 | Admin dashboard | http://localhost:3000 |
-
----
-
-## Environment variables
-
-**Backend** — `backend/.env`:
-```
-DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/raycarwash
-
-# JWT signing — RS256 asymmetric key pair (replaces old JWT_SECRET_KEY)
-# Generate: openssl genrsa -out jwt_private.pem 2048 && openssl rsa -in jwt_private.pem -pubout -out jwt_public.pem
-# Store as single-line with \n: JWT_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"
-JWT_PRIVATE_KEY=<PEM-encoded RSA-2048 private key>
-JWT_PUBLIC_KEY=<PEM-encoded RSA-2048 public key>
-
-ENCRYPTION_KEY=your-32-char-encryption-key-here   # PII encryption (separate from JWT)
-PHONE_LOOKUP_KEY=your-32-char-lookup-key-here      # Phone hash for dedup
-DEBUG=true
-
-# Optional integrations
-STRIPE_SECRET_KEY=sk_test_...
-STRIPE_WEBHOOK_SECRET=whsec_...
-SMTP_ENABLED=false
-GOOGLE_CLIENT_ID=
-APPLE_BUNDLE_ID=com.raycarwash.app
-REDIS_URL=redis://localhost:6379
-REQUIRE_EMAIL_VERIFICATION=false
-```
-
-**Frontend** — `frontend/.env.local`:
-```
-EXPO_PUBLIC_API_URL=http://localhost:8000
-```
-
-**Admin dashboard** — `web/.env.local`:
-```
-NEXT_PUBLIC_API_URL=http://localhost:8000
-```
-
-> For physical device testing, replace `localhost` with your machine's LAN IP.
+| Portal (public) | http://localhost:3001 |
+| Portal v2 | http://localhost:3002 |
 
 ---
 
@@ -158,10 +132,12 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 |---|---|
 | `npm run install` | Install npm deps (frontend) |
 | `npm run install-deps` | Create Python venv + install backend deps |
-| `npm run dev` | Start both backend and frontend in parallel |
-| `npm run dev:backend` | Backend only (FastAPI on port 8000) |
-| `npm run dev:frontend` | Frontend only (Expo on port 8081) |
-| `cd web && npm run dev` | Admin dashboard (Next.js on port 3000) |
+| `npm run dev` | Backend + frontend concurrently |
+| `npm run dev:backend` | Backend only (FastAPI :8000) |
+| `npm run dev:frontend` | Frontend only (Expo :8081) |
+| `npm run dev:admin` | Admin dashboard (Next.js :3000) |
+| `npm run dev:portal` | Public portal (Next.js :3001) |
+| `npm run dev:portal-v2` | Portal v2 (Next.js :3002) |
 
 ---
 
@@ -174,103 +150,53 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 - Pydantic v2
 - Alembic (migrations)
 - Stripe SDK v11 + Stripe Identity
-- WebAuthn (passkeys via FIDO2)
+- WebAuthn (passkeys via FIDO2), TOTP (2FA)
 - slowapi (rate limiting)
-- H3 (Uber's geospatial indexing library)
-- Redis / fakeredis (Pub/Sub + location caching)
+- H3 (Uber's geospatial indexing)
+- Redis / fakeredis (Pub/Sub, caching, idempotency)
+- RS256 asymmetric JWT (JWKS at `/.well-known/jwks.json`)
 
 ### Frontend (mobile)
-
-- React Native (Expo)
+- React Native (Expo 54)
 - React Navigation
 - Axios + WebSocket
 - Zustand (auth store)
 - expo-secure-store
 
-### Admin dashboard
-
-- Next.js 15 (App Router)
+### Web
+- Next.js 16 (App Router) — 3 workspaces
 - TypeScript + Tailwind CSS
-- TanStack Table (server-side pagination)
+- next-intl (portal i18n)
+- TanStack Table (admin)
 
 ---
 
 ## Architecture: DDD-lite
 
-The backend was refactored from a monolithic `app/` structure into a Domain-Driven Design layout. Each domain owns its models, schemas, repository, service, and router. Cross-domain dependencies go through the `shared/` layer or direct domain imports (no circular dependencies).
+The backend is organized into 19 domains under `domains/`. Each domain owns its models, schemas, repository, service, and router. Cross-domain imports go direct (no shims).
 
-**Import rules:**
-
-- `domains/X` → may import from `domains/Y` (direct, no shims)
-- `domains/X` → may import from `infrastructure/` and `shared/`
-- `workers/` → imports from `domains/` and `infrastructure/`
-- `app/core/` and `app/db/` → remain as stable infrastructure (not domain code)
-
----
-
-## User flows
-
-### Client
-
-1. Register (email + password)
-2. Complete profile (name + phone) → assigned `client` role
-3. Add vehicle (VIN lookup via NHTSA or manual)
-4. Payment method (Stripe)
-5. Home — ready to book
-
-**Blocking steps**: vehicle + payment. Everything else is optional.
-
-### Detailer
-
-1. Register + toggle "Become a Service Provider"
-2. Select service type (Detailer — Mechanic/Wash coming Sprint 7)
-3. Complete profile (name + phone) → assigned `detailer` role
-4. DetailerOnboarding wizard:
-   a. Personal info (legal name, DOB, address)
-   b. Identity verification (Stripe Identity — may take minutes/hours)
-   c. Consent + background check
-   d. Confirmation
-5. Dashboard — ready to receive jobs
-
-**Blocking steps**: identity verification (step 4b). Cannot receive payments without KYC approval.
-
----
-
-## Sprint roadmap
-
-| Sprint | Status | Key features |
-|---|---|---|
-| 1 | ✅ Done | Project skeleton, DB setup |
-| 2 | ✅ Done | Auth (identifier-first), vehicles, reviews |
-| 3 | ✅ Done | Appointments, services, Stripe payments, state machine |
-| 4 | ✅ Done | Detailer discovery, webhooks, refund policy, timezone scheduling, rate limiting, social login |
-| 5 | ✅ Done | Addons, multi-vehicle bookings, smart matching, email service |
-| 6 | ✅ Done | DDD-lite refactor, WebAuthn passkeys, Stripe Identity, H3 geospatial, auto-assignment, WebSocket real-time |
-| 7 | ✅ Done | Auth hardening: RS256 JWT, stateful email/WebAuthn tokens, lazy loading fix, auth router split, admin domain + dashboard |
-| 8 | ✅ Done | Push notifications (Expo Push API), default admin user seed, user flow + admin tests 44/44 |
-| 9 | ✅ Done | Admin panel: appointments / verifications / payments queues + 9 new admin endpoints. Mobile UI consistency system: 7 shared components (Button, Card, StatusBadge, EmptyState, SectionHeader, Typography, AnimatedInput) + semantic tokens (Spacing, Radius, TypographyScale, Colors.status) refactor across all 21 screens |
-| 10 | 🗺️ Planned | TOTP/2FA, mechanic vertical (multiservice), public marketing site (`marketing/` Next.js workspace) |
+**Key principles:**
+- Prices in integer cents (never floats). Display: `/ 100`.
+- Soft deletes on every entity (`is_deleted` + `deleted_at`). Never hard-delete.
+- Timestamps are UTC. Convert to local only for display.
+- Response envelope: `Envelope[T]` on every v1 endpoint.
+- Append-only audit log on every mutation.
+- Session enforcement (`sid` claim) on login-sensitive operations.
+- Idempotency-Key middleware (Redis-backed) for payment-sensitive endpoints.
 
 ---
 
 ## Test status
 
-```text
-tests/test_auth.py         70/70  ✅ all pass  (includes role-escalation security test)
-tests/test_appointments.py 19/19  ✅ all pass
-tests/test_user_flows.py   17/17  ✅ all pass  (client + detailer registration flows)
-tests/test_admin.py        27/27  ✅ all pass  (all /api/v1/admin/* endpoints)
-tests/test_detailers.py    ~pass  (profile fixture edge cases pending)
-tests/test_matching.py     ~pass  (H3 index requires real Redis for spatial tests)
-tests/test_vehicles.py     ~pass  (body_class / onboarding edge cases pending)
-```
+**618 tests across 49 files — 563/563 green suite** (excluding 3 ⚠️ files).
 
 Run tests:
-
 ```bash
 cd backend
 python -m pytest tests/test_auth.py tests/test_appointments.py tests/test_user_flows.py tests/test_admin.py -q
 ```
+
+See [`AGENTS.md`](./AGENTS.md) for the full test matrix and per-file counts.
 
 ---
 

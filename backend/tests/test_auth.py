@@ -439,7 +439,7 @@ class TestCompleteProfile:
 
     @pytest.mark.asyncio
     async def test_complete_profile_detailer_flow(self, client: AsyncClient):
-        """Registro → complete-profile con service_type=detailer → next_step=detailer_onboarding."""
+        """Registro → complete-profile con service_type=detailer → KYC pending."""
         reg = await client.post(
             "/auth/register",
             json={"email": "complete2@example.com", "password": "Secure1234!"},
@@ -453,15 +453,17 @@ class TestCompleteProfile:
         )
         assert response.status_code == 200
         data = response.json()
-        assert data["next_step"] == "detailer_onboarding"
+        assert data["next_step"] == "kyc"
         assert data["assigned_role"] == "detailer"
-        assert data["access_token"] is not None
+        assert data["temp_token"] is not None
+        assert data["access_token"] is None
+        assert data["needs_profile_completion"] is True
 
     @pytest.mark.asyncio
     async def test_complete_profile_assigns_detailer_via_service_type(
         self, client: AsyncClient, incomplete_user: User
     ):
-        """service_type=detailer → backend asigna rol detailer e ignora cualquier campo role."""
+        """service_type=detailer → backend asigna rol detailer y deja KYC pendiente."""
         from domains.auth.service import AuthService
 
         onboarding_token = AuthService.create_onboarding_token(incomplete_user.id)
@@ -474,7 +476,7 @@ class TestCompleteProfile:
         assert response.status_code == 200
         data = response.json()
         assert data["assigned_role"] == "detailer"
-        assert data["next_step"] == "detailer_onboarding"
+        assert data["next_step"] == "kyc"
 
     @pytest.mark.asyncio
     async def test_complete_profile_rejects_after_onboarding_completed(

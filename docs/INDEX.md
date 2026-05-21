@@ -1,6 +1,6 @@
 # Documentation Index — RayCarWash
 
-> **Last updated:** 2026-05-19
+> **Last updated:** 2026-05-21
 > **Purpose:** Single entry point for all project documentation, plans, and audits.
 > **Convention:** Every new plan MUST register here before creation.
 
@@ -107,12 +107,13 @@ graph TD
 | `15-marketing-content-cms.md` | :hourglass: Planning | Medium | `12-marketing-redesign.md` | — |
 | `16-coverage-zip-service.md` | :hourglass: Planning | Medium-High | `infrastructure/h3` | `15-marketing-content-cms.md` |
 | `17-waitlist-system.md` | :hourglass: Planning | Medium | `infrastructure/email` | `15-marketing-content-cms.md` |
+| `18-provider-boost-monetization.md` | :hourglass: Planning | Low | `12`, `11`, `16` | — |
 | `19-api-contracts-track1-marketing.md` | :white_check_mark: **Done — 9/9 endpoints shipped** | High | — | `12-marketing-redesign.md`, `15`, `16`, `17` |
 | `20-api-contracts-track2-provider-dashboard.md` | :white_check_mark: Contract — approved | High | `11-provider-dashboard.md`, `09` | — |
-| `21-api-contracts-track3-customer-dashboard.md` | :construction: **In progress — §2 cancel shipped** | Medium | `13-customer-dashboard.md`, `04-vehicles.md` | — |
-| **`22-security-architecture-audit.md`** | :construction: **In progress — H1 fixed in code; D1-D8 reconciled** | **Critical** | `19`, `20`, `21` (remediation applied) | All Plans |
-| **`23-auth-hardening.md`** | :construction: **Fase 1 + 2 + 3 + 6 + 8 complete: Session+RBAC stack (sid + cache + enforce flag + device parser + sessions UX + require_permission + daily cleanup worker). Pending: F4 ABAC, F5 anomaly detection, F7 IP binding.** | **Critical** | None | — (absorbe `10-authorization-layer.md`) |
-| **`24-auth-pages-and-admin-dashboard.md`** | :white_check_mark: **Wave 1 done · Wave 2 complete (A/B/C/D/E) · C-2 shipped** (Wave 1: 8 items; Wave 2: ops dashboard + appointment refund/reassign + detailer approve/suspend + reviews moderation + customers/credits; C-2: promo codes catalogue + NEW10 seed + lookup/preview endpoints. P-4/P-5/S-2 still deferred to Waves 3) | High | `22`, `23`, `m_019` | `19`, `20`, `21` |
+| `21-api-contracts-track3-customer-dashboard.md` | :white_check_mark: **Done — §2 cancel + refund shipped** | Medium | `13-customer-dashboard.md`, `04-vehicles.md` | — |
+| **`22-security-architecture-audit.md`** | :white_check_mark: **Done — H1 fixed in code; D1-D8 reconciled** | **Critical** | `19`, `20`, `21` (remediation applied) | All Plans |
+| **`23-auth-hardening.md`** | :white_check_mark: **Fases 1-3 + 6 + 8 complete: Session+RBAC stack** (sid + cache + enforce flag + device parser + sessions UX + require_permission + daily cleanup). Pending: F4 ABAC, F5 anomaly detection, F7 IP binding deferred. | **Critical** | None | — (absorbe `10-authorization-layer.md`) |
+| **`24-auth-pages-and-admin-dashboard.md`** | :white_check_mark: **Wave 1 + Wave 2 (A/B/C/D/E) + C-2 complete** | High | `22`, `23`, `m_019` | `19`, `20`, `21` |
 | `25-designer-to-next-frontend.md` | :hourglass: Planning | High | — (frontend port only) | `11`, `13`, `24` (data session swaps mocks) |
 | `26-mock-to-backend-data-wiring.md` | :hourglass: Planning | High | `25` (provides the `lib/mock/*` seams) | `11`, `13`, `14`, `24`, `19`, `20`, `21` |
 
@@ -201,3 +202,5 @@ Skills are **codified professional expertise** for reuse across sprints. Each sk
 | Alembic migrations | `backend/alembic/versions/` |
 | Docker services | `docker-compose.yml` |
 | Tests | `backend/tests/*.py` |
+| Claude Design prototypes | `raycarwash/project/` — 12 HTML pages + JSX components |
+| Portal v2 (PR #8) | `web/portal_v2/` — Next.js 16 full rebuild |
