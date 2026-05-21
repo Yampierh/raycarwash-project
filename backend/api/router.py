@@ -41,6 +41,7 @@ from domains.users.provider_verification_router import router as user_provider_v
 from domains.admin.router            import router as admin_router
 from domains.notifications.router   import router as notifications_router
 from domains.public.router          import router as public_router
+from domains.promos.router          import router as promos_router
 
 api_router = APIRouter()
 
@@ -142,6 +143,9 @@ api_router.include_router(notifications_router)
 
 # Public marketing — /api/v1/public/* (Plan 19 Track 1, no auth)
 api_router.include_router(public_router)
+
+# Promo codes — /api/v1/promo/* (Plan 24 C-2, optional auth)
+api_router.include_router(promos_router)
 
 # Development-only: local-storage upload sink (replaces S3 presigned PUT in dev).
 # Never registered when RAYCARWASH_ENV=production — frontend talks to AWS S3 directly.

@@ -39,6 +39,7 @@ from app.db.seed_public import (
     seed_testimonials,
 )
 from app.db.seed_cities import seed_cities
+from app.db.seed_promos import seed_promos
 
 from infrastructure.db.base import Base
 
@@ -138,6 +139,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     async with AsyncSessionLocal() as seed_session:
         await seed_cities(seed_session)
         logger.info("✅  Cities seeded (Plan 24).")
+
+    # Plan 24 C-2 (Wave 4) — promo catalogue. Seeds NEW10.
+    async with AsyncSessionLocal() as seed_session:
+        await seed_promos(seed_session)
+        logger.info("✅  Promos seeded (Plan 24 C-2).")
 
     # Redis pool — real Redis if available, else fakeredis in dev
     app.state.redis = await init_redis_pool(settings.REDIS_URL)
