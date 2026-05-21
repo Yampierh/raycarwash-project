@@ -17,7 +17,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, text as sa_text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -26,6 +26,12 @@ from infrastructure.db.base import Base, TimestampMixin
 
 class PaymentMethod(TimestampMixin, Base):
     __tablename__ = "payment_methods"
+    __table_args__ = (
+        Index("idx_payment_methods_user_active", "user_id", sa_text("created_at DESC"), postgresql_where=sa_text("is_deleted = false")),
+        Index("idx_payment_methods_default_unique", "user_id", unique=True, postgresql_where=sa_text("is_default = true AND is_deleted = false")),
+        CheckConstraint("exp_month IS NULL OR (exp_month >= 1 AND exp_month <= 12)", name="ck_payment_methods_exp_month_range"),
+        CheckConstraint("exp_year IS NULL OR exp_year >= 2000", name="ck_payment_methods_exp_year_min"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4,

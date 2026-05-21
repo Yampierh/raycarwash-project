@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     # ---------------------------------------------------------------- #
     PROJECT_NAME: str = Field(default="RayCarwash API")
     API_VERSION: str  = Field(default="v1")
+    ENVIRONMENT: str  = Field(default="development", description="development | staging | production")
     DEBUG: bool       = Field(default=False, description="Never True in production.")
     APP_BASE_URL: str = Field(
         default="https://api.raycarwash.com",

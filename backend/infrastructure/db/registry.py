@@ -27,13 +27,14 @@ from domains.users.payment_method import PaymentMethod  # noqa: F401
 from domains.users.client_favorite import ClientFavorite  # noqa: F401
 from domains.users.document import Document, DocumentType  # noqa: F401
 from domains.users.models import User, ClientProfile, OnboardingStatus  # noqa: F401
-from domains.providers.models import ProviderProfile  # noqa: F401
+from domains.providers.models import ProviderProfile, ProviderAvailabilityException  # noqa: F401
 from domains.providers.portfolio_photo import ProviderPortfolioPhoto  # noqa: F401
 from domains.providers.achievement import ProviderAchievement  # noqa: F401
 from domains.vehicles.models import Vehicle, VehicleSize  # noqa: F401
 from domains.vehicles.vehicle_photo import VehiclePhoto  # noqa: F401
 from domains.appointments.models import (  # noqa: F401
     Appointment, AppointmentVehicle, AppointmentAddon, AppointmentAssignment,
+    AppointmentStatusHistory, AppointmentCancellation,
     AppointmentStatus, AssignmentStatus, TERMINAL_STATUSES, VALID_TRANSITIONS,
 )
 from domains.services_catalog.models import (  # noqa: F401
@@ -44,7 +45,7 @@ from domains.services_catalog.models import (  # noqa: F401
 from domains.reviews.models import Review  # noqa: F401
 from domains.payments.models import (  # noqa: F401
     FareEstimate, ProcessedWebhook,
-    PaymentLedger, LedgerSeal, LedgerRevision,
+    PaymentLedger, LedgerSeal, LedgerRevision, Refund, ProviderPayout,
 )
 from domains.audit.models import AuditLog, AuditAction  # noqa: F401
 from domains.notifications.models import DeviceToken, DevicePlatform  # noqa: F401
@@ -56,4 +57,5 @@ from domains.public.models import (  # noqa: F401
     WaitlistEntry, WaitlistRole,
 )
 from domains.locations.models import City, CityStatus  # noqa: F401
+from domains.credits.models import CustomerCredit  # noqa: F401
 from infrastructure.db.base import Base  # noqa: F401

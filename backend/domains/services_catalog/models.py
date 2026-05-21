@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    Boolean, DateTime, Enum, ForeignKey, Integer, String, Text,
+    Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Integer, String, Text,
     UniqueConstraint, text as sa_text,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -35,6 +35,12 @@ class ServiceCategoryTable(TimestampMixin, Base):
 
 class Service(TimestampMixin, Base):
     __tablename__ = "services"
+    __table_args__ = (
+        CheckConstraint("base_price_cents >= 0", name="ck_services_base_price_nonnegative"),
+        CheckConstraint("base_duration_minutes > 0", name="ck_services_base_duration_positive"),
+        CheckConstraint("price_small >= 0 AND price_medium >= 0 AND price_large >= 0 AND price_xl >= 0", name="ck_services_prices_nonnegative"),
+        CheckConstraint("duration_small_minutes > 0 AND duration_medium_minutes > 0 AND duration_large_minutes > 0 AND duration_xl_minutes > 0", name="ck_services_durations_positive"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
@@ -64,6 +70,10 @@ class Service(TimestampMixin, Base):
 
 class Addon(TimestampMixin, Base):
     __tablename__ = "addons"
+    __table_args__ = (
+        CheckConstraint("price_cents >= 0", name="ck_addons_price_nonnegative"),
+        CheckConstraint("duration_minutes > 0", name="ck_addons_duration_positive"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
@@ -86,7 +96,10 @@ class ProviderService(TimestampMixin, Base):
     DETAILER lists ceramic-coating.
     """
     __tablename__ = "provider_services"
-    __table_args__ = (UniqueConstraint("provider_id", "service_id", name="uq_provider_service"),)
+    __table_args__ = (
+        UniqueConstraint("provider_id", "service_id", name="uq_provider_service"),
+        CheckConstraint("custom_price_cents IS NULL OR custom_price_cents >= 0", name="ck_provider_services_custom_price_nonnegative"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     provider_id: Mapped[uuid.UUID] = mapped_column(

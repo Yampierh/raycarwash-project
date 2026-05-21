@@ -523,6 +523,35 @@ All endpoints require a Bearer token whose user has the `admin` role. Responses 
 |---|---|---|
 | GET | `/api/v1/admin/ops/dashboard?window=1h\|today\|7d\|30d\|90d&city=all\|<code>` | KPIs (GMV cents, bookings, active jobs, take rate, CSAT, cancel rate) + 7×16 demand heatmap (UTC-bucketed) + per-city rollup (detailers / online proxy / in-flight jobs). Bucketing keyed on `provider_profiles.home_city_code` until appointments carry an explicit city tag. KPI tiles return scalar `value`; `delta` and `spark` reserved (always `0` / `[]` in V1). |
 
+### Detailer review (Plan 24 W2-C)
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/v1/admin/detailers/{provider_id}/approve` | Transition `application_status` → `approved`. Allowed source states: `submitted \| bg_check_pending \| docs_review \| suspended` (reinstate). Body optional: `{"notes"?: str}`. Returns `{provider_id, user_email, application_status, previous_status, reviewed_at, rejection_reason: null}`. **409** on FSM violation, **404** on unknown id. Clears any prior `rejection_reason`. Audit-logged as `PROVIDER_STATUS_CHANGED`. |
+| POST | `/api/v1/admin/detailers/{provider_id}/suspend` | Transition `application_status` `approved → suspended` (only valid source). Body required: `{"reason": str (5..500)}` — stored on `provider_profiles.rejection_reason` and emitted in the audit log. Returns the same shape as `/approve` with `previous_status="approved"`. **409** if not currently `approved`. |
+
+### Reviews moderation (Plan 24 W2-D)
+
+| Method | Path | Description |
+|---|---|---|
+| GET  | `/api/v1/admin/reviews/queue` | Auto-flagged reviews (auto_pending + at least one fired rule). Rules computed at query time: `low_rating` for rating ≤ 2 and `keyword:<word>` (case-insensitive substring against a small profanity list). FIFO by `created_at`. Returns `{reviews: [{review_id, appointment_id, reviewer_email, detailer_email, rating, comment, flag_reasons: [...], created_at}], total}`. |
+| POST | `/api/v1/admin/reviews/{id}/approve` | Keep review visible. Allowed only from `auto_pending`. Body optional: `{"note"?: str (≤500)}`. **409** on FSM violation, **404** unknown id. Audit: `REVIEW_MODERATED`. |
+| POST | `/api/v1/admin/reviews/{id}/hide` | Suppress comment (rating still counts). Allowed from `auto_pending` or `approved` (so user-reported flags after the fact still work). Body required: `{"note": str (5..500)}`. **409** if already hidden. |
+
+### Customers + comp credits (Plan 24 W2-E)
+
+| Method | Path | Description |
+|---|---|---|
+| GET  | `/api/v1/admin/customers?segment=&search=&page=&per_page=` | Lists role=client users with per-row aggregates (`appointments_count`, `last_appointment_at`, `lifetime_spend_cents`, `credit_balance_cents`) and a derived `segment`. Segments: `new` (0 completed), `active` (≥1 in last 30d), `dormant` (no completion in last 90d), `vip` (≥10 completed OR ≥$1,000 lifetime spend). `segment=all` returns everyone. `search` filters by email substring. |
+| POST | `/api/v1/admin/customers/{user_id}/credits` | Issue a comp credit. Body: `{amount_cents (>0, ≤$10,000), reason (5..500), source?, expires_at?, related_appointment_id?}`. `source` enum: `admin_comp \| promo \| referral \| refund \| adjustment`. Returns the persisted `CustomerCredit` row. **404** unknown user. Audit: `CUSTOMER_CREDIT_ISSUED`. |
+
+### Appointment refund + reassign (Plan 24 W2-B)
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/v1/admin/appointments/{id}/refund` | Issue a (full or partial) Stripe refund against the appointment's PaymentIntent. Body: `{amount_cents (>0), reason: duplicate\|fraudulent\|requested_by_customer\|other, note?}`. Returns `{appointment_id, refund_id, stripe_refund_id, amount_cents, status, reason}`. Caps cumulative refunds at `actual_price` (else `estimated_price`). **404** unknown, **409** no PaymentIntent / cap exceeded. Stub-friendly (`pi_stub_*` PaymentIntents or placeholder Stripe key bypass real Stripe). Audit: `PAYMENT_REFUNDED`. |
+| POST | `/api/v1/admin/appointments/{id}/reassign` | Swap the assigned detailer. Body: `{new_detailer_id, reason (5..500)}`. Source statuses allowed: `PENDING \| SEARCHING \| NO_DETAILER_FOUND \| CONFIRMED`. `NO_DETAILER_FOUND`/`SEARCHING` auto-promote to `PENDING`. Target must be a detailer with `application_status='approved'`. **409** on FSM/target violations. Audit: `APPOINTMENT_STATUS_CHANGED` with `metadata.action="appointment_reassign"`. |
+
 ---
 
 ## Stripe Webhook

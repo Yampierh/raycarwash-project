@@ -21,7 +21,7 @@ import enum
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import BigInteger, Boolean, Date, DateTime, ForeignKey, String
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -41,6 +41,11 @@ class DocumentType(str, enum.Enum):
 
 class Document(TimestampMixin, Base):
     __tablename__ = "documents"
+    __table_args__ = (
+        Index("ix_documents_user_type", "user_id", "type"),
+        Index("ix_documents_expires_at", "expires_at"),
+        CheckConstraint("size_bytes IS NULL OR size_bytes >= 0", name="ck_documents_size_nonnegative"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4,

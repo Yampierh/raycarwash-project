@@ -136,6 +136,39 @@ class AdminAppointmentsListResponse(BaseModel):
     per_page: int
 
 
+# ── Appointment refund + reassign (Plan 24 W2-B) ────────────────────── #
+
+RefundReason = Literal["duplicate", "fraudulent", "requested_by_customer", "other"]
+
+
+class AdminAppointmentRefund(BaseModel):
+    amount_cents: int = Field(..., gt=0, description="Positive cents; capped to appointment price")
+    reason: RefundReason = Field(default="requested_by_customer")
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+class AdminAppointmentRefundResponse(BaseModel):
+    appointment_id: uuid.UUID
+    refund_id: uuid.UUID
+    stripe_refund_id: Optional[str] = None
+    amount_cents: int
+    status: str
+    reason: str
+
+
+class AdminAppointmentReassign(BaseModel):
+    new_detailer_id: uuid.UUID
+    reason: str = Field(..., min_length=5, max_length=500)
+
+
+class AdminAppointmentReassignResponse(BaseModel):
+    appointment_id: uuid.UUID
+    previous_detailer_id: Optional[uuid.UUID] = None
+    new_detailer_id: uuid.UUID
+    appointment_status: str
+    reason: str
+
+
 # ── Verifications ───────────────────────────────────────────────────── #
 
 class AdminVerificationRead(BaseModel):
@@ -153,6 +186,139 @@ class AdminVerificationRead(BaseModel):
 
 class AdminVerificationReject(BaseModel):
     reason: str = Field(..., min_length=5, max_length=500)
+
+
+# ── Detailers (Plan 24 W2-C) ────────────────────────────────────────── #
+
+# Sanctioned set of application_status states. The FSM transitions are
+# enforced at the repository layer; this Literal just documents the
+# contract and gives Pydantic a tight validator for the response shape.
+ApplicationStatusValue = Literal[
+    "draft",
+    "submitted",
+    "bg_check_pending",
+    "docs_review",
+    "approved",
+    "rejected",
+    "suspended",
+]
+
+
+class AdminDetailerApprove(BaseModel):
+    """Optional context an admin can attach to an approve transition.
+
+    Used for both `submitted → approved` (initial onboarding) and
+    `suspended → approved` (reinstate). Empty body is allowed."""
+
+    notes: Optional[str] = Field(default=None, max_length=500)
+
+
+class AdminDetailerSuspend(BaseModel):
+    """Reason required — surfaced in the detailer-facing notification
+    and stored on `provider_profiles.rejection_reason` for the support
+    audit trail."""
+
+    reason: str = Field(..., min_length=5, max_length=500)
+
+
+class AdminDetailerActionResponse(BaseModel):
+    provider_id: uuid.UUID
+    user_email: Optional[str] = None
+    application_status: ApplicationStatusValue
+    previous_status: ApplicationStatusValue
+    reviewed_at: datetime
+    rejection_reason: Optional[str] = None
+
+
+# ── Reviews moderation (Plan 24 W2-D) ───────────────────────────────── #
+
+ReviewModerationState = Literal["auto_pending", "approved", "hidden"]
+
+
+class AdminReviewQueueRow(BaseModel):
+    """One pending review surfaced to the moderation queue. `flag_reasons`
+    is computed at query time — `low_rating` for rating ≤ 2 and
+    `keyword:<word>` for each profanity hit."""
+
+    review_id: uuid.UUID
+    appointment_id: uuid.UUID
+    reviewer_email: Optional[str] = None
+    detailer_email: Optional[str] = None
+    rating: int
+    comment: Optional[str] = None
+    flag_reasons: list[str] = Field(default_factory=list)
+    created_at: datetime
+
+
+class AdminReviewQueueResponse(BaseModel):
+    reviews: list[AdminReviewQueueRow]
+    total: int
+
+
+class AdminReviewApprove(BaseModel):
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+class AdminReviewHide(BaseModel):
+    note: str = Field(..., min_length=5, max_length=500)
+
+
+class AdminReviewActionResponse(BaseModel):
+    review_id: uuid.UUID
+    moderation_state: ReviewModerationState
+    previous_state: ReviewModerationState
+    moderation_acted_at: datetime
+    moderation_note: Optional[str] = None
+
+
+# ── Customers + comp credits (Plan 24 W2-E) ─────────────────────────── #
+
+CustomerSegment = Literal["all", "new", "active", "dormant", "vip"]
+CreditSource = Literal["admin_comp", "promo", "referral", "refund", "adjustment"]
+
+
+class AdminCustomerRow(BaseModel):
+    user_id: uuid.UUID
+    email: str
+    full_name: Optional[str] = None
+    is_active: bool
+    segment: Literal["new", "active", "dormant", "vip"]
+    appointments_count: int
+    last_appointment_at: Optional[datetime] = None
+    lifetime_spend_cents: int
+    credit_balance_cents: int
+    created_at: datetime
+
+
+class AdminCustomersListResponse(BaseModel):
+    customers: list[AdminCustomerRow]
+    total: int
+    page: int
+    per_page: int
+
+
+class AdminCreditIssue(BaseModel):
+    amount_cents: int = Field(..., gt=0, le=10_000_00, description="Positive cents; max $10,000")
+    reason: str = Field(..., min_length=5, max_length=500)
+    source: CreditSource = Field(default="admin_comp")
+    expires_at: Optional[datetime] = None
+    related_appointment_id: Optional[uuid.UUID] = None
+
+
+class AdminCreditRead(BaseModel):
+    id: uuid.UUID
+    user_id: uuid.UUID
+    amount_cents: int
+    currency: str
+    reason: str
+    source: str
+    status: str
+    issued_by: Optional[uuid.UUID] = None
+    related_appointment_id: Optional[uuid.UUID] = None
+    expires_at: Optional[datetime] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
 
 
 # ── Payments ────────────────────────────────────────────────────────── #

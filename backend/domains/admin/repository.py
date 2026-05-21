@@ -16,10 +16,11 @@ from domains.auth.models import (
 from domains.users.models import User
 from domains.appointments.models import Appointment, AppointmentStatus
 from domains.providers.models import ProviderProfile
-from domains.payments.models import PaymentLedger
+from domains.payments.models import PaymentLedger, Refund
 from domains.locations.models import City
 from domains.reviews.models import Review
 from domains.audit.models import AuditLog, AuditAction
+from domains.credits.models import CustomerCredit
 
 
 class AdminRepository:
@@ -454,6 +455,588 @@ class AdminRepository:
         ))
         await self._db.flush()
         return True
+
+    # ── Detailers (Plan 24 W2-C) ──────────────────────────────────── #
+
+    # application_status FSM gates. Keep these in sync with the docstring
+    # on ProviderProfile.application_status (domains/providers/models.py).
+    _APPROVABLE_FROM = frozenset({
+        "submitted", "bg_check_pending", "docs_review", "suspended",
+    })
+    _SUSPENDABLE_FROM = frozenset({"approved"})
+
+    async def _get_provider_with_email(
+        self, provider_id: uuid.UUID,
+    ) -> tuple[ProviderProfile, str | None] | None:
+        stmt = select(ProviderProfile).where(ProviderProfile.id == provider_id)
+        profile = (await self._db.execute(stmt)).scalar_one_or_none()
+        if profile is None:
+            return None
+        email_row = await self._db.execute(
+            select(User.email).where(User.id == profile.user_id)
+        )
+        return profile, email_row.scalar_one_or_none()
+
+    async def approve_detailer(
+        self,
+        provider_id: uuid.UUID,
+        actor_id: uuid.UUID,
+        notes: str | None = None,
+    ) -> tuple[str, str, str | None] | None:
+        """Transition application_status → approved. Returns
+        (previous_status, new_status, user_email) or None if the profile
+        doesn't exist. Raises ValueError on FSM violation."""
+        found = await self._get_provider_with_email(provider_id)
+        if found is None:
+            return None
+        profile, user_email = found
+
+        prev = profile.application_status
+        if prev not in self._APPROVABLE_FROM:
+            raise ValueError(
+                f"Cannot approve from application_status='{prev}'. "
+                f"Allowed source states: {sorted(self._APPROVABLE_FROM)}"
+            )
+
+        now = datetime.now(timezone.utc)
+        profile.application_status = "approved"
+        profile.verification_reviewed_at = now
+        profile.rejection_reason = None
+        profile.updated_at = now
+
+        self._db.add(AuditLog(
+            actor_id=actor_id,
+            action=AuditAction.PROVIDER_STATUS_CHANGED,
+            entity_type="provider_profile",
+            entity_id=str(provider_id),
+            old_value={"application_status": prev},
+            new_value={"application_status": "approved"},
+            metadata_={"action": "detailer_approved", "notes": notes} if notes else {"action": "detailer_approved"},
+        ))
+        await self._db.flush()
+        return prev, "approved", user_email
+
+    async def suspend_detailer(
+        self,
+        provider_id: uuid.UUID,
+        actor_id: uuid.UUID,
+        reason: str,
+    ) -> tuple[str, str, str | None] | None:
+        """Transition application_status approved → suspended. Returns
+        (previous_status, new_status, user_email) or None if the profile
+        doesn't exist. Raises ValueError on FSM violation."""
+        found = await self._get_provider_with_email(provider_id)
+        if found is None:
+            return None
+        profile, user_email = found
+
+        prev = profile.application_status
+        if prev not in self._SUSPENDABLE_FROM:
+            raise ValueError(
+                f"Cannot suspend from application_status='{prev}'. "
+                f"Allowed source states: {sorted(self._SUSPENDABLE_FROM)}"
+            )
+
+        now = datetime.now(timezone.utc)
+        profile.application_status = "suspended"
+        profile.verification_reviewed_at = now
+        profile.rejection_reason = reason
+        profile.updated_at = now
+
+        self._db.add(AuditLog(
+            actor_id=actor_id,
+            action=AuditAction.PROVIDER_STATUS_CHANGED,
+            entity_type="provider_profile",
+            entity_id=str(provider_id),
+            old_value={"application_status": prev},
+            new_value={"application_status": "suspended"},
+            metadata_={"action": "detailer_suspended", "reason": reason},
+        ))
+        await self._db.flush()
+        return prev, "suspended", user_email
+
+    # ── Reviews moderation (Plan 24 W2-D) ─────────────────────────── #
+
+    # Static profanity / red-flag keywords. Case-insensitive substring
+    # match against Review.comment. Keep this list short and obvious —
+    # false positives are worse than false negatives at this stage; admins
+    # see the rating signal regardless.
+    _FLAG_KEYWORDS: tuple[str, ...] = (
+        "scam", "fraud", "stole", "thief", "stolen", "racist",
+    )
+    _LOW_RATING_THRESHOLD: int = 2
+
+    _APPROVE_REVIEW_FROM = frozenset({"auto_pending"})
+    _HIDE_REVIEW_FROM = frozenset({"auto_pending", "approved"})
+
+    @classmethod
+    def _compute_review_flags(cls, rating: int, comment: str | None) -> list[str]:
+        reasons: list[str] = []
+        if rating <= cls._LOW_RATING_THRESHOLD:
+            reasons.append("low_rating")
+        if comment:
+            lowered = comment.lower()
+            for kw in cls._FLAG_KEYWORDS:
+                if kw in lowered:
+                    reasons.append(f"keyword:{kw}")
+        return reasons
+
+    async def list_review_queue(self) -> list[dict]:
+        """Returns auto_pending reviews that match at least one flag rule.
+        Order by created_at ASC (oldest first — first-in-first-out)."""
+        stmt = (
+            select(Review)
+            .where(Review.moderation_state == "auto_pending")
+            .order_by(Review.created_at.asc())
+        )
+        rows = list((await self._db.execute(stmt)).scalars().all())
+
+        results: list[dict] = []
+        for r in rows:
+            reasons = self._compute_review_flags(r.rating, r.comment)
+            if not reasons:
+                continue  # auto_pending but no rule fires → don't surface
+
+            reviewer_email = (
+                await self._db.execute(select(User.email).where(User.id == r.reviewer_id))
+            ).scalar_one_or_none()
+            detailer_email = (
+                await self._db.execute(select(User.email).where(User.id == r.detailer_id))
+            ).scalar_one_or_none()
+            results.append({
+                "review_id": r.id,
+                "appointment_id": r.appointment_id,
+                "reviewer_email": reviewer_email,
+                "detailer_email": detailer_email,
+                "rating": r.rating,
+                "comment": r.comment,
+                "flag_reasons": reasons,
+                "created_at": r.created_at,
+            })
+        return results
+
+    async def approve_review(
+        self, review_id: uuid.UUID, actor_id: uuid.UUID, note: str | None = None,
+    ) -> tuple[str, str] | None:
+        """Mark review as approved (keep visible). Returns
+        (previous_state, new_state) or None if the review doesn't exist.
+        Raises ValueError on FSM violation."""
+        review = (await self._db.execute(
+            select(Review).where(Review.id == review_id)
+        )).scalar_one_or_none()
+        if review is None:
+            return None
+        prev = review.moderation_state
+        if prev not in self._APPROVE_REVIEW_FROM:
+            raise ValueError(
+                f"Cannot approve from moderation_state='{prev}'. "
+                f"Allowed source states: {sorted(self._APPROVE_REVIEW_FROM)}"
+            )
+        now = datetime.now(timezone.utc)
+        review.moderation_state = "approved"
+        review.moderation_actor_id = actor_id
+        review.moderation_acted_at = now
+        review.moderation_note = note
+
+        self._db.add(AuditLog(
+            actor_id=actor_id,
+            action=AuditAction.REVIEW_MODERATED,
+            entity_type="review",
+            entity_id=str(review_id),
+            old_value={"moderation_state": prev},
+            new_value={"moderation_state": "approved"},
+            metadata_={"action": "review_approved", "note": note} if note else {"action": "review_approved"},
+        ))
+        await self._db.flush()
+        return prev, "approved"
+
+    async def hide_review(
+        self, review_id: uuid.UUID, actor_id: uuid.UUID, note: str,
+    ) -> tuple[str, str] | None:
+        """Mark review as hidden. Returns (previous_state, new_state) or
+        None if the review doesn't exist. Raises ValueError on FSM
+        violation."""
+        review = (await self._db.execute(
+            select(Review).where(Review.id == review_id)
+        )).scalar_one_or_none()
+        if review is None:
+            return None
+        prev = review.moderation_state
+        if prev not in self._HIDE_REVIEW_FROM:
+            raise ValueError(
+                f"Cannot hide from moderation_state='{prev}'. "
+                f"Allowed source states: {sorted(self._HIDE_REVIEW_FROM)}"
+            )
+        now = datetime.now(timezone.utc)
+        review.moderation_state = "hidden"
+        review.moderation_actor_id = actor_id
+        review.moderation_acted_at = now
+        review.moderation_note = note
+
+        self._db.add(AuditLog(
+            actor_id=actor_id,
+            action=AuditAction.REVIEW_MODERATED,
+            entity_type="review",
+            entity_id=str(review_id),
+            old_value={"moderation_state": prev},
+            new_value={"moderation_state": "hidden"},
+            metadata_={"action": "review_hidden", "note": note},
+        ))
+        await self._db.flush()
+        return prev, "hidden"
+
+    # ── Appointments: refund + reassign (Plan 24 W2-B) ────────────── #
+
+    # States that allow reassignment — must not yet be in active service.
+    _REASSIGNABLE_STATUSES = frozenset({
+        AppointmentStatus.PENDING,
+        AppointmentStatus.SEARCHING,
+        AppointmentStatus.NO_DETAILER_FOUND,
+        AppointmentStatus.CONFIRMED,
+    })
+
+    @staticmethod
+    def _appointment_max_refundable_cents(appt: Appointment) -> int:
+        """The cap for a refund. Prefer actual_price (post-completion total)
+        else the estimated price."""
+        return int(appt.actual_price or appt.estimated_price)
+
+    async def refund_appointment(
+        self,
+        *,
+        appointment_id: uuid.UUID,
+        actor_id: uuid.UUID,
+        amount_cents: int,
+        reason: str,
+        note: str | None,
+    ) -> tuple[Refund, str | None] | None:
+        """Persist a Refund row + issue the Stripe refund via PaymentService.
+
+        Returns (refund, stripe_refund_id) or None if the appointment
+        doesn't exist. Raises ValueError on FSM / business-rule violations
+        (no PaymentIntent, amount exceeds cap, already fully refunded).
+        """
+        appt = (await self._db.execute(
+            select(Appointment).where(
+                Appointment.id == appointment_id,
+                Appointment.is_deleted.is_(False),
+            )
+        )).scalar_one_or_none()
+        if appt is None:
+            return None
+        if not appt.stripe_payment_intent_id:
+            raise ValueError("Appointment has no PaymentIntent; nothing to refund.")
+
+        max_refundable = self._appointment_max_refundable_cents(appt)
+        prior_refunded_stmt = (
+            select(func.coalesce(func.sum(Refund.amount_cents), 0))
+            .where(
+                Refund.appointment_id == appointment_id,
+                Refund.status != "failed",
+            )
+        )
+        prior_refunded = int(
+            (await self._db.execute(prior_refunded_stmt)).scalar_one()
+        )
+        if prior_refunded + amount_cents > max_refundable:
+            raise ValueError(
+                f"Refund cap exceeded: prior={prior_refunded}¢, "
+                f"requested={amount_cents}¢, cap={max_refundable}¢."
+            )
+
+        # Issue via Stripe (auto-stub in tests / dev).
+        from domains.payments.service import PaymentService
+
+        payment_service = PaymentService(self._db)
+        stripe_refund_id = await payment_service.create_refund(
+            payment_intent_id=appt.stripe_payment_intent_id,
+            amount_cents=amount_cents,
+            reason=reason if reason in {"duplicate", "fraudulent", "requested_by_customer"} else "requested_by_customer",
+        )
+
+        refund = Refund(
+            appointment_id=appointment_id,
+            stripe_refund_id=stripe_refund_id,
+            amount_cents=amount_cents,
+            currency="usd",
+            reason=note or reason,
+            status="succeeded" if stripe_refund_id else "pending",
+            created_by_user_id=actor_id,
+            metadata_={"admin_initiated": True, "reason_code": reason, "note": note},
+        )
+        self._db.add(refund)
+        await self._db.flush()
+
+        self._db.add(AuditLog(
+            actor_id=actor_id,
+            action=AuditAction.PAYMENT_REFUNDED,
+            entity_type="appointment",
+            entity_id=str(appointment_id),
+            new_value={
+                "amount_cents": amount_cents,
+                "stripe_refund_id": stripe_refund_id,
+            },
+            metadata_={
+                "action": "appointment_refund",
+                "reason_code": reason,
+                "note": note,
+                "prior_refunded": prior_refunded,
+            },
+        ))
+        await self._db.flush()
+        return refund, stripe_refund_id
+
+    async def reassign_appointment(
+        self,
+        *,
+        appointment_id: uuid.UUID,
+        new_detailer_id: uuid.UUID,
+        actor_id: uuid.UUID,
+        reason: str,
+    ) -> tuple[uuid.UUID | None, uuid.UUID, str] | None:
+        """Swap the detailer on an appointment. Returns
+        (previous_detailer_id, new_detailer_id, new_status) or None if
+        the appointment doesn't exist. Raises ValueError on FSM /
+        business-rule violations."""
+        appt = (await self._db.execute(
+            select(Appointment).where(
+                Appointment.id == appointment_id,
+                Appointment.is_deleted.is_(False),
+            )
+        )).scalar_one_or_none()
+        if appt is None:
+            return None
+        if appt.status not in self._REASSIGNABLE_STATUSES:
+            raise ValueError(
+                f"Cannot reassign from status='{appt.status.value}'. "
+                f"Allowed: {sorted(s.value for s in self._REASSIGNABLE_STATUSES)}"
+            )
+        if appt.detailer_id == new_detailer_id:
+            raise ValueError("New detailer is already assigned to this appointment.")
+
+        # Validate the target is actually a detailer with an approved profile.
+        new_provider = (await self._db.execute(
+            select(ProviderProfile).where(
+                ProviderProfile.user_id == new_detailer_id,
+                ProviderProfile.is_deleted.is_(False),
+            )
+        )).scalar_one_or_none()
+        if new_provider is None:
+            raise ValueError("Target user is not a detailer.")
+        if new_provider.application_status != "approved":
+            raise ValueError(
+                f"Target detailer is not approved (application_status="
+                f"'{new_provider.application_status}')."
+            )
+
+        prev = appt.detailer_id
+        appt.detailer_id = new_detailer_id
+        # If the appointment was orphaned (NO_DETAILER_FOUND / SEARCHING),
+        # bringing it back to PENDING signals the next pipeline stage that
+        # the new detailer should be offered the job.
+        if appt.status in (
+            AppointmentStatus.NO_DETAILER_FOUND, AppointmentStatus.SEARCHING,
+        ):
+            appt.status = AppointmentStatus.PENDING
+        appt.updated_at = datetime.now(timezone.utc)
+
+        self._db.add(AuditLog(
+            actor_id=actor_id,
+            action=AuditAction.APPOINTMENT_STATUS_CHANGED,
+            entity_type="appointment",
+            entity_id=str(appointment_id),
+            old_value={"detailer_id": str(prev) if prev else None},
+            new_value={"detailer_id": str(new_detailer_id)},
+            metadata_={"action": "appointment_reassign", "reason": reason},
+        ))
+        await self._db.flush()
+        return prev, new_detailer_id, appt.status.value
+
+    # ── Customers + credits (Plan 24 W2-E) ────────────────────────── #
+
+    # VIP/segment thresholds — tuned for the early dataset. Promote to
+    # platform_settings (Wave 4) once we have real volume.
+    _VIP_LIFETIME_APPTS = 10
+    _VIP_LIFETIME_SPEND_CENTS = 100_000  # $1,000
+    _ACTIVE_WINDOW_DAYS = 30
+    _DORMANT_WINDOW_DAYS = 90
+
+    @classmethod
+    def _classify_segment(
+        cls,
+        *,
+        appointments_count: int,
+        last_appt_at: datetime | None,
+        lifetime_spend_cents: int,
+        now: datetime,
+    ) -> str:
+        if appointments_count == 0:
+            return "new"
+        if (
+            appointments_count >= cls._VIP_LIFETIME_APPTS
+            or lifetime_spend_cents >= cls._VIP_LIFETIME_SPEND_CENTS
+        ):
+            return "vip"
+        if last_appt_at and (now - last_appt_at).days <= cls._ACTIVE_WINDOW_DAYS:
+            return "active"
+        return "dormant"
+
+    async def list_customers(
+        self,
+        *,
+        segment: str = "all",
+        page: int = 1,
+        per_page: int = 20,
+        search: str | None = None,
+    ) -> tuple[list[dict], int]:
+        """Customers (role=client) with per-row aggregates. Segment
+        filtering is applied AFTER fetching the page; for the dashboard
+        view this is fine — total counts apply to the underlying client
+        population, not the post-filter set."""
+        # Base query — users with the client role, oldest first
+        base = (
+            select(User)
+            .join(UserRoleAssociation, UserRoleAssociation.user_id == User.id)
+            .join(Role, Role.id == UserRoleAssociation.role_id)
+            .where(
+                Role.name == "client",
+                User.is_deleted.is_(False),
+            )
+        )
+        if search:
+            base = base.where(User.email.ilike(f"%{search}%"))
+
+        total = (await self._db.execute(
+            select(func.count()).select_from(base.subquery())
+        )).scalar_one()
+
+        stmt = (
+            base
+            .order_by(User.created_at.desc())
+            .offset((page - 1) * per_page)
+            .limit(per_page)
+        )
+        users = list((await self._db.execute(stmt)).scalars().all())
+        if not users:
+            return [], total
+
+        user_ids = [u.id for u in users]
+        now = datetime.now(timezone.utc)
+
+        # Per-user appointments aggregate (completed only)
+        appt_stmt = (
+            select(
+                Appointment.client_id,
+                func.count(Appointment.id).label("n"),
+                func.max(Appointment.scheduled_time).label("last_appt_at"),
+                func.coalesce(
+                    func.sum(
+                        func.coalesce(Appointment.actual_price, Appointment.estimated_price)
+                    ),
+                    0,
+                ).label("lifetime_cents"),
+            )
+            .where(
+                Appointment.client_id.in_(user_ids),
+                Appointment.status == AppointmentStatus.COMPLETED,
+            )
+            .group_by(Appointment.client_id)
+        )
+        appt_rows = (await self._db.execute(appt_stmt)).all()
+        appt_by_user = {
+            r.client_id: (r.n, r.last_appt_at, r.lifetime_cents) for r in appt_rows
+        }
+
+        # Per-user active credit balance
+        credit_stmt = (
+            select(
+                CustomerCredit.user_id,
+                func.coalesce(func.sum(CustomerCredit.amount_cents), 0).label("bal"),
+            )
+            .where(
+                CustomerCredit.user_id.in_(user_ids),
+                CustomerCredit.status == "active",
+            )
+            .group_by(CustomerCredit.user_id)
+        )
+        credit_rows = (await self._db.execute(credit_stmt)).all()
+        credit_by_user = {r.user_id: r.bal for r in credit_rows}
+
+        rows: list[dict] = []
+        for u in users:
+            n_appts, last_appt, lifetime = appt_by_user.get(u.id, (0, None, 0))
+            seg = self._classify_segment(
+                appointments_count=n_appts,
+                last_appt_at=last_appt,
+                lifetime_spend_cents=lifetime,
+                now=now,
+            )
+            if segment != "all" and seg != segment:
+                continue
+            rows.append({
+                "user_id": u.id,
+                "email": u.email,
+                "full_name": u.full_name,
+                "is_active": u.is_active,
+                "segment": seg,
+                "appointments_count": n_appts,
+                "last_appointment_at": last_appt,
+                "lifetime_spend_cents": int(lifetime),
+                "credit_balance_cents": int(credit_by_user.get(u.id, 0)),
+                "created_at": u.created_at,
+            })
+        return rows, total
+
+    async def issue_customer_credit(
+        self,
+        *,
+        user_id: uuid.UUID,
+        actor_id: uuid.UUID,
+        amount_cents: int,
+        reason: str,
+        source: str = "admin_comp",
+        expires_at: datetime | None = None,
+        related_appointment_id: uuid.UUID | None = None,
+    ) -> CustomerCredit | None:
+        """Issue a new credit row. Returns the persisted credit, or None
+        if the target user doesn't exist."""
+        user = (await self._db.execute(
+            select(User).where(User.id == user_id, User.is_deleted.is_(False))
+        )).scalar_one_or_none()
+        if user is None:
+            return None
+
+        credit = CustomerCredit(
+            user_id=user_id,
+            amount_cents=amount_cents,
+            reason=reason,
+            source=source,
+            status="active",
+            issued_by=actor_id,
+            expires_at=expires_at,
+            related_appointment_id=related_appointment_id,
+        )
+        self._db.add(credit)
+        await self._db.flush()
+
+        self._db.add(AuditLog(
+            actor_id=actor_id,
+            action=AuditAction.CUSTOMER_CREDIT_ISSUED,
+            entity_type="customer_credit",
+            entity_id=str(credit.id),
+            new_value={
+                "user_id": str(user_id),
+                "amount_cents": amount_cents,
+                "source": source,
+            },
+            metadata_={
+                "action": "credit_issued",
+                "reason": reason,
+                "related_appointment_id": str(related_appointment_id) if related_appointment_id else None,
+            },
+        ))
+        await self._db.flush()
+        return credit
 
     # ── Payments ──────────────────────────────────────────────────── #
 

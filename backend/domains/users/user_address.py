@@ -22,8 +22,8 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text
-from sqlalchemy import Numeric
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, String, Text
+from sqlalchemy import Numeric, text as sa_text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -32,6 +32,13 @@ from infrastructure.db.base import Base, TimestampMixin
 
 class UserAddress(TimestampMixin, Base):
     __tablename__ = "user_addresses"
+    __table_args__ = (
+        Index("idx_user_addresses_user_active", "user_id", sa_text("created_at DESC"), postgresql_where=sa_text("is_deleted = false")),
+        Index("idx_user_addresses_h3", "h3_index_r9", postgresql_where=sa_text("h3_index_r9 IS NOT NULL AND is_deleted = false")),
+        Index("idx_user_addresses_default_unique", "user_id", unique=True, postgresql_where=sa_text("is_default = true AND is_deleted = false")),
+        CheckConstraint("latitude IS NULL OR (latitude >= -90 AND latitude <= 90)", name="ck_user_addresses_latitude_range"),
+        CheckConstraint("longitude IS NULL OR (longitude >= -180 AND longitude <= 180)", name="ck_user_addresses_longitude_range"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4,

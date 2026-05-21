@@ -10,9 +10,25 @@ from domains.admin.repository import AdminRepository
 from domains.admin.schemas import (
     AdminAppointmentDetail,
     AdminAppointmentRead,
+    AdminAppointmentReassign,
+    AdminAppointmentReassignResponse,
+    AdminAppointmentRefund,
+    AdminAppointmentRefundResponse,
     AdminAppointmentStatusUpdate,
     AdminAppointmentsListResponse,
+    AdminCreditIssue,
+    AdminCreditRead,
+    AdminCustomerRow,
+    AdminCustomersListResponse,
+    AdminDetailerActionResponse,
+    AdminDetailerApprove,
+    AdminDetailerSuspend,
     AdminLedgerEntryRead,
+    AdminReviewActionResponse,
+    AdminReviewApprove,
+    AdminReviewHide,
+    AdminReviewQueueResponse,
+    AdminReviewQueueRow,
     AdminLedgerListResponse,
     AdminPaymentSummary,
     AdminStats,
@@ -528,6 +544,76 @@ async def get_appointment(
     return AdminAppointmentDetail(**data)
 
 
+@router.post(
+    "/appointments/{appointment_id}/refund",
+    response_model=AdminAppointmentRefundResponse,
+    summary="Issue a (full or partial) Stripe refund on an appointment",
+)
+async def refund_appointment(
+    appointment_id: uuid.UUID,
+    body: AdminAppointmentRefund,
+    admin: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> AdminAppointmentRefundResponse:
+    repo = AdminRepository(db)
+    try:
+        result = await repo.refund_appointment(
+            appointment_id=appointment_id,
+            actor_id=admin.id,
+            amount_cents=body.amount_cents,
+            reason=body.reason,
+            note=body.note,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Appointment not found.")
+    await db.commit()
+    refund, stripe_refund_id = result
+    return AdminAppointmentRefundResponse(
+        appointment_id=appointment_id,
+        refund_id=refund.id,
+        stripe_refund_id=stripe_refund_id,
+        amount_cents=refund.amount_cents,
+        status=refund.status,
+        reason=body.reason,
+    )
+
+
+@router.post(
+    "/appointments/{appointment_id}/reassign",
+    response_model=AdminAppointmentReassignResponse,
+    summary="Reassign a not-yet-active appointment to a different detailer",
+)
+async def reassign_appointment(
+    appointment_id: uuid.UUID,
+    body: AdminAppointmentReassign,
+    admin: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> AdminAppointmentReassignResponse:
+    repo = AdminRepository(db)
+    try:
+        result = await repo.reassign_appointment(
+            appointment_id=appointment_id,
+            new_detailer_id=body.new_detailer_id,
+            actor_id=admin.id,
+            reason=body.reason,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Appointment not found.")
+    await db.commit()
+    prev, new_det, new_status = result
+    return AdminAppointmentReassignResponse(
+        appointment_id=appointment_id,
+        previous_detailer_id=prev,
+        new_detailer_id=new_det,
+        appointment_status=new_status,
+        reason=body.reason,
+    )
+
+
 @router.patch(
     "/appointments/{appointment_id}/status",
     response_model=AdminAppointmentDetail,
@@ -607,6 +693,223 @@ async def reject_verification(
     if match is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Provider not found.")
     return AdminVerificationRead(**match)
+
+
+# ── Detailers (Plan 24 W2-C) ───────────────────────────────────────── #
+
+@router.post(
+    "/detailers/{provider_id}/approve",
+    response_model=AdminDetailerActionResponse,
+    summary="Approve a detailer application (or reinstate from suspended)",
+)
+async def approve_detailer(
+    provider_id: uuid.UUID,
+    body: AdminDetailerApprove | None = None,
+    admin: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> AdminDetailerActionResponse:
+    repo = AdminRepository(db)
+    try:
+        result = await repo.approve_detailer(
+            provider_id=provider_id,
+            actor_id=admin.id,
+            notes=body.notes if body else None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Provider not found.")
+    await db.commit()
+    prev, new_status, user_email = result
+    return AdminDetailerActionResponse(
+        provider_id=provider_id,
+        user_email=user_email,
+        application_status=new_status,  # type: ignore[arg-type]
+        previous_status=prev,  # type: ignore[arg-type]
+        reviewed_at=datetime.now(timezone.utc),
+        rejection_reason=None,
+    )
+
+
+@router.post(
+    "/detailers/{provider_id}/suspend",
+    response_model=AdminDetailerActionResponse,
+    summary="Suspend an approved detailer (reversible via /approve)",
+)
+async def suspend_detailer(
+    provider_id: uuid.UUID,
+    body: AdminDetailerSuspend,
+    admin: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> AdminDetailerActionResponse:
+    repo = AdminRepository(db)
+    try:
+        result = await repo.suspend_detailer(
+            provider_id=provider_id,
+            actor_id=admin.id,
+            reason=body.reason,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Provider not found.")
+    await db.commit()
+    prev, new_status, user_email = result
+    return AdminDetailerActionResponse(
+        provider_id=provider_id,
+        user_email=user_email,
+        application_status=new_status,  # type: ignore[arg-type]
+        previous_status=prev,  # type: ignore[arg-type]
+        reviewed_at=datetime.now(timezone.utc),
+        rejection_reason=body.reason,
+    )
+
+
+# ── Reviews moderation (Plan 24 W2-D) ──────────────────────────────── #
+
+
+@router.get(
+    "/reviews/queue",
+    response_model=AdminReviewQueueResponse,
+    summary="Pending reviews flagged for moderation",
+)
+async def list_review_queue(
+    _: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> AdminReviewQueueResponse:
+    rows = await AdminRepository(db).list_review_queue()
+    return AdminReviewQueueResponse(
+        reviews=[AdminReviewQueueRow(**r) for r in rows],
+        total=len(rows),
+    )
+
+
+@router.post(
+    "/reviews/{review_id}/approve",
+    response_model=AdminReviewActionResponse,
+    summary="Keep a flagged review visible",
+)
+async def approve_review(
+    review_id: uuid.UUID,
+    body: AdminReviewApprove | None = None,
+    admin: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> AdminReviewActionResponse:
+    repo = AdminRepository(db)
+    try:
+        result = await repo.approve_review(
+            review_id=review_id,
+            actor_id=admin.id,
+            note=body.note if body else None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Review not found.")
+    await db.commit()
+    prev, new_state = result
+    return AdminReviewActionResponse(
+        review_id=review_id,
+        moderation_state=new_state,  # type: ignore[arg-type]
+        previous_state=prev,  # type: ignore[arg-type]
+        moderation_acted_at=datetime.now(timezone.utc),
+        moderation_note=body.note if body else None,
+    )
+
+
+@router.post(
+    "/reviews/{review_id}/hide",
+    response_model=AdminReviewActionResponse,
+    summary="Hide a review (rating still counts; comment is suppressed)",
+)
+async def hide_review(
+    review_id: uuid.UUID,
+    body: AdminReviewHide,
+    admin: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> AdminReviewActionResponse:
+    repo = AdminRepository(db)
+    try:
+        result = await repo.hide_review(
+            review_id=review_id, actor_id=admin.id, note=body.note,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Review not found.")
+    await db.commit()
+    prev, new_state = result
+    return AdminReviewActionResponse(
+        review_id=review_id,
+        moderation_state=new_state,  # type: ignore[arg-type]
+        previous_state=prev,  # type: ignore[arg-type]
+        moderation_acted_at=datetime.now(timezone.utc),
+        moderation_note=body.note,
+    )
+
+
+# ── Customers + comp credits (Plan 24 W2-E) ────────────────────────── #
+
+
+_VALID_SEGMENTS = ("all", "new", "active", "dormant", "vip")
+
+
+@router.get(
+    "/customers",
+    response_model=AdminCustomersListResponse,
+    summary="List customers (clients) with segment + aggregate stats",
+)
+async def list_customers(
+    segment: str = Query(default="all", description=" | ".join(_VALID_SEGMENTS)),
+    page: int = Query(default=1, ge=1),
+    per_page: int = Query(default=20, ge=1, le=100),
+    search: str | None = Query(default=None, description="Filter by email substring"),
+    _: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> AdminCustomersListResponse:
+    if segment not in _VALID_SEGMENTS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported segment: {segment}",
+        )
+    rows, total = await AdminRepository(db).list_customers(
+        segment=segment, page=page, per_page=per_page, search=search,
+    )
+    return AdminCustomersListResponse(
+        customers=[AdminCustomerRow(**r) for r in rows],
+        total=total,
+        page=page,
+        per_page=per_page,
+    )
+
+
+@router.post(
+    "/customers/{user_id}/credits",
+    response_model=AdminCreditRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Issue a comp credit to a customer",
+)
+async def issue_customer_credit(
+    user_id: uuid.UUID,
+    body: AdminCreditIssue,
+    admin: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> AdminCreditRead:
+    repo = AdminRepository(db)
+    credit = await repo.issue_customer_credit(
+        user_id=user_id,
+        actor_id=admin.id,
+        amount_cents=body.amount_cents,
+        reason=body.reason,
+        source=body.source,
+        expires_at=body.expires_at,
+        related_appointment_id=body.related_appointment_id,
+    )
+    if credit is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    await db.commit()
+    await db.refresh(credit)
+    return AdminCreditRead.model_validate(credit)
 
 
 # ── Payments ───────────────────────────────────────────────────────── #

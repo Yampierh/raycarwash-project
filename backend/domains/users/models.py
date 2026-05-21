@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy_utils import EncryptedType
@@ -20,6 +20,10 @@ class OnboardingStatus(str, enum.Enum):
 
 class ClientProfile(TimestampMixin, Base):
     __tablename__ = "client_profiles"
+    __table_args__ = (
+        CheckConstraint("total_appointments_count >= 0", name="ck_client_profiles_total_appointments_nonnegative"),
+        CheckConstraint("total_spent_cents >= 0", name="ck_client_profiles_total_spent_nonnegative"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(
@@ -37,10 +41,9 @@ class ClientProfile(TimestampMixin, Base):
         ForeignKey("vehicles.id", ondelete="SET NULL"),
         nullable=True,
     )
-    # FK to user_addresses lands in Phase 4 (m_010); column is nullable UUID
-    # without constraint for now.
     default_address_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), nullable=True,
+        UUID(as_uuid=True), ForeignKey("user_addresses.id", ondelete="SET NULL"),
+        nullable=True,
     )
 
     # ── Stats block — denormalized counters maintained by triggers (Phase 9

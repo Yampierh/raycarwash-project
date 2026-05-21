@@ -5,9 +5,10 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    DateTime, Enum, ForeignKey, Index, Integer, Numeric, String, Text,
+    CheckConstraint, DateTime, Enum, ForeignKey, Index, Integer, Numeric,
+    String, Text, UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from infrastructure.db.base import Base, TimestampMixin
@@ -73,6 +74,12 @@ class Appointment(TimestampMixin, Base):
     __tablename__ = "appointments"
     __table_args__ = (
         Index("ix_appointments_detailer_scheduled", "detailer_id", "scheduled_time", "is_deleted"),
+        Index("ix_appointments_client_scheduled", "client_id", "scheduled_time", "is_deleted"),
+        Index("ix_appointments_detailer_status_scheduled", "detailer_id", "status", "scheduled_time"),
+        CheckConstraint("estimated_price >= 0", name="ck_appointments_estimated_price_nonnegative"),
+        CheckConstraint("actual_price IS NULL OR actual_price >= 0", name="ck_appointments_actual_price_nonnegative"),
+        CheckConstraint("service_latitude IS NULL OR (service_latitude >= -90 AND service_latitude <= 90)", name="ck_appointments_service_latitude_range"),
+        CheckConstraint("service_longitude IS NULL OR (service_longitude >= -180 AND service_longitude <= 180)", name="ck_appointments_service_longitude_range"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -133,12 +140,28 @@ class Appointment(TimestampMixin, Base):
         lazy="selectin", cascade="all, delete-orphan",
     )
 
+    # ── Price-ﬁeld aliases (Plan 24 convention: DB column is `estimated_price`
+    # without _cents for legacy compat, but Python code prefers the _cents
+    # suﬃx used everywhere else – models, schemas, FareEstimate, etc.).
+    @property
+    def estimated_price_cents(self) -> int:
+        return self.estimated_price
+
+    @property
+    def actual_price_cents(self) -> int | None:
+        return self.actual_price
+
     def __repr__(self) -> str:
         return f"<Appointment id={self.id} status={self.status} scheduled={self.scheduled_time.isoformat()}>"
 
 
 class AppointmentVehicle(Base):
     __tablename__ = "appointment_vehicles"
+    __table_args__ = (
+        UniqueConstraint("appointment_id", "vehicle_id", name="uq_appointment_vehicle_pair"),
+        CheckConstraint("price_cents >= 0", name="ck_appointment_vehicles_price_nonnegative"),
+        CheckConstraint("duration_minutes > 0", name="ck_appointment_vehicles_duration_positive"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     appointment_id: Mapped[uuid.UUID] = mapped_column(
@@ -163,6 +186,11 @@ class AppointmentVehicle(Base):
 
 class AppointmentAddon(Base):
     __tablename__ = "appointment_addons"
+    __table_args__ = (
+        UniqueConstraint("appointment_id", "addon_id", name="uq_appointment_addon_pair"),
+        CheckConstraint("price_cents >= 0", name="ck_appointment_addons_price_nonnegative"),
+        CheckConstraint("duration_minutes > 0", name="ck_appointment_addons_duration_positive"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     appointment_id: Mapped[uuid.UUID] = mapped_column(
@@ -184,6 +212,10 @@ class AppointmentAddon(Base):
 
 class AppointmentAssignment(Base):
     __tablename__ = "appointment_assignments"
+    __table_args__ = (
+        UniqueConstraint("appointment_id", "detailer_id", name="uq_assignment_appointment_detailer"),
+        Index("ix_assignment_status_expires", "status", "offer_expires_at"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     appointment_id: Mapped[uuid.UUID] = mapped_column(
@@ -204,6 +236,60 @@ class AppointmentAssignment(Base):
 
     def __repr__(self) -> str:
         return f"<AppointmentAssignment appt={self.appointment_id} detailer={self.detailer_id}>"
+
+
+class AppointmentStatusHistory(Base):
+    """Immutable-ish operational history of appointment status changes."""
+    __tablename__ = "appointment_status_history"
+    __table_args__ = (
+        Index("ix_appointment_status_history_appointment_created", "appointment_id", "created_at"),
+        Index("ix_appointment_status_history_actor_created", "actor_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    appointment_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("appointments.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    old_status: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    new_status: Mapped[str] = mapped_column(String(30), nullable=False)
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
+    )
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_: Mapped[dict | None] = mapped_column("metadata", JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+
+class AppointmentCancellation(Base):
+    """Cancellation snapshot for refunds, support, and dispute handling."""
+    __tablename__ = "appointment_cancellations"
+    __table_args__ = (
+        UniqueConstraint("appointment_id", name="uq_appointment_cancellations_appointment"),
+        Index("ix_appointment_cancellations_cancelled_by", "cancelled_by_user_id", "created_at"),
+        CheckConstraint("refund_amount_cents IS NULL OR refund_amount_cents >= 0", name="ck_appointment_cancellations_refund_amount_nonnegative"),
+        CheckConstraint("refund_percent IS NULL OR (refund_percent >= 0 AND refund_percent <= 100)", name="ck_appointment_cancellations_refund_percent_range"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    appointment_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("appointments.id", ondelete="RESTRICT"), nullable=False,
+    )
+    cancelled_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
+    )
+    cancelled_by_role: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    refund_amount_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    refund_percent: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
+    policy_code: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
 
 
 from typing import TYPE_CHECKING

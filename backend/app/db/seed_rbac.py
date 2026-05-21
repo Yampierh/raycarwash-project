@@ -101,7 +101,7 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
     "client": [
         "read:appointments", "write:appointments",
         "read:services",
-        "read:reviews", "write:permissions",
+        "read:reviews",
     ],
     # Staff: read across most resources + write where day-to-day ops
     # need it (appointments handling, reviews moderation). Explicitly
@@ -167,8 +167,12 @@ async def seed_rbac(db: AsyncSession) -> None:
     await db.commit()
     logger.info("RBAC seed complete.")
 
-    # Seed default admin user (dev only — change password in production)
-    await _seed_admin_user(db, roles_by_name.get("admin"))
+    # Seed default admin user only outside production. Production admin
+    # bootstrap should be handled explicitly via ops tooling/env vars, never
+    # by a known hard-coded password on app startup.
+    from app.core.config import get_settings
+    if get_settings().ENVIRONMENT != "production":
+        await _seed_admin_user(db, roles_by_name.get("admin"))
 
 
 async def _seed_admin_user(db: AsyncSession, admin_role: Role | None) -> None:
