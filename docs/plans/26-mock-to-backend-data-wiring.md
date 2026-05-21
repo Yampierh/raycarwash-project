@@ -241,13 +241,14 @@ The largest wave. Reads `web/portal/lib/mock/provider.ts`. Owns plan 11 implemen
 Reads `web/admin/lib/mock.ts`. Owns plan 24's admin §6.
 
 - `getAdminOps()` composite — **W2-A shipped** (`GET /api/v1/admin/ops/dashboard?window=&city=` — KPIs + heatmap + cities rollup). FE swap: replace `MOCK_OPS` in `web/admin/lib/mock.ts` with `getAdminOps(window, city)`; promote the `delta`/`spark` fields when the V2 prior-period query lands.
-- `getAdminBookings(filters)` — exists; extend filters.
+- `getAdminBookings(filters)` — list/detail exist; **W2-B shipped** for the actions (`POST /api/v1/admin/appointments/{id}/refund` with partial-chain cap + `POST /reassign` with FSM-gated detailer swap and auto-promotion of orphaned statuses to PENDING). FE swap: wire the booking-detail drawer's "Refund" + "Reassign" buttons; surface the returned `refund_id` and `stripe_refund_id`.
 - `getAdminDetailers(filters)` + verification actions — list/verification endpoints exist; **W2-C shipped** for the FSM actions (`POST /api/v1/admin/detailers/{id}/approve` and `/suspend` — operates on `application_status`; `suspended` is reversible via `/approve`). FE swap: drop the optimistic mock in `web/admin/lib/mock.ts` and call the real endpoints from the detailer detail drawer; render the new `previous_status` and `rejection_reason` fields in the timeline.
-- `getAdminCustomers(filters)` — backend gap; admin-scoped users list.
+- `getAdminCustomers(filters)` — **W2-E shipped** (`GET /api/v1/admin/customers?segment=&search=` with derived `new\|active\|dormant\|vip` + per-row aggregates `appointments_count`/`lifetime_spend_cents`/`credit_balance_cents`). FE swap: bind the segment-pills to `?segment=` and hydrate the customer-detail drawer from the row aggregates directly.
+- `issueCustomerCredit(user_id, body)` — **W2-E shipped** (`POST /api/v1/admin/customers/{user_id}/credits`; positive cents, max $10k, reason required, optional `related_appointment_id` for refund chains). FE swap: hook the "Issue credit" modal; refresh the customer row so `credit_balance_cents` reflects immediately.
 - `getAdminFinance(range)` — backend gap; finance domain or finance-aggregator inside `domains/payments/`.
 - `getAdminMarketing()` — Plan 15 (marketing CMS) — implement minimally here and let Plan 15 deepen.
 - `getAdminCities()` — Plan 16 (coverage zips) drives this.
-- `getAdminReviews()` — exists via `domains/reviews/`; just swap with admin filters.
+- `getAdminReviews()` — list exists via `domains/reviews/`; **W2-D shipped** for moderation (`GET /api/v1/admin/reviews/queue` returns auto-flagged rows with `flag_reasons` + `POST /{id}/approve\|hide`). FE swap: feed the moderation board with `/reviews/queue` and bind the approve/hide buttons.
 - `getAdminSupport()` — backend gap; new domain `support/` or surfaces from audit log + a `tickets` table. Plan 24 has the broad shape.
 - `getAdminSettings()` — admin-config endpoints (feature flags, platform fee schedule); Plan 24 + Plan 11's "fee schedule" gap.
 

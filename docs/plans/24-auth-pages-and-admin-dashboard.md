@@ -317,16 +317,18 @@ before W2 starts.
 | ID | Item | Status | Commit |
 |----|------|--------|--------|
 | **W2-A** | `GET /api/v1/admin/ops/dashboard` — KPIs (GMV, bookings, active jobs, take rate, CSAT, cancel rate) + 7×16 demand heatmap + per-city rollup. Bucketing by detailer `home_city_code`; UTC hour extraction. | ✅ Done | — |
-| **W2-B** | Bookings management (refund + reassign actions) | ⏳ Pending | — |
+| **W2-B** | `POST /api/v1/admin/appointments/{id}/refund` (cap = actual/estimated price; supports partial chains; auto-stub Stripe in dev/test) + `POST /reassign` (swap detailer; allowed source states PENDING/SEARCHING/NO_DETAILER_FOUND/CONFIRMED; orphaned statuses auto-promote to PENDING; target must be `approved`). Audit-logged. | ✅ Done | — |
 | **W2-C** | `POST /api/v1/admin/detailers/{id}/approve` + `/suspend`. Finalizes the `application_status` FSM — adds `suspended` (reversible) state; admin-only transitions from `submitted\|bg_check_pending\|docs_review\|suspended → approved` and `approved → suspended` (reason required). Audit-logged via `PROVIDER_STATUS_CHANGED`. | ✅ Done | — |
-| **W2-D** | Reviews moderation queue + approve/hide | ⏳ Pending | — |
-| **W2-E** | Customers segments + comp credits | ⏳ Pending | — |
+| **W2-D** | `GET /api/v1/admin/reviews/queue` (auto_pending rows hitting a static flag rule — rating ≤ 2 or profanity keyword) + `POST /{id}/approve\|hide`. Adds 4 moderation columns on `reviews` (m_026) and `AuditAction.REVIEW_MODERATED`. | ✅ Done | — |
+| **W2-E** | `GET /api/v1/admin/customers?segment=` (derives `new\|active\|dormant\|vip` from appointment count/recency/spend) + `POST /{id}/credits` (positive cents, max $10k, reason required). New `customer_credits` ledger (m_027) with partial index on active rows. Audit-logged via `CUSTOMER_CREDIT_ISSUED`. | ✅ Done | — |
 
 ### Migrations landed for this plan
 
 | Migration | Adds | Status |
 |-----------|------|--------|
 | `m_024_cities_table_and_provider_signup_fields` | `cities` table + 5 columns on `provider_profiles` | ✅ Applied |
+| `m_026_reviews_moderation_columns` | 4 moderation columns on `reviews` + partial index on auto_pending rows + check constraint | ✅ Applied |
+| `m_027_customer_credits` | `customer_credits` ledger table (W2-E) with check constraints + partial index on active rows | ✅ Applied |
 
 ### Test coverage added
 
@@ -336,3 +338,6 @@ before W2 starts.
 | Seed smoke test | inline | `seed_cities` inserts 5 rows + idempotent re-run |
 | `tests/test_admin_ops_dashboard.py` | 18 new | W2-A auth gate + empty state + window param + KPIs reflect data + city rollup + heatmap shape/peak label |
 | `tests/test_admin_detailers_approve_suspend.py` | 22 new | W2-C auth gate + 404 + FSM transitions (submitted/docs_review/suspended → approved; approved → suspended) + FSM violations 409 + audit log row written |
+| `tests/test_admin_reviews_moderation.py` | 20 new | W2-D auth gate + queue rules (low rating / keyword / FIFO) + FSM transitions + 404/409 + audit log |
+| `tests/test_admin_customers_credits.py` | 19 new | W2-E auth gate + segment classification (4 buckets + both VIP paths) + search + credit validation (positive, ≤$10k, reason length) + 404 + audit log + DB row persistence |
+| `tests/test_admin_appointments_refund_reassign.py` | 18 new | W2-B refund cap (single + cumulative partial chain) / reassign FSM (PENDING/SEARCHING/NO_DETAILER_FOUND/CONFIRMED → swap; NO_DETAILER_FOUND auto-promotes to PENDING) + audit log |
