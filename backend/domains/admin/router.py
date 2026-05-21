@@ -10,6 +10,10 @@ from domains.admin.repository import AdminRepository
 from domains.admin.schemas import (
     AdminAppointmentDetail,
     AdminAppointmentRead,
+    AdminAppointmentReassign,
+    AdminAppointmentReassignResponse,
+    AdminAppointmentRefund,
+    AdminAppointmentRefundResponse,
     AdminAppointmentStatusUpdate,
     AdminAppointmentsListResponse,
     AdminCreditIssue,
@@ -538,6 +542,76 @@ async def get_appointment(
     if data is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Appointment not found.")
     return AdminAppointmentDetail(**data)
+
+
+@router.post(
+    "/appointments/{appointment_id}/refund",
+    response_model=AdminAppointmentRefundResponse,
+    summary="Issue a (full or partial) Stripe refund on an appointment",
+)
+async def refund_appointment(
+    appointment_id: uuid.UUID,
+    body: AdminAppointmentRefund,
+    admin: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> AdminAppointmentRefundResponse:
+    repo = AdminRepository(db)
+    try:
+        result = await repo.refund_appointment(
+            appointment_id=appointment_id,
+            actor_id=admin.id,
+            amount_cents=body.amount_cents,
+            reason=body.reason,
+            note=body.note,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Appointment not found.")
+    await db.commit()
+    refund, stripe_refund_id = result
+    return AdminAppointmentRefundResponse(
+        appointment_id=appointment_id,
+        refund_id=refund.id,
+        stripe_refund_id=stripe_refund_id,
+        amount_cents=refund.amount_cents,
+        status=refund.status,
+        reason=body.reason,
+    )
+
+
+@router.post(
+    "/appointments/{appointment_id}/reassign",
+    response_model=AdminAppointmentReassignResponse,
+    summary="Reassign a not-yet-active appointment to a different detailer",
+)
+async def reassign_appointment(
+    appointment_id: uuid.UUID,
+    body: AdminAppointmentReassign,
+    admin: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> AdminAppointmentReassignResponse:
+    repo = AdminRepository(db)
+    try:
+        result = await repo.reassign_appointment(
+            appointment_id=appointment_id,
+            new_detailer_id=body.new_detailer_id,
+            actor_id=admin.id,
+            reason=body.reason,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Appointment not found.")
+    await db.commit()
+    prev, new_det, new_status = result
+    return AdminAppointmentReassignResponse(
+        appointment_id=appointment_id,
+        previous_detailer_id=prev,
+        new_detailer_id=new_det,
+        appointment_status=new_status,
+        reason=body.reason,
+    )
 
 
 @router.patch(

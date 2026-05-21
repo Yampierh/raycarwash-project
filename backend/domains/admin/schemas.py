@@ -136,6 +136,39 @@ class AdminAppointmentsListResponse(BaseModel):
     per_page: int
 
 
+# ── Appointment refund + reassign (Plan 24 W2-B) ────────────────────── #
+
+RefundReason = Literal["duplicate", "fraudulent", "requested_by_customer", "other"]
+
+
+class AdminAppointmentRefund(BaseModel):
+    amount_cents: int = Field(..., gt=0, description="Positive cents; capped to appointment price")
+    reason: RefundReason = Field(default="requested_by_customer")
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+class AdminAppointmentRefundResponse(BaseModel):
+    appointment_id: uuid.UUID
+    refund_id: uuid.UUID
+    stripe_refund_id: Optional[str] = None
+    amount_cents: int
+    status: str
+    reason: str
+
+
+class AdminAppointmentReassign(BaseModel):
+    new_detailer_id: uuid.UUID
+    reason: str = Field(..., min_length=5, max_length=500)
+
+
+class AdminAppointmentReassignResponse(BaseModel):
+    appointment_id: uuid.UUID
+    previous_detailer_id: Optional[uuid.UUID] = None
+    new_detailer_id: uuid.UUID
+    appointment_status: str
+    reason: str
+
+
 # ── Verifications ───────────────────────────────────────────────────── #
 
 class AdminVerificationRead(BaseModel):

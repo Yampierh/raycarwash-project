@@ -16,7 +16,7 @@ from domains.auth.models import (
 from domains.users.models import User
 from domains.appointments.models import Appointment, AppointmentStatus
 from domains.providers.models import ProviderProfile
-from domains.payments.models import PaymentLedger
+from domains.payments.models import PaymentLedger, Refund
 from domains.locations.models import City
 from domains.reviews.models import Review
 from domains.audit.models import AuditLog, AuditAction
@@ -684,6 +684,173 @@ class AdminRepository:
         ))
         await self._db.flush()
         return prev, "hidden"
+
+    # ── Appointments: refund + reassign (Plan 24 W2-B) ────────────── #
+
+    # States that allow reassignment — must not yet be in active service.
+    _REASSIGNABLE_STATUSES = frozenset({
+        AppointmentStatus.PENDING,
+        AppointmentStatus.SEARCHING,
+        AppointmentStatus.NO_DETAILER_FOUND,
+        AppointmentStatus.CONFIRMED,
+    })
+
+    @staticmethod
+    def _appointment_max_refundable_cents(appt: Appointment) -> int:
+        """The cap for a refund. Prefer actual_price (post-completion total)
+        else the estimated price."""
+        return int(appt.actual_price or appt.estimated_price)
+
+    async def refund_appointment(
+        self,
+        *,
+        appointment_id: uuid.UUID,
+        actor_id: uuid.UUID,
+        amount_cents: int,
+        reason: str,
+        note: str | None,
+    ) -> tuple[Refund, str | None] | None:
+        """Persist a Refund row + issue the Stripe refund via PaymentService.
+
+        Returns (refund, stripe_refund_id) or None if the appointment
+        doesn't exist. Raises ValueError on FSM / business-rule violations
+        (no PaymentIntent, amount exceeds cap, already fully refunded).
+        """
+        appt = (await self._db.execute(
+            select(Appointment).where(
+                Appointment.id == appointment_id,
+                Appointment.is_deleted.is_(False),
+            )
+        )).scalar_one_or_none()
+        if appt is None:
+            return None
+        if not appt.stripe_payment_intent_id:
+            raise ValueError("Appointment has no PaymentIntent; nothing to refund.")
+
+        max_refundable = self._appointment_max_refundable_cents(appt)
+        prior_refunded_stmt = (
+            select(func.coalesce(func.sum(Refund.amount_cents), 0))
+            .where(
+                Refund.appointment_id == appointment_id,
+                Refund.status != "failed",
+            )
+        )
+        prior_refunded = int(
+            (await self._db.execute(prior_refunded_stmt)).scalar_one()
+        )
+        if prior_refunded + amount_cents > max_refundable:
+            raise ValueError(
+                f"Refund cap exceeded: prior={prior_refunded}¢, "
+                f"requested={amount_cents}¢, cap={max_refundable}¢."
+            )
+
+        # Issue via Stripe (auto-stub in tests / dev).
+        from domains.payments.service import PaymentService
+
+        payment_service = PaymentService(self._db)
+        stripe_refund_id = await payment_service.create_refund(
+            payment_intent_id=appt.stripe_payment_intent_id,
+            amount_cents=amount_cents,
+            reason=reason if reason in {"duplicate", "fraudulent", "requested_by_customer"} else "requested_by_customer",
+        )
+
+        refund = Refund(
+            appointment_id=appointment_id,
+            stripe_refund_id=stripe_refund_id,
+            amount_cents=amount_cents,
+            currency="usd",
+            reason=note or reason,
+            status="succeeded" if stripe_refund_id else "pending",
+            created_by_user_id=actor_id,
+            metadata_={"admin_initiated": True, "reason_code": reason, "note": note},
+        )
+        self._db.add(refund)
+        await self._db.flush()
+
+        self._db.add(AuditLog(
+            actor_id=actor_id,
+            action=AuditAction.PAYMENT_REFUNDED,
+            entity_type="appointment",
+            entity_id=str(appointment_id),
+            new_value={
+                "amount_cents": amount_cents,
+                "stripe_refund_id": stripe_refund_id,
+            },
+            metadata_={
+                "action": "appointment_refund",
+                "reason_code": reason,
+                "note": note,
+                "prior_refunded": prior_refunded,
+            },
+        ))
+        await self._db.flush()
+        return refund, stripe_refund_id
+
+    async def reassign_appointment(
+        self,
+        *,
+        appointment_id: uuid.UUID,
+        new_detailer_id: uuid.UUID,
+        actor_id: uuid.UUID,
+        reason: str,
+    ) -> tuple[uuid.UUID | None, uuid.UUID, str] | None:
+        """Swap the detailer on an appointment. Returns
+        (previous_detailer_id, new_detailer_id, new_status) or None if
+        the appointment doesn't exist. Raises ValueError on FSM /
+        business-rule violations."""
+        appt = (await self._db.execute(
+            select(Appointment).where(
+                Appointment.id == appointment_id,
+                Appointment.is_deleted.is_(False),
+            )
+        )).scalar_one_or_none()
+        if appt is None:
+            return None
+        if appt.status not in self._REASSIGNABLE_STATUSES:
+            raise ValueError(
+                f"Cannot reassign from status='{appt.status.value}'. "
+                f"Allowed: {sorted(s.value for s in self._REASSIGNABLE_STATUSES)}"
+            )
+        if appt.detailer_id == new_detailer_id:
+            raise ValueError("New detailer is already assigned to this appointment.")
+
+        # Validate the target is actually a detailer with an approved profile.
+        new_provider = (await self._db.execute(
+            select(ProviderProfile).where(
+                ProviderProfile.user_id == new_detailer_id,
+                ProviderProfile.is_deleted.is_(False),
+            )
+        )).scalar_one_or_none()
+        if new_provider is None:
+            raise ValueError("Target user is not a detailer.")
+        if new_provider.application_status != "approved":
+            raise ValueError(
+                f"Target detailer is not approved (application_status="
+                f"'{new_provider.application_status}')."
+            )
+
+        prev = appt.detailer_id
+        appt.detailer_id = new_detailer_id
+        # If the appointment was orphaned (NO_DETAILER_FOUND / SEARCHING),
+        # bringing it back to PENDING signals the next pipeline stage that
+        # the new detailer should be offered the job.
+        if appt.status in (
+            AppointmentStatus.NO_DETAILER_FOUND, AppointmentStatus.SEARCHING,
+        ):
+            appt.status = AppointmentStatus.PENDING
+        appt.updated_at = datetime.now(timezone.utc)
+
+        self._db.add(AuditLog(
+            actor_id=actor_id,
+            action=AuditAction.APPOINTMENT_STATUS_CHANGED,
+            entity_type="appointment",
+            entity_id=str(appointment_id),
+            old_value={"detailer_id": str(prev) if prev else None},
+            new_value={"detailer_id": str(new_detailer_id)},
+            metadata_={"action": "appointment_reassign", "reason": reason},
+        ))
+        await self._db.flush()
+        return prev, new_detailer_id, appt.status.value
 
     # ── Customers + credits (Plan 24 W2-E) ────────────────────────── #
 
