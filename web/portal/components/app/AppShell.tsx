@@ -20,6 +20,11 @@ import {
   CreditCard,
   Heart,
   Shield,
+  CalendarDays,
+  Images,
+  FileText,
+  ShieldCheck,
+  Star,
 } from "lucide-react";
 import { useState } from "react";
 import clsx from "clsx";
@@ -65,9 +70,24 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         {
           links: [
             { href: "/detailer/home", label: t("nav.jobs"), icon: ListTodo },
-            { href: "/detailer/services", label: t("nav.services"), icon: Wrench },
+            { href: "/detailer/schedule", label: t("nav.schedule"), icon: CalendarDays },
             { href: "/detailer/earnings", label: t("nav.earnings"), icon: DollarSign },
+          ],
+        },
+        {
+          label: t("nav.myProfile"),
+          links: [
             { href: "/detailer/profile", label: t("nav.profile"), icon: User },
+            { href: "/detailer/portfolio", label: t("nav.portfolio"), icon: Images },
+            { href: "/detailer/reviews", label: t("nav.reviews"), icon: Star },
+          ],
+        },
+        {
+          label: t("nav.setup"),
+          links: [
+            { href: "/detailer/services", label: t("nav.services"), icon: Wrench },
+            { href: "/detailer/documents", label: t("nav.documents"), icon: FileText },
+            { href: "/detailer/verification", label: t("nav.verification"), icon: ShieldCheck },
           ],
         },
       ]
