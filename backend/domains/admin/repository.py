@@ -1095,6 +1095,68 @@ class AdminRepository:
             "period_end": end_date,
         }
 
+    # ── Audit Log ─────────────────────────────────────────────────── #
+
+    async def list_audit_logs(
+        self,
+        page: int = 1,
+        per_page: int = 50,
+        action: str | None = None,
+        actor_id: uuid.UUID | None = None,
+        entity_type: str | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+    ) -> tuple[list[dict], int]:
+        from sqlalchemy import and_, func, select
+        from sqlalchemy.orm import aliased
+
+        filters = []
+        if action:
+            filters.append(AuditLog.action == action)
+        if actor_id:
+            filters.append(AuditLog.actor_id == actor_id)
+        if entity_type:
+            filters.append(AuditLog.entity_type == entity_type)
+        if start_date:
+            filters.append(AuditLog.created_at >= start_date)
+        if end_date:
+            filters.append(AuditLog.created_at <= end_date)
+
+        base = select(AuditLog).where(*filters) if filters else select(AuditLog)
+
+        count_stmt = select(func.count()).select_from(base.subquery())
+        total = (await self._db.execute(count_stmt)).scalar_one()
+
+        stmt = (
+            base
+            .order_by(AuditLog.created_at.desc())
+            .offset((page - 1) * per_page)
+            .limit(per_page)
+        )
+        logs = list((await self._db.execute(stmt)).scalars().all())
+
+        # Fetch actor emails in a second query to avoid join complexity
+        actor_ids = {log.actor_id for log in logs if log.actor_id}
+        actor_emails: dict[uuid.UUID, str] = {}
+        if actor_ids:
+            users_stmt = select(User.id, User.email).where(User.id.in_(actor_ids))
+            for uid, email in (await self._db.execute(users_stmt)).all():
+                actor_emails[uid] = email
+
+        return [
+            {
+                "id": log.id,
+                "actor_id": log.actor_id,
+                "actor_email": actor_emails.get(log.actor_id) if log.actor_id else None,
+                "action": log.action,
+                "entity_type": log.entity_type,
+                "entity_id": log.entity_id,
+                "ip_address": log.ip_address,
+                "created_at": log.created_at,
+            }
+            for log in logs
+        ], total
+
     # ── Stats ──────────────────────────────────────────────────────── #
 
     async def get_stats(self) -> dict:

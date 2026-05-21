@@ -18,3 +18,21 @@ export async function createReview(body: {
   const res = await apiClient.post<Review>("/reviews", body);
   return res.data;
 }
+
+export type ReviewsPage = {
+  items: Review[];
+  total: number;
+  page: number;
+  per_page: number;
+  average_rating: number | null;
+};
+
+export async function getDetailerReviews(
+  detailerId: string,
+  params?: { page?: number; per_page?: number }
+): Promise<ReviewsPage> {
+  const res = await apiClient.get<ReviewsPage>(`/reviews/detailer/${detailerId}`, {
+    params,
+  });
+  return res.data;
+}

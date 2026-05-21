@@ -236,3 +236,17 @@ export async function getPaymentLedger(params: {
   const res = await api.get("/api/v1/admin/payments/ledger", { params });
   return res.data;
 }
+
+// ── Audit Log ───────────────────────────────────────────────────── //
+
+export async function listAuditLogs(params: {
+  page?: number;
+  per_page?: number;
+  action?: string;
+  entity_type?: string;
+  start_date?: string;
+  end_date?: string;
+}) {
+  const res = await api.get("/api/v1/admin/audit-logs", { params });
+  return res.data;
+}
